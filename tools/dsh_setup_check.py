@@ -12,7 +12,7 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     RESUME_STATE.md, DIRECTOR_OPERATING_RULES.md, director_work.json
   - DIRECTOR_STATE.md has exactly one filled PENDING_METHOD line (ask_user_question + PO_PENDING.md; a leftover
     PO_PAGE_URL / PO_PAGE_PINNED line is only noted: the DSH edition has no Artifact page)
-  - every PO_PENDING.md entry (ID: OD-xx / ACT-xx) has ID, STATUS (open / answered / closed), QUESTION, OPTIONS,
+  - every PO_PENDING.md entry (ID: OD-xx / ACT-xx / CH-xx) has ID, STATUS (open / answered / closed), QUESTION, OPTIONS,
     RECOMMENDED, SOURCE and ANSWER, each once and filled in; an answered or closed entry needs a real ANSWER
   - RESUME_STATE.md holds the four header lines PROGRESS, DOING, NEXT_STEP, COMMS first, in this order
   - director_work.json is a JSON object (schema_version 1 is noted when it differs)
@@ -34,7 +34,7 @@ PO_STATUSES = ("open", "answered", "closed")
 PLACEHOLDER = re.compile(r"<[^<>@\n]+>")  # same rule as gate_check: <name@host> is an address, not a placeholder
 CODE = re.compile(r"\x60[^\x60\n]*\x60")  # a code span is not a placeholder
 FIELD = re.compile(r"^[ \t]*([A-Z][A-Z_]*)[ \t]*:[ \t]?(.*)$")
-PO_START = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*((?:OD|ACT)-[A-Za-z0-9_-]+)[ \t]*$")
+PO_START = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*((?:OD|ACT|CH)-[A-Za-z0-9_-]+)[ \t]*$")
 SECTION = re.compile(r"^[ \t]*##[ \t]*(.+?)[ \t]*$")
 RESUME_KEYS = ("PROGRESS", "DOING", "NEXT_STEP", "COMMS")
 
