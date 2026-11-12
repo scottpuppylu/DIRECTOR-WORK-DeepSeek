@@ -1,0 +1,22 @@
+# Scratch and upstream reference (not part of the DeepSeek edition)
+_work/
+_research/
+_dsh_src/
+repo/
+upstream/
+_filelist.json
+*.zstd
+
+# Local analysis scratch
+_asar_*.js
+_readlog*.js
+_scan*.js
+.memsearch/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,94 @@
+# 06b 需要時才讀的程序
+
+只在做這些事時讀：被打斷後恢復（含總監自身）、建立或修改續航機制、設定喚醒、刪檔之前、用 stash / 備份推送、下載或裝開源工具。平常的規則在 `docs/06`、`docs/08`。
+
+## 規則
+
+### 恢復程序（任何 session 被打斷後第一件事）
+
+1. 重讀：工單 → 自己的 RESUME_STATE → 專案 `AGENTS.md` → 本專案版規則（總監另讀 `DIRECTOR_STATE.md`）。
+2. `git status`、`git log -3`，和 RESUME_STATE 的 HEAD 比對；不一致先查原因，不覆寫。
+3. IN_FLIGHT：只檢查自己的背景 job（`job_list`）與子代理（`list_agents`）。job 不在了就看完成判定檔；不完整就列入重做。**中斷的擷取、量測、打包、匯入一律重做，不沿用。**
+4. 被中斷的 GO：用 `send_message` 通知總管（或自己）「RESUMED <task>，需要重新排程」，不假設時段還有效。
+5. 自己設的排程、背景等待、等待中的子代理：全部視為可能失效，逐項確認或重建（`schedule_list`、`job_list`、`list_agents`）。
+6. 更新 RESUME_STATE（時間 + 恢復說明），先處理 COMMS 裡欠別人的，才繼續 NEXT_STEP。
+7. 第一則給總監的訊息只有一行：`RESUMED <TASK_ID> at <checkpoint>; next=<step>; waiting=<誰或 NONE>; redo=<第 3 步列入重做的輸出或 NONE>`。沒有需要總監知道的事就不發。總監把收到的這一行（或自己恢復時的同一行）記進 `DIRECTOR_LOG`，`metrics_report.py` 從這裡數中斷後遺失的工作。
+
+worker 是子代理，恢復方式一樣：總監用 `list_agents()` 找回、`send_message` 叫醒；子代理醒來先讀自己的 RESUME_STATE 跑這個程序，名稱登記在 `ACTIVE_WORKSTREAMS.md`。
+
+PO 手動停止後再讓它繼續，也要先完整跑一次這個程序：停止那一刻的指令可能只跑了一半，背景 job 可能變成沒人管的。
+
+### 每輪第一步與總監自身的恢復（2.2.0）
+
+總監每次喚醒、壓縮或恢復後只有一個第一步：**先唯讀檢查並收集輸入，再處理待決帳**。收集完之前不改檔、不派工、不重建。
+
+1. 唯讀收集：跑機制檢查腳本（下面「機制要能重建」）和 `status.py`；讀本機待決帳 `PO_PENDING.md`、`DIRECTOR_LOG.md` 最後 30 行（找還沒處理完的 PO 指示）、`ACTIVE_WORKSTREAMS.md`、`list_agents()` 的狀態。`ask_user_question` 的回覆在對話裡，收到就貼回 `ANSWER`；恢復時另做「恢復程序」第 1、2 步，對照各子代理的狀態。
+2. 處理待決帳：照 `PO_PENDING.md` 的 `ANSWER` 套用 PO 的回覆，同輪執行或派工並關閉；未能完成寫續辦紀錄（`docs/03`）。
+3. 檢查腳本報缺的才重建；補發被中斷的工單或決定。
+
+**合併工具呼叫**（題 5）：第 1 步的本機檔案和檢查腳本用同一個唯讀呼叫讀完（在 `run_code` 裡批次 read／grep，或跑一支 status 腳本），逐項印出來源和成功 / 失敗，讀不到的那一項照實列出，不當成「沒有新事」。PO 的回覆以對話和 `PO_PENDING.md` 為準，不用計數或本機副本代替；worker 狀態只在恢復或要採取行動時才查。
+
+### 接手演練：社團出門清單（題 4 P-1）
+
+驗證換總監時 PO 的回覆不漏、不重問、不重派。只用演練假資料和隔離 repo，不碰正式專案；成品是一個可離線開啟的 `index.html`（三項：水壺、鑰匙、雨傘）。一條 worker 線，盲審另開 reviewer。故障注入只有一個：造出**PO 的回答已寫進 `PO_PENDING.md` 的 ANSWER（STATUS `answered`）、舊總監還沒套用**的狀態，再新開一個總監接手。DSH 沒有跨 session 讀取的工具，答案沒落檔就取不回；所以演練測的是「答案已落檔、還沒套用」的恢復（和 Claude 版的注入點不同）。
+
+| 步驟 | PO 的話或操作 | 總監要做的事與留下的檔案 | 當步通過條件 |
+|---|---|---|---|
+| 1. 啟動 | 貼啟動詞 | 第一則回覆建好待決帳，並用 `ask_user_question` 問模式；照 BOOTSTRAP 建 `DIRECTOR/`，登記模式和授權；記 `run_started` | 第一則只有一題；PO 不用選模型、外掛或設定 |
+| 2. 談需求 | 「出門前用手機勾水壺、鑰匙、雨傘，要看到勾了幾個、能清空，不用登入、不要廣告，外觀給我看兩版」 | 一到三題澄清，寫 `BRIEF.md` DRAFT（B-1 至 B-5，各附驗法）給 PO 看 | 每個 B 都能實際操作驗證；還沒有 `DISPATCH` |
+| 3. 鎖卡與開工 | 「對，就是這樣，請開一個幫手開始做」 | 鎖卡、存 `brief-history/r1.md`、登記決策；派工規劃後寫 `WO-001`（`TRACES_TO` 對 B），記 `DISPATCH` 再用 `subagent` 開 worker | 鎖卡早於派工；工單可追溯到 B |
+| 4. 第一個可用預覽 | 打開試，不必回覆 | 總監自己開入口檔勾一項看到 1/3、清空看到 0/3；用 `present` 宣告入口檔（或給檔案路徑）時記 `preview_ready` | 頁面真的能勾；起點和終點都有可查的時間 |
+| 5. A/B 與斷點 | 分別開 A（每項一張卡）和 B（一項一列）兩個入口檔；研究員說舊總監已停住，就關掉舊總監對話，再選 B | 舊總監先收到答案並貼進 ANSWER、STATUS 改 `answered`；RESUME_STATE、LOG、工單都已存檔；研究員確認帳上是 answered、沒有 RESOLUTION | 舊總監沒有套用答案；答案在帳上只出現一次 |
+| 6. 接手 | 新開同資料夾的對話，只說「繼續這個專案」，等，不提示自己選了什麼 | 新總監照「每輪第一步」先跑檢查並唯讀收集（`PO_PENDING.md`、LOG、工作線、`list_agents`），照恢復程序核對 HEAD 和證據，再處理：套用 B、改 STATUS `closed` 寫 `RESOLUTION`，寫 `RESUMED WO-001 … redo=NONE` | ANSWER 只記一次、只套用一次；沒有重問、重派、重做已驗證的輸出 |
+| 7. 改版 | 「再加『只看沒勾的』，能切回全部，原本功能都要留」；看到新卡回「對，照這張做」 | 保留 r1，B-3 改成 r2 DRAFT 給 PO 確認；鎖 r2 後才改工單（REVISION +1、重算雜湊、受影響 AC 重驗），沿用原 worker | 一次改版、一次新卡確認；新功能有當前候選的證據 |
+| 8. 收貨 | 打開總監給的候選入口檔逐條試；符合就回「對，可以收貨」 | 審查、用 `present` 宣告入口檔、把這則回覆綁到候選（`docs/07`） | B-1 至 B-5 都能指出位置並驗到 |
+
+**記錄**：每步的時間讀 `date`。決策事件（`asked` / `answer_received` / `applied` / `closed`）和 PO 的實際操作（`po_action`，例如選項、送出、關對話）照 `tools/README.md`「metrics_report --run」寫進 `DIRECTOR/research/<run>/events/`，`metrics_report.py --run` 算到第一個可用預覽的時間、同題重問次數和 PO 操作數；跟一般模式比，加 `--compare <基準 run>`。工具做不到的步驟照實記卡在哪裡，不改劇本；DSH 版總監可以直接開子代理，開線通常不會是卡點。
+
+### git 細節（2.1.0 從 `docs/08` 移來）
+
+- stash 是整份 checkout 共用的，可能拿到別的子代理的修改。真的要 stash，用 `git stash push -u -m "<唯一標記>"`，記下 SHA，用 `git stash apply <sha>` 還原。
+- 可選：動手前自己跑 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_guard.py --command "<指令>"`，提醒 `docs/08` 的 git 禁止事項和依名稱結束程序；DSH 沒有 hook，它只提醒、不擋。
+- PO 授權了私人備份推送時，用一支會拒絕大檔與疑似秘密、只做一般 push、事後核對遠端 SHA 的腳本；腳本拒絕就停下回報，不繞過。
+
+### 下載與開源工具（2.1.0 從 `docs/08` 移來）
+
+- 下載的東西放在新的空目錄，用 `python -I` 這類隔離方式處理，從下載目錄外執行。
+- 開源工具：只用原作者或官方來源、固定版本或 commit；執行前先讀安裝腳本和主要程式，確認沒有網路回傳或刪檔行為；隔離安裝；登記名稱、來源、版本、授權、用途、路徑、移除方式。
+
+### 機制要能重建（guard check）
+
+- 每個排程和防護機制（模型與 effort、子代理上限與深度、沙箱模式與核准政策、排程喚醒、背景 job、待決帳、快照）都不能只活在 session 記憶裡。每一項要有：**檔案紀錄、檢查方法、重建指令**，寫在 `DIRECTOR/GUARDS.md`。
+- 檢查腳本用 `dsh_doctor.py` 和 `dsh_setup_check.py`：逐項印 `OK / MISSING` 和重建指令，缺任何一項 exit 1。在每輪第一步跑它；重建由總監自己做（背景 job 要屬於總監，才收得到結果）。
+- 新增任何機制時，同一步就要加進 GUARDS 表和檢查腳本，否則不算完成。
+- GO 後沒有回報：用 `list_agents()` 看它是否還 running；閒置又沒有 TASK REPORT 就是 `NO_ACK`，直接 `send_message` 找它。DSH 沒有閒置監看工具，靠狀態、完成通知和檔案判斷。
+
+### 狀態腳本（status_gen.py）
+
+- 每條工作線一支 `status.py`：`tools/status_gen.py --config <設定> --out <線的資料夾>/status.py` 產生，一次印出 log 尾段、雜湊、磁碟（GiB）、git 摘要、最新輸出，總長有上限。在每輪第一步跑它，不逐項重查（L-042）。
+- 總監版從 `templates/status_director.json` 改起：多印待決帳計數（open / answered 未關閉）、未結案工單、動作紀錄（`dsh_audit.py` 的輸出）最近 1 小時的筆數、磁碟空間。讀不到待決帳就 exit 1；路徑換成專案自己的。
+- DSH 沒有 per-folder 設定，也沒有依 session 給不同防護的設定：防護是 profile／preset 與 session 設定，子代理預設繼承總監的 preset；要依子代理給不同工具或限制，只能改使用者層 preset（需 PO 同意）。
+- `dsh_doctor.py` 列環境與設定（Python、Node、模型、沙箱、核准、子代理上限與深度、session 目錄、工具齊全）；`dsh_setup_check.py <WS>/DIRECTOR` 檢查待決帳與建置檔。報告的問題要處理。
+- 每週用 `dsh_usage.py` 看各線上下文壓力，膨脹的線請它把長輸出寫檔（取代 Claude 版的 `poll_hint.py`）。
+
+### 中斷後與排程喚醒
+
+- DSH 沒有 Claude 的額度視窗，也沒有「額度重置後喚醒」。中斷（自動壓縮、當機、關 app、PO 停止）後照上面的恢復程序跑，不假設有計時器會叫醒你。
+- 主要喚醒機制：只有 PO 明確要求才建 `schedule_create`。醒來時：確認排程還有效（`schedule_view`）→ 找出被中斷、之後沒有完成回報的工作線 → 送 `RESUMED` → **立刻設下一個排程** → 在 `DIRECTOR_LOG` 記一行。
+- 排程要 DSH 開著、連網；停機後只送最近一次；背景 job 在重開機或關 app 後會消失，所以恢復鏈要有一條不依賴 session 記憶的路（DIRECTOR 的檔案＋排程）。
+- 各 worker 收到 RESUMED 後自己讀檔接續；總監不替別人讀它的檔案。
+- 有限用量時唯一的取捨是**順序**：恢復後先恢復 P0 和 gate 收尾的工作線。
+
+### 刪檔之前
+
+- 刪除前逐條比對三份清單：擁有者的保留段、總監的保留清單、受保護清單，各寫「無衝突」或「衝突 → 不刪」。有疑問就不刪。
+- 不在版控內的工作資料（例如本機暫存或輸出資料夾），刪除前先產生盤點清單（路徑、大小、SHA-256）存檔。
+- 同一路徑不能同時出現在「保留」和「可回收」，改標記要附系統時間並刪掉舊標記。
+- 擁有者同意還不夠：刪 build 或審查匯出前，先 grep 所有工單、PLAN、RESUME_STATE 有沒有提到這個名稱；有提到的等總監確認。可以重建的，也先寫明重建用的 commit（L-026）。
+- 工作線自己剛產出的中間檔也不刪：不用的 `mv` 到 `_trash_pending/` 交給清理員；要換掉試做的輸出就寫到新資料夾（b1 → b2），試做最好直接寫進暫存資料夾（L-023）。
+
+## 為什麼
+
+- 原專案有一次 worker 在清單還沒做完時就結束回合，閒置了 80 分鐘沒人發現。之後才加了閒置監看，並規定「真的要等，就寫明在等誰、等什麼，並用完成通知或 `wait_agent`」。
+- 機制要能重建，因為重開機、DSH 關閉、自動壓縮和當機都會讓背景 job 和排程消失，而 session 自己不會記得它曾經設過什麼。
+- 原專案發生過兩次：在保留清單送達前，當作證據的 build 被刪掉，刪前也沒有盤點。之後才加了三份清單逐條比對和刪前盤點。

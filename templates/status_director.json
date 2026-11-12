@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "name": "director",
+  "po_pending": {
+    "path": "D:/PROJECT/DIRECTOR/PO_PENDING.md",
+    "counts": [
+      {"label": "pending open", "regex": "^STATUS:\\s*open\\b"},
+      {"label": "pending answered", "regex": "^STATUS:\\s*answered\\b"}
+    ]
+  },
+  "orders": {"dir": "D:/PROJECT/DIRECTOR/orders", "glob": "WO-*.md", "show": 8},
+  "audit": {"globs": ["D:/PROJECT/DIRECTOR/research/audit-*.jsonl"], "hours": 1},
+  "disk": "D:/",
+  "disk_min_gib": 20,
+  "max_lines": 60
+}
