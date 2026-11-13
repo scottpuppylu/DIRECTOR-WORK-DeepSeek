@@ -2,7 +2,7 @@
 
 用一個 AI 當你的「專案經理」，替你管好其他幾個寫程式的 AI。你只要說要做什麼、回答選擇題、看成品。
 
-這是 Claude 版的 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK)（v2.2.0）移植到 **DeepSeek Harness（DSH）** 的版本。流程、角色和核心規則不變，平台從 Claude Code／Claude Desktop 換成 DSH（桌面版 0.2.2-rc.2）；差異與移植取捨見 [DEEPSEEK-PORT.md](DEEPSEEK-PORT.md)。
+這是 Claude 版的 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK)（v2.2.1）移植到 **DeepSeek Harness（DSH）** 的版本。流程、角色和核心規則不變，平台從 Claude Code／Claude Desktop 換成 DSH（桌面版 0.2.2-rc.2）；差異與移植取捨見 [DEEPSEEK-PORT.md](DEEPSEEK-PORT.md)。
 
 ## 怎麼用
 

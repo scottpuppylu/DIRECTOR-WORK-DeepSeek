@@ -16,7 +16,9 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   [--session ID|PREFIX|AGENT] [--json] [--out FILE] [--from-jsonl | --no-fallback]`
   exit 0 report written, 2 NO_DATA / missing root / usage error.
 - dsh_audit.py - rebuild the hash-chained action audit (same schema as audit_log.py / report_vs_audit.py) from the
-  session event logs; needs Node 22+ for zstd. It is after-the-fact reconstruction, not a live hook.
+  session event logs; needs Node 22+ for zstd. It is after-the-fact reconstruction, not a live hook. Since
+  2.2.1-ds.1 line 1 of a built log is kind=rebuild with a `source` field (session log names, sha256, sizes), the same
+  first line as upstream transcript_audit.py, and report_vs_audit.py prints a note for it; tool calls start at seq 2.
   `dsh_audit.py build --out FILE [--force] [--log-root DIR] [--cache-root DIR] [--project-dir PATH] [--since DATE]
   [--until DATE] [--session ID|PREFIX|AGENT] [--json]`
   `dsh_audit.py verify --log FILE [--from N --to M] [--anchor-log FILE] [--anchor-rev REV --anchor-path PATH [--repo DIR]]`
@@ -26,8 +28,10 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_doctor.py [--tools-dir DIR] [--sessions-root DIR] [--cache-root DIR] [--profile-config FILE] [--json]`
   exit 0 no FAIL, 1 any FAIL, 2 the check itself cannot run.
 - dsh_setup_check.py - validate a DIRECTOR folder built by the DSH BOOTSTRAP: required files, the PENDING_METHOD line,
-  PO_PENDING entry fields, the RESUME_STATE header and director_work.json.
-  `dsh_setup_check.py [--json] DIR [DIR ...]`
+  PO_PENDING entry fields, the RESUME_STATE header and director_work.json. 2.2.1-ds.1 shadow checks (printed as
+  `~ shadow:`; `--strict` makes them fail): an ID used twice, filled RESUME header values and a dated UPDATED line
+  (gate_check --resume rule), director_work.json schema_version / mode / *_pattern regexes / po_pending_files types.
+  `dsh_setup_check.py [--json] [--strict] DIR [DIR ...]`
   exit 0 no problems, 1 any problem, 2 usage error.
 - dsh_guard.py - advisory risky-command check (no hook; run it yourself): force push, push, delete, send / publish,
   pay, config, secrets, always-forbidden git / process patterns, and the pause flag.
@@ -40,9 +44,11 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 
 ## Kept upstream tools (platform-neutral)
 
-gate_check.py, scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching added),
+gate_check.py, scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line
+JSON decoding and the 2-real-word rule),
 trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit; PENDING_METHOD instead of PO_PAGE_URL),
-metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md), secret_mask.py, pause_ctl.py,
+metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md), secret_mask.py, pause_ctl.py (no hook
+reads the flag in DSH: workers check it themselves),
 audit_log.py (verify / head / cite / recover; append is unused in DSH), vocabulary.json, guard_rules.json (used by
 dsh_guard.py).
 

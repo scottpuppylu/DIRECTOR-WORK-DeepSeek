@@ -12,9 +12,9 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 |---|---|---|
 | `dsh_session.py` | 共用庫（無 CLI）：找 Node、解 session `*.jsonl.zstd` 的 zstd frames、列 session、從父 catalog 對 agent 名稱、讀投影快取 | 不寫 |
 | `dsh_usage.py` | 每 session 的 input/output/cacheRead/cacheWrite、最後 prompt tokens、context 使用率、effort/model、每日彙總 | `--out` 才寫 |
-| `dsh_audit.py` | 從 session 事件重建有雜湊鏈的動作紀錄，給 `report_vs_audit.py`／gate 審查用；`verify` 檢查鏈與錨點，`cite` 印報告要引的區段 | `build` 寫一份 JSONL，不覆蓋舊的 |
+| `dsh_audit.py` | 從 session 事件重建有雜湊鏈的動作紀錄，給 `report_vs_audit.py`／gate 審查用；`verify` 檢查鏈與錨點，`cite` 印報告要引的區段。2.2.1-ds.1 起第 1 行是 `kind=rebuild`（記來源 session 檔名、sha256、大小），工具呼叫從 seq 2 起 | `build` 寫一份 JSONL，不覆蓋舊的 |
 | `dsh_doctor.py` | 12 項環境檢查：Python、Node、DSH home、session log、投影快取、profile 模型/effort、沙箱/核准、git、工具/文件/範本齊不齊 | 不寫 |
-| `dsh_setup_check.py` | 建置完成的檢查：BOOTSTRAP 產出的 DIRECTOR 資料夾（必要檔案、PENDING_METHOD、PO_PENDING、RESUME_STATE 標頭、director_work.json） | 不寫 |
+| `dsh_setup_check.py` | 建置完成的檢查：BOOTSTRAP 產出的 DIRECTOR 資料夾（必要檔案、PENDING_METHOD、PO_PENDING、RESUME_STATE 標頭、director_work.json）；2.2.1-ds.1 起另有 shadow 檢查（ID 重複、RESUME 標頭有值與 UPDATED 日期、director_work.json 欄位型別與 regex），印 `~ shadow:`，`--strict` 才算失敗 | 不寫 |
 | `dsh_guard.py` | 動手前的自律檢查：force push、push、刪除、送出/發布、付款、改設定、秘密、永遠禁止的 git/程序模式、PAUSE 旗標；預設只提醒 | 不寫 |
 | `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對） | 只寫暫存資料夾 |
 
@@ -23,7 +23,7 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 - `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。
 - `scope_check.py`：比對實際改動與工單 SCOPE／FORBIDDEN。
 - `evidence_record.py`：跑驗收指令，留下 exit code、輸出尾段、產物 SHA-256；`verify --rerun` 可重跑。
-- `report_vs_audit.py`：拿 RAN 與 TESTS／EVIDENCE／DONE 的指令對動作紀錄（DSH 包殼指令會先剝殼再比；比對不到就 FAIL，不會亂放行）。
+- `report_vs_audit.py`：拿 RAN 與 TESTS／EVIDENCE／DONE 的指令對動作紀錄（DSH 包殼指令會先剝殼再比；比對不到就 FAIL，不會亂放行）。2.2.1：被截在 500 字的行會照 JSON 字串解回引號與反斜線，長的 Windows 路徑指令也對得上；單字比對至少要 2 個不是 `...`／`<名稱>` 的字；讀到 `kind=rebuild` 的紀錄會印一行 note。
 - `trace_report.py`：產生需求 → 工單 → AC → 證據 → 裁決的追溯表。
 - `round_check.py`：修正輪數檢查（第 4 輪起要根因研究）。
 - `status_gen.py`：產生一條工作線的 `status.py`；總監版加待決帳計數、未結案工單、近 1 小時動作紀錄（已改吃 `po_pending`、無 pending_sends／processes）。

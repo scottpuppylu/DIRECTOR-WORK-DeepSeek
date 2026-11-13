@@ -13,8 +13,10 @@ Director sections (any of them, all optional):
            file, a "list" (dotted key; "extract" = a regex whose group 1 is the JSON inside an HTML page) counted
            where "field" == "value"; the list also gets a "PO hint" line for items still STATUS open with an ANSWER
            filled in (2.1.0 shadow), and `~ PENDING_METHOD_MISSING` when DIRECTOR_STATE.md (beside the list, or
-           "state") has no PENDING_METHOD line: in the DSH edition the worker reaches the PO with ask_user_question,
-           there is no web page (2.2.0 shadow: the exit code does not change)
+           "state") has no PENDING_METHOD line: in the DSH edition the Director (the root session) asks the PO with
+           ask_user_question and keeps PO_PENDING.md; a worker reaches the PO only through 「總監」 (ask_user_question
+           is refused to a delegated subagent: DELEGATED_CALLER); there is no web page (2.2.0 shadow: the exit code
+           does not change)
   ORDERS   order files (glob, default WO-*.md) in "dir" without a "closed" match: the open ones, newest first
   AUDIT    per action log (audit_log.py) of "globs": lines, blocked (deny / pause) and log reads (the built-in
            log-read rules of L-041) in the last "hours" (default 1), and how many sessions
@@ -316,12 +318,14 @@ def director():
                 if filled:
                     say(f"PO hint: {len(filled)} item(s) still STATUS open with an ANSWER filled in "
                         f"({', '.join(filled[:5])}); read them in the pending list, the counts above may miss them")
-        # DSH edition: there is no PO web page (2.2.0 shadow): the worker asks the PO with ask_user_question and the
-        # pending list is PO_PENDING.md. Say so when DIRECTOR_STATE.md names no PENDING_METHOD; never fail on it.
+        # DSH edition: there is no PO web page (2.2.0 shadow): the Director (root session) asks the PO with
+        # ask_user_question, workers go through 「總監」 (DELEGATED_CALLER), and the pending list is PO_PENDING.md.
+        # Say so when DIRECTOR_STATE.md names no PENDING_METHOD; never fail on it.
         state = page.get("state") or os.path.join(os.path.dirname(page["path"]), "DIRECTOR_STATE.md")
         if not (os.path.isfile(state) and re.search(r"(?m)^[ \t]*PENDING_METHOD[ \t]*:", read_text(state))):
-            say(f"~ PENDING_METHOD_MISSING: {state} has no PENDING_METHOD line; the worker asks the PO with "
-                f"ask_user_question (DSH edition, no web page), so write that down in DIRECTOR_STATE.md")
+            say(f"~ PENDING_METHOD_MISSING: {state} has no PENDING_METHOD line; the Director asks the PO with "
+                f"ask_user_question and workers go through 總監 (DSH edition, no web page), so write that down in "
+                f"DIRECTOR_STATE.md")
     orders = CONFIG["orders"]
     if orders:
         if not os.path.isdir(orders["dir"]):

@@ -17,6 +17,12 @@ Runs, on this machine and offline:
   evidence    evidence_record.py run + verify in a temp git repo (SKIP when git is missing)
   matching    report_vs_audit.py on synthetic wrapped / absolute-path / cut-at-500 audit lines:
               the DSH PTC form a report's friendly RAN line has to match, plus one negative case
+  matching_221  2.2.1-ds.1: report_vs_audit matches() on 21 cut / backslash / quote / launcher / wildcard cases
+              in process, two of them through the CLI, and 6 mutations of the matcher that must each get a case wrong
+  setup_shadow  2.2.1-ds.1: dsh_setup_check shadow lines (PO IDs, RESUME values, director_work.json keys) stay
+              notes without --strict and fail with it; a clean folder passes --strict
+  audit_rebuild 2.2.1-ds.1: dsh_audit.chain_lines writes the kind=rebuild first line, dsh_audit verify accepts the
+              chain and report_vs_audit reads it with a note (no DSH session log needed)
 
 Prints PASS / FAIL / SKIP per test and a summary line
   SELFTEST_DS: PASS|FAIL tests=n pass=n fail=n skip=n
@@ -165,8 +171,10 @@ def dsh_audit_and_report(tmp):
     verify = run_tool("dsh_audit", "verify", "--log", out)
     require(verify.returncode == 0 and "OK" in text_of(verify),
             "dsh_audit verify exit %s: %s" % (verify.returncode, tail(text_of(verify))))
-    session = entries[0].get("session_id")
-    require(session, "the first audit line has no session_id")
+    require(entries[0].get("kind") == "rebuild" and (entries[0].get("source") or {}).get("by") == "dsh_audit.py",
+            "line 1 of the built audit is not the dsh_audit.py rebuild line: " + tail(json.dumps(entries[0]), 300))
+    session = next((entry.get("session_id") for entry in entries if entry.get("session_id")), None)
+    require(session, "no audit line has a session_id")
     command = None
     for entry in entries:
         if str(entry.get("tool") or "").lower() not in ("powershell", "bash", "pwsh"):
@@ -364,6 +372,222 @@ def report_matching(tmp):
     require(bad.returncode == 1 and "FAIL" in text_of(bad),
             "a claim that was never run did not FAIL: " + tail(text_of(bad)))
     return "3 DSH-form claims PASS, 1 false claim FAIL"
+
+
+RVA_WIN = '"C:\\Program Files\\Python312\\python.exe" -I -X utf8 D:\\w\\tools\\build_all.py ' + "--flag " * 90 + "--end"
+RVA_UNC = "Get-FileHash \\\\server\\share\\out\\pack.zip; " + "Write-Output done; " * 40
+RVA_QUOTE = 'python -I -X utf8 tools/report.py --title "say \\"hi\\" twice" ' + "--x " * 140
+RVA_PLAIN = 'python -I -X utf8 tools/report.py --title "big title" --out "D:/w/out dir" ' + "--x " * 140
+RVA_CLOSED = "python -I -X utf8 tools/selftest.py --quick --group report_vs_audit"
+# (name, tool, tool input, claimed command, should match); the log lines are cut at 500 characters by audit_log.summary,
+# the same cases as upstream selftest.py test_report_vs_audit_221
+RVA_221_CASES = [
+    ("cut Windows command with a quoted path", "Bash", {"command": RVA_WIN, "description": "build"},
+     '"C:\\Program Files\\Python312\\python.exe" -I -X utf8 D:\\w\\tools\\build_all.py --flag --flag', True),
+    ("cut Windows command, other slash direction", "PowerShell", {"command": RVA_WIN},
+     "C:/Program Files/Python312/python.exe -I -X utf8 D:/w/tools/build_all.py --flag", True),
+    ("cut command with a UNC backslash path", "PowerShell", {"command": RVA_UNC},
+     "Get-FileHash \\\\server\\share\\out\\pack.zip", True),
+    ("cut UNC path, wrong file", "PowerShell", {"command": RVA_UNC}, "Get-FileHash \\\\server\\share\\out\\other.zip", False),
+    ("cut command with quotes", "Bash", {"command": RVA_PLAIN},
+     'tools/report.py --title "big title" --out "D:/w/out dir" --x --x', True),
+    ("quotes, wrong title", "Bash", {"command": RVA_PLAIN}, 'tools/report.py --title "small title"', False),
+    ("cut command with shell-escaped quotes, claimed as typed", "Bash", {"command": RVA_QUOTE},
+     'python -I -X utf8 tools/report.py --title "say \\"hi\\" twice" --x', True),
+    ("escaped quotes, wrong title", "Bash", {"command": RVA_QUOTE}, 'tools/report.py --title "say bye twice"', False),
+    ("closed command in a cut line: same command", "Bash", {"command": RVA_CLOSED, "description": "d " * 300},
+     RVA_CLOSED, True),
+    ("closed command in a cut line: a longer claim is not a prefix match", "Bash",
+     {"command": RVA_CLOSED, "description": "d " * 300}, RVA_CLOSED + " --full", False),
+    ("launcher and startup flags dropped", "Bash", {"command": RVA_CLOSED}, "py tools\\selftest.py --quick", True),
+    ("leading & of PowerShell dropped", "PowerShell", {"command": '& "C:\\Py\\python.exe" -I tools\\selftest.py --quick'},
+     "python tools/selftest.py --quick", True),
+    ("a file name matches a longer path", "PowerShell", {"command": "Get-FileHash D:\\w\\out\\pack.zip"},
+     "Get-FileHash pack.zip", True),
+    ("a file name does not match a different file", "PowerShell", {"command": "Get-FileHash D:\\w\\out\\pack.zip"},
+     "Get-FileHash ack.zip", False),
+    ("... skips words", "Bash", {"command": RVA_WIN}, "build_all.py ... --flag", True),
+    ("<name> skips words", "Bash", {"command": RVA_CLOSED}, "tools/selftest.py <mode> --group report_vs_audit", True),
+    ("one real word with wildcards proves nothing", "Bash", {"command": RVA_CLOSED}, "... selftest.py", False),
+    ("only wildcards prove nothing", "Bash", {"command": RVA_CLOSED}, "... <x> ...", False),
+    ("words out of order do not match", "Bash", {"command": RVA_CLOSED}, "--group tools/selftest.py", False),
+    ("a launcher alone is not a claim", "Bash", {"command": RVA_CLOSED}, "python -I -X utf8", False),
+    ("only Bash / PowerShell / pwsh lines count", "Agent", {"command": RVA_CLOSED}, "tools/selftest.py --quick", False)]
+RVA_MUTATIONS = [
+    ("no JSON decoding of a cut line", [("        text, closed = json_string_prefix(body[found.end():])\n",
+                                         "        text, closed = body[found.end():], False\n")]),
+    ("a closed command still counts as cut", [('        return text, not closed and raw.endswith("\u2026")\n',
+                                               '        return text, raw.endswith("\u2026")\n')]),
+    ("no launcher drop", [("    if parts and LAUNCHER.search(parts[0]):\n", "    if False:\n")]),
+    ("no path-suffix word", [('    return claim_word == log_word or log_word.endswith("/" + claim_word.lstrip("/"))\n',
+                              "    return claim_word == log_word\n")]),
+    ("no 2-word guard", [("MIN_WORDS = 2  #", "MIN_WORDS = 0  #")]),
+    ("no shell-tool check", [('    if str(entry.get("tool") or "").lower() not in SHELL_TOOLS:\n', "    if False:\n")])]
+
+
+def mutated(name, swaps):
+    """A copy of a tool module with one check taken out; each (old, new) anchor must occur exactly once."""
+    path = TOOLS / (name + ".py")
+    source = path.read_text(encoding="utf-8")
+    for old, new in swaps:
+        require(source.count(old) == 1, "mutation anchor in %s.py found %d times: %r" % (name, source.count(old), old))
+        source = source.replace(old, new)
+    module = type(sys)(name + "_mutant")
+    module.__file__ = str(path)  # the tools load their neighbours from their own folder
+    exec(compile(source, str(path), "exec"), module.__dict__)
+    return module
+
+
+def rva_wrong(module, audit):
+    return [name for name, tool, data, claim, want in RVA_221_CASES
+            if bool(module.matches({"command": claim}, {"tool": tool, "input": audit.summary(data)})) != want]
+
+
+def chain_file(path, audit, rows, source=None):
+    """Write rows (session, tool, input dict, kind, status) as a hash-chained log; a source adds a rebuild line 1."""
+    entries, prev = [], audit.GENESIS
+    if source is not None:
+        rows = [(None, None, None, "rebuild", "rebuilt")] + list(rows)
+    for seq, (session, tool, data, kind, status) in enumerate(rows, 1):
+        entry = {"seq": seq, "ts": "2026-11-14T03:%02d:00.000+08:00" % seq, "session_id": session, "agent_id": None,
+                 "tool": tool, "tool_use_id": "t%d" % seq if tool else None,
+                 "input": audit.summary(data) if tool else "", "kind": kind, "result": {"status": status},
+                 "duration_ms": None, "prev": prev}
+        if kind == "rebuild":
+            entry["source"] = source
+        entry["hash"] = audit.digest(entry)
+        prev = entry["hash"]
+        entries.append(audit.canonical(entry))
+    return write(path, "\n".join(entries) + "\n")
+
+
+@test
+def matching_221(tmp):
+    audit = load_tool("audit_log")
+    cut = [name for name, _, data, _, _ in RVA_221_CASES[:10] if not audit.summary(data).endswith("\u2026")]
+    require(not cut, "these log lines are not cut at 500, so they test nothing: %s" % cut)
+    wrong = rva_wrong(load_tool("report_vs_audit"), audit)
+    require(not wrong, "report_vs_audit gets these 2.2.1 cases wrong: %s" % wrong)
+    log = chain_file(tmp / "rva221.jsonl", audit,
+                     [("S1", tool, data, "result", "ok") for _, tool, data, _, _ in RVA_221_CASES[:2]])
+    good = write(tmp / "rva221-good.md", "SESSION_ID: S1\nRAN: " + BT + RVA_221_CASES[0][3] + BT + " exit=0\n")
+    proc = run_tool("report_vs_audit", "--report", good, "--log", log)
+    require(proc.returncode == 0 and "REPORT_VS_AUDIT: PASS claims=1 ok=1" in text_of(proc),
+            "a cut Windows command did not match through the CLI: " + tail(text_of(proc)))
+    require("rebuilt after the fact" not in text_of(proc), "a log without a rebuild line got the rebuild note")
+    bad = write(tmp / "rva221-bad.md", "SESSION_ID: S1\nRAN: " + BT + RVA_221_CASES[3][3] + BT + " exit=0\n")
+    proc = run_tool("report_vs_audit", "--report", bad, "--log", log)
+    require(proc.returncode == 1 and "FAIL" in text_of(proc), "a wrong file name matched through the CLI: "
+            + tail(text_of(proc)))
+    survived = [name for name, swaps in RVA_MUTATIONS if not rva_wrong(mutated("report_vs_audit", swaps), audit)]
+    require(not survived, "these matcher mutations get no case wrong, so the cases do not test them: %s" % survived)
+    return "%d cases in process, 2 CLI, %d mutations killed" % (len(RVA_221_CASES), len(RVA_MUTATIONS))
+
+
+def shadow_fixture(folder):
+    director_fixture(folder)
+    write(folder / "PO_PENDING.md",
+          "## 未關閉\n\nID: OD-001\nCREATED: 2026-11-14 03:00\nSTATUS: open\nQUESTION: Which database?\n"
+          "OPTIONS: a) sqlite b) none\nRECOMMENDED: a\nSOURCE: BOOTSTRAP\nANSWER:\n\n## 已關閉\n\nID: ACT-002\n"
+          "CREATED: 2026-11-13 10:00\nSTATUS: answered\nQUESTION: Old question?\nOPTIONS: a) yes b) no\n"
+          "RECOMMENDED: a\nSOURCE: DIRECTOR\nANSWER: yes\n")
+    write(folder / "RESUME_STATE.md", "PROGRESS: setup checked\nDOING: nothing\nNEXT_STEP: wait for the PO\n"
+          "COMMS: NONE\n\n# RESUME_STATE\nUPDATED: 2026-11-14 03:00 +08:00\n")
+    write(folder / "director_work.json", json.dumps({
+        "_comment": "selftest", "schema_version": 1, "mode": "general", "trace_id_pattern": "^(B|DD|OD)-\\d+$",
+        "po_pending_files": ["PO_PENDING.md"], "po_item_pattern": "^\\s*ID\\s*:\\s*(OD|ACT)-\\w+",
+        "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b"}, indent=1) + "\n")
+    return folder
+
+
+# (what is broken, file, new text or a function of the old text, shadow text that must show up)
+SHADOW_CASES = [
+    ("an ID used twice", "PO_PENDING.md",
+     lambda old: old.replace("ID: ACT-002", "ID: OD-001"), "the ID is used again"),
+    ("a RESUME header value left as a placeholder", "RESUME_STATE.md",
+     lambda old: old.replace("DOING: nothing", "DOING: <what>"), "RESUME_STATE: DOING"),
+    ("no dated UPDATED line", "RESUME_STATE.md",
+     lambda old: old.replace("UPDATED: 2026-11-14 03:00 +08:00", "UPDATED: today"), "RESUME_STATE: UPDATED"),
+    ("schema_version 2", "director_work.json",
+     lambda old: old.replace('"schema_version": 1', '"schema_version": 2'), "schema_version 2 is not 1"),
+    ("an unknown mode", "director_work.json",
+     lambda old: old.replace('"mode": "general"', '"mode": "expert"'), "mode: general / beginner"),
+    ("a broken regular expression", "director_work.json",
+     lambda old: old.replace('"trace_id_pattern": "^(B|DD|OD)-\\\\d+$"', '"trace_id_pattern": "^(B|DD"'),
+     "trace_id_pattern: not a valid regular expression"),
+    ("po_pending_files as one string", "director_work.json",
+     lambda old: old.replace('[\n  "PO_PENDING.md"\n ]', '"PO_PENDING.md"'), "po_pending_files: a list")]
+
+
+@test
+def setup_shadow(tmp):
+    clean = shadow_fixture(tmp / "shadow-clean" / "DIRECTOR")
+    proc = run_tool("dsh_setup_check", "--strict", clean)
+    require(proc.returncode == 0 and "DSH_SETUP_CHECK: PASS" in text_of(proc) and "shadow:" not in text_of(proc),
+            "a clean folder did not pass --strict: " + tail(text_of(proc)))
+    for number, (name, file_name, change, said) in enumerate(SHADOW_CASES):
+        folder = shadow_fixture(tmp / ("shadow-%d" % number) / "DIRECTOR")
+        old = (folder / file_name).read_text(encoding="utf-8")
+        new = change(old)
+        require(new != old, "%s: the fixture change did nothing" % name)
+        write(folder / file_name, new)
+        soft = run_tool("dsh_setup_check", folder)
+        require(soft.returncode == 0 and ("~ shadow: " in text_of(soft)) and said in text_of(soft),
+                "%s: without --strict expected exit 0 and a shadow line with %r: %s" % (name, said, tail(text_of(soft))))
+        hard = run_tool("dsh_setup_check", "--strict", folder)
+        require(hard.returncode == 1 and ("  - " in text_of(hard)) and said in text_of(hard)
+                and "DSH_SETUP_CHECK: FAIL" in text_of(hard),
+                "%s: with --strict expected exit 1 and a problem with %r: %s" % (name, said, tail(text_of(hard))))
+    notes = shadow_fixture(tmp / "shadow-notes" / "DIRECTOR")
+    data = json.loads((notes / "director_work.json").read_text(encoding="utf-8"))
+    data.update(window=250000, colour="blue")
+    write(notes / "director_work.json", json.dumps(data, indent=1) + "\n")
+    write(notes / "PO_PENDING.md", (notes / "PO_PENDING.md").read_text(encoding="utf-8")
+          .replace("CREATED: 2026-11-13 10:00\n", "") + "\nID: CH-003\nSTATUS: open\n")
+    proc = run_tool("dsh_setup_check", "--strict", notes)
+    text = text_of(proc)
+    for said in ("Claude-only keys the DSH edition does not read: window", "keys no tool reads: colour",
+                 "ACT-002 (line", "no CREATED line", "`ID: CH-003` is not OD-xx / ACT-xx"):
+        require(said in text, "expected the note %r: %s" % (said, tail(text)))
+    require(proc.returncode == 0, "notes alone failed --strict: " + tail(text))
+    return "clean PASS --strict, %d cases shadow then FAIL --strict, 5 notes" % len(SHADOW_CASES)
+
+
+@test
+def audit_rebuild(tmp):
+    module = load_tool("dsh_audit")
+    audit = load_tool("audit_log")
+    require(module.BUILD_VERSION == 2, "dsh_audit BUILD_VERSION is %r, not 2" % module.BUILD_VERSION)
+    entries = []
+    for number, command in enumerate(("git status", RVA_CLOSED), 1):
+        entries.append({"ts": "2026-11-14T03:0%d:00.000+08:00" % number, "session_id": "dsh-s1", "agent_id": "w1",
+                        "tool": "PowerShell", "tool_use_id": "c%d" % number, "kind": "result",
+                        "input": audit.summary({"command": command}), "result": {"status": "ok"}, "duration_ms": 5})
+    source = {"by": "dsh_audit.py", "version": module.BUILD_VERSION,
+              "sessions": [{"session_id": "dsh-s1", "log": "session.v4.jsonl.zstd", "sha256": "0" * 64, "bytes": 1}],
+              "lines": len(entries), "warnings": 0, "skipped": 0}
+    lines, head = module.chain_lines(entries, source, now="2026-11-14T03:10:00.000+08:00")
+    log = write(tmp / "rebuilt.jsonl", "".join(lines))
+    first = json.loads(lines[0])
+    require(first.get("kind") == "rebuild" and first.get("seq") == 1 and first.get("source") == source
+            and first.get("prev") == audit.GENESIS and first.get("session_id") is None,
+            "line 1 is not the rebuild line: " + tail(lines[0], 300))
+    require(len(lines) == 3 and json.loads(lines[-1]).get("hash") == head and json.loads(lines[1]).get("seq") == 2,
+            "the tool calls are not chained from seq 2 up to the returned head")
+    verify = run_tool("dsh_audit", "verify", "--log", log)
+    require(verify.returncode == 0 and "OK" in text_of(verify),
+            "dsh_audit verify of a rebuilt chain exit %s: %s" % (verify.returncode, tail(text_of(verify))))
+    report = write(tmp / "rebuilt.md", "SESSION_ID: dsh-s1\nRAN: " + BT + RVA_CLOSED + BT + " exit=0\n")
+    check = run_tool("report_vs_audit", "--report", report, "--log", log)
+    require(check.returncode == 0 and "REPORT_VS_AUDIT: PASS claims=1 ok=1" in text_of(check)
+            and "~ note: a log was rebuilt after the fact (dsh_audit.py)" in text_of(check),
+            "report_vs_audit on the rebuilt log: " + tail(text_of(check)))
+    edited = "".join(lines).replace("git status", "git push")
+    require(edited != "".join(lines), "the edit for the broken-chain case changed nothing")
+    broken = write(tmp / "broken.jsonl", edited)
+    bad = run_tool("dsh_audit", "verify", "--log", broken)
+    require(bad.returncode != 0, "dsh_audit verify accepted an edited line")
+    return "rebuild line 1, verify OK, edited line refused, report note shown"
 
 
 def main(argv=None):

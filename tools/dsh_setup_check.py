@@ -6,6 +6,7 @@ handled instead of naming a web page.
 
   python -I -X utf8 <WS>/DIRECTOR/tools/dsh_setup_check.py DIRECTOR [DIRECTOR ...]
   python -I -X utf8 <WS>/DIRECTOR/tools/dsh_setup_check.py --json DIRECTOR
+  python -I -X utf8 <WS>/DIRECTOR/tools/dsh_setup_check.py --strict DIRECTOR
 
 Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
   - the required files exist: DIRECTOR_STATE.md, ACTIVE_WORKSTREAMS.md, DECISION_REGISTER.md, PO_PENDING.md,
@@ -17,11 +18,24 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
   - RESUME_STATE.md holds the four header lines PROGRESS, DOING, NEXT_STEP, COMMS first, in this order
   - director_work.json is a JSON object (schema_version 1 is noted when it differs)
 
-Prints OK / FAIL per DIRECTOR with one "  - problem" line each and "  ~ note" lines, then
+2.2.1-ds.1 adds checks that start in shadow mode (printed as "  ~ shadow: ..." and not failing; --strict makes them
+"  - problem" lines that fail), the DSH form of upstream setup_check.py 2.2.1:
+  - PO_PENDING.md: an ID is used once; an `ID:` line that is not OD-xx / ACT-xx is noted (this check skips it);
+    an entry without CREATED is noted
+  - RESUME_STATE.md: the four header lines are filled in (no placeholder) and UPDATED carries a date, by the same
+    rule as `gate_check.py --resume` (the order of the four lines stays a problem as before)
+  - director_work.json: schema_version 1 (the tools refuse another: metrics_report.py, trace_report.py); mode
+    general / beginner; trace_id_pattern / po_item_pattern / po_open_pattern valid regular expressions;
+    po_pending_files a list of strings. Claude-only keys the DSH edition skips (window, plugins_off, hooks, ...) and
+    keys no tool reads are noted.
+
+Prints OK / FAIL per DIRECTOR with one "  - problem" line each, "  ~ shadow: ..." and "  ~ note" lines, then
   DSH_SETUP_CHECK: PASS|FAIL dirs=n problems=n
+(problems= counts the DIRECTOR folders that failed.)
 Exit codes: 0 no problems, 1 any problem, 2 usage error (no DIRECTOR given). Standard library only; reads only.
 """
 import argparse
+import importlib.util
 import json
 import pathlib
 import re
@@ -37,6 +51,15 @@ FIELD = re.compile(r"^[ \t]*([A-Z][A-Z_]*)[ \t]*:[ \t]?(.*)$")
 PO_START = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*((?:OD|ACT)-[A-Za-z0-9_-]+)[ \t]*$")
 SECTION = re.compile(r"^[ \t]*##[ \t]*(.+?)[ \t]*$")
 RESUME_KEYS = ("PROGRESS", "DOING", "NEXT_STEP", "COMMS")
+HERE = pathlib.Path(__file__).resolve().parent
+ANY_ID = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*(.*)$")
+CONFIG_VERSION = 1
+CONFIG_MODES = ("general", "beginner")
+CONFIG_PATTERNS = ("trace_id_pattern", "po_item_pattern", "po_open_pattern")
+CONFIG_KEYS = ("schema_version", "mode", "po_pending_files") + CONFIG_PATTERNS
+CLAUDE_ONLY_KEYS = ("window", "plugins_off", "hooks", "protect_director", "director_worktree", "backup_dir",
+                    "skip_worktrees", "session_map", "pause_flag", "audit_log", "runtime_guard", "guard_review",
+                    "guard_profile", "guard_mode")
 
 
 def filled(name, value, problems):
@@ -83,6 +106,9 @@ def check_po_pending(text, problems, notes):
             section = heading.group(1)
             continue
         start = PO_START.match(line)
+        if not start and ANY_ID.match(line):
+            current = None  # 2.2.1-ds.1: an ID this rule skips must not lend its fields to the entry above it
+            continue
         if start:
             current = {"id": start.group(1), "line": number, "section": section, "fields": {}, "order": []}
             entries.append(current)
@@ -166,8 +192,96 @@ def check_config(path, problems, notes):
         notes.append(f"director_work.json: schema_version is {version!r}; the tools expect 1")
 
 
-def check_director(folder):
-    """(problems, notes) for one DIRECTOR folder."""
+def shadow_po_pending(text, notes):
+    """2.2.1-ds.1: an ID used twice is a problem; an ID line the entry rule skips and a missing CREATED are notes."""
+    problems, seen, current = [], {}, None
+    for number, line in enumerate(text.splitlines(), 1):
+        if SECTION.match(line):
+            current = None
+            continue
+        start = PO_START.match(line)
+        if start:
+            current = start.group(1)
+            if current in seen:
+                problems.append(f"PO_PENDING {current} (line {number}): the ID is used again (first at line "
+                                f"{seen[current][0]}); give it a new number")
+                current = None
+            else:
+                seen[current] = [number, False]
+            continue
+        other = ANY_ID.match(line)
+        if other:
+            current = None
+            notes.append(f"PO_PENDING line {number}: `ID: {other.group(1).strip()[:40]}` is not OD-xx / ACT-xx; "
+                         "this check skips it")
+            continue
+        field = FIELD.match(line)
+        if field and field.group(1) == "CREATED" and current in seen:
+            seen[current][1] = True
+    for item, (number, created) in seen.items():
+        if not created:
+            notes.append(f"PO_PENDING {item} (line {number}): no CREATED line (older entries may lack it)")
+    return problems
+
+
+def gate_check():
+    """gate_check.py from this folder, so the RESUME rule has one source."""
+    spec = importlib.util.spec_from_file_location("dsh_setup_check_gate_check", HERE / "gate_check.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def shadow_resume(text, notes):
+    """2.2.1-ds.1: filled header values and a dated UPDATED line (gate_check.check_resume); order stays a problem."""
+    found = gate_check().check_resume(text, notes)
+    return [f"RESUME_STATE: {problem}" for problem in found if not problem.startswith("line ")]
+
+
+def shadow_config(text, notes):
+    """2.2.1-ds.1: the director_work.json keys the DSH tools read, with the right types."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []  # check_config already counts it as a problem
+    if not isinstance(data, dict):
+        return []
+    problems = []
+    version = data.get("schema_version", CONFIG_VERSION)
+    if version != CONFIG_VERSION or isinstance(version, bool):
+        problems.append(f"director_work.json: schema_version {version!r} is not {CONFIG_VERSION}; metrics_report.py "
+                        "and trace_report.py refuse it (see CHANGELOG.md)")
+    if "mode" in data and data["mode"] not in CONFIG_MODES:
+        problems.append(f"director_work.json: mode: {' / '.join(CONFIG_MODES)}, got {data['mode']!r}")
+    files = data.get("po_pending_files", [])
+    if not isinstance(files, list) or not all(isinstance(name, str) for name in files):
+        problems.append("director_work.json: po_pending_files: a list of file names under DIRECTOR")
+    for key in CONFIG_PATTERNS:
+        value = data.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            problems.append(f"director_work.json: {key}: a string (a regular expression), got {type(value).__name__}")
+            continue
+        try:
+            re.compile(value)
+        except re.error as error:
+            problems.append(f"director_work.json: {key}: not a valid regular expression ({error})")
+    skipped = sorted(key for key in data if key in CLAUDE_ONLY_KEYS)
+    if skipped:
+        notes.append(f"director_work.json: Claude-only keys the DSH edition does not read: {', '.join(skipped)}")
+    unknown = sorted(key for key in data if key not in CONFIG_KEYS + CLAUDE_ONLY_KEYS and not key.startswith("_"))
+    if unknown:
+        notes.append(f"director_work.json: keys no tool reads: {', '.join(unknown)} (a typo?)")
+    return problems
+
+
+SHADOW = (("PO_PENDING.md", shadow_po_pending), ("RESUME_STATE.md", shadow_resume),
+          ("director_work.json", shadow_config))
+
+
+def check_director(folder, strict=False):
+    """(problems, notes) for one DIRECTOR folder; the 2.2.1-ds.1 checks are shadow notes unless strict."""
     problems, notes = [], []
     for name in REQUIRED_FILES:
         path = folder / name
@@ -187,6 +301,14 @@ def check_director(folder):
     config = folder / "director_work.json"
     if config.is_file():
         check_config(config, problems, notes)
+    for name, check in SHADOW:
+        path = folder / name
+        if path.is_file():
+            found = check(read_text(path), notes)
+            if strict:
+                problems += found
+            else:
+                notes += [f"shadow: {problem}" for problem in found]
     return problems, notes
 
 
@@ -204,6 +326,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dirs", nargs="+", metavar="DIR", help="DIRECTOR folder (or its DIRECTOR_STATE.md)")
     ap.add_argument("--json", action="store_true", help="print the result as JSON instead of lines")
+    ap.add_argument("--strict", action="store_true", help="the 2.2.1-ds.1 checks (PO IDs, RESUME values, "
+                    "director_work.json keys) fail instead of printing shadow notes")
     a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
     results = []
@@ -215,7 +339,7 @@ def main(argv=None):
         elif not folder.is_dir():
             problems, notes = [f"folder not found: {folder}"], []
         else:
-            problems, notes = check_director(folder)
+            problems, notes = check_director(folder, a.strict)
         failed += bool(problems)
         results.append({"path": str(folder) if folder is not None else value, "ok": not problems,
                         "problems": problems, "notes": notes})

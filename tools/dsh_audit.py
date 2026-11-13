@@ -13,6 +13,10 @@ top-level tool call (event tool/call, e.g. run_code / subagent) becomes one line
   sha256 and length of the masked output, never the output itself), duration_ms (when the start event is there),
   prev, hash (the same chain algorithm as audit_log.py: sha256 of the line's other fields as sorted compact JSON;
   64 zeros before the first line). A tool call whose result is not in the log yet is kind=failure status=interrupted.
+Since 2.2.1-ds.1 (build version 2) line 1 is kind=rebuild, result status rebuilt, with a `source` field (by
+"dsh_audit.py", version, sessions with session_id / log file name / sha256 / bytes of the session log read, lines,
+warnings, skipped), the same first line as upstream transcript_audit.py 2.2.1, so the log says it was rebuilt after
+the fact; report_vs_audit.py prints a note for it. The tool calls follow from seq 2.
 
 Shell tool names are mapped for report_vs_audit.py: pwsh -> PowerShell, bash -> Bash (the original stays in tool_raw
 when it differs). The DSH session id is written to session_id; the DSH subagent name (e.g. "w1", from the parent's
@@ -56,7 +60,7 @@ dsh = load_local("dsh_session")
 audit = load_local("audit_log")
 
 TOOL = "dsh_audit"
-BUILD_VERSION = 1
+BUILD_VERSION = 2  # 2: line 1 is kind=rebuild with a source field (2.2.1-ds.1)
 TOOL_NAMES = {"pwsh": "PowerShell", "powershell": "PowerShell", "bash": "Bash", "sh": "Bash", "zsh": "Bash"}
 
 
@@ -228,6 +232,33 @@ def matches_session(args, session_id, cwd, created_ms, agent, catalog):
     return True
 
 
+def file_record(path):
+    """Name, sha256 and size of a session log file, for the rebuild line's source (None values when unreadable)."""
+    try:
+        data = pathlib.Path(path).read_bytes()
+    except OSError:
+        return {"log": pathlib.Path(path).name, "sha256": None, "bytes": None}
+    return {"log": pathlib.Path(path).name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+
+def chain_lines(entries, source, now=None):
+    """The kind=rebuild first line, then the entries (dicts, changed in place), hash-chained from seq 1 by
+    audit_log.py's rule. Returns (lines, head hash)."""
+    stamp = now or datetime.datetime.now().astimezone().isoformat(timespec="milliseconds")
+    first = {"ts": stamp, "session_id": None, "agent_id": None, "tool": None, "tool_use_id": None, "input": "",
+             "kind": "rebuild", "result": {"status": "rebuilt"}, "duration_ms": None, "source": source}
+    prev = audit.GENESIS
+    lines = []
+    for seq, entry in enumerate([first] + list(entries), 1):
+        entry.pop("hash", None)
+        entry["seq"] = seq
+        entry["prev"] = prev
+        entry["hash"] = audit.digest(entry)
+        prev = entry["hash"]
+        lines.append(audit.canonical(entry) + "\n")
+    return lines, prev
+
+
 def build(args):
     """Write the audit log; returns the summary dict (raises DshError for cannot-run cases)."""
     warnings = []
@@ -269,24 +300,20 @@ def build(args):
                         "started": dsh.iso_from_ms(created_ms), "role": role,
                         "events": len(events), "lines": len(found),
                         "agent_source": name_source, "parent": parent,
-                        "log_file": str(ref.path)})
+                        "log_file": str(ref.path), "_file": file_record(ref.path)})
     if not entries:
         raise dsh.DshError("nothing to audit: no tool calls found in the selected sessions"
                            + (f" ({len(sessions)} session log(s) read)" if sessions else ""))
     entries.sort(key=lambda item: (item["_ms"] if isinstance(item["_ms"], (int, float)) else 0,
                                    item["_index"], item["_seq"]))
-    prev = audit.GENESIS
-    lines = []
+    files = [dict(session_id=item["session_id"], **item.pop("_file")) for item in audited]
+    source = {"by": "dsh_audit.py", "version": BUILD_VERSION, "sessions": files, "lines": len(entries),
+              "warnings": len(warnings), "skipped": len(skipped)}
+    lines, head = chain_lines([item["entry"] for item in entries], source)
     kinds = {}
     tools = {}
-    for seq, item in enumerate(entries, 1):
+    for item in entries:
         entry = item["entry"]
-        entry.pop("hash", None)
-        entry["seq"] = seq
-        entry["prev"] = prev
-        entry["hash"] = audit.digest(entry)
-        prev = entry["hash"]
-        lines.append(audit.canonical(entry) + "\n")
         kinds[entry["kind"]] = kinds.get(entry["kind"], 0) + 1
         tools[entry["tool"]] = tools.get(entry["tool"], 0) + 1
     out = pathlib.Path(args.out).expanduser()
@@ -313,14 +340,15 @@ def build(args):
         "sha256": hashlib.sha256(payload).hexdigest(),
         "bytes": len(payload),
         "lines": len(entries),
+        "rebuild_line": 1,
         "sessions": audited,
         "sessions_total": len(sessions),
         "kinds": kinds,
         "tools": tools,
         "first_ts": first_ts,
         "last_ts": last_ts,
-        "head_seq": len(entries),
-        "head_hash": entries[-1]["entry"]["hash"],
+        "head_seq": len(lines),
+        "head_hash": head,
         "warnings": warnings,
         "skipped": skipped,
         "note": "after-the-fact reconstruction from DSH session logs; DSH has no real-time hook",

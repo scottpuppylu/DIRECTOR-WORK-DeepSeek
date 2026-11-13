@@ -101,7 +101,7 @@
 | `metrics_report.py` | PURPOSE 五個數字 |
 | `memory_size_check.py` | 指示檔大小；**適配**：預設找最近的 `AGENTS.md`（不再寫死 `~/.claude`） |
 | `secret_mask.py` | 機密遮罩 |
-| `pause_ctl.py` | 暫停旗標與程序檢查（重資源排程用）；**適配**：移除 hook 自動檢查假設 |
+| `pause_ctl.py` | 暫停旗標與程序檢查（重資源排程用）；**適配**（2.2.1-ds.1 才真的改；2.2.0-ds.1 寫了但檔案沒動）：說明改成 DSH 沒有 hook、旗標要 worker 自己讀（`pause_ctl.py status` 或 `dsh_guard.py --pause-flag`）、總監審查時核對 |
 | `audit_log.py` | hash chain 的 verify／head／cite／recover��append 是 hook 用，DSH 不用） |
 | `vocabulary.json` | worker 可填的狀態用詞 |
 
@@ -110,9 +110,9 @@
 | 工具 | 用途 |
 |---|---|
 | `dsh_usage.py` | 讀 session 紀錄：每日／每 session 的 input/output/cache tokens、最後 prompt 大小、上下文百分比、effort |
-| `dsh_audit.py` | 從 session 紀錄重建動作 audit（相容 `report_vs_audit.py` 與 `audit_log.py` 的 hash chain） |
+| `dsh_audit.py` | 從 session 紀錄重建動作 audit（相容 `report_vs_audit.py` 與 `audit_log.py` 的 hash chain）；2.2.1-ds.1 起第 1 行 `kind=rebuild`，同上游 `transcript_audit.py` |
 | `dsh_doctor.py` | 環境自檢：Python、Node、session 目錄、模型設定、沙箱、git、工具齊全 |
-| `dsh_setup_check.py` | DIRECTOR 建置檢查（取代舊 setup_check 的 PO_PAGE_URL 檢查） |
+| `dsh_setup_check.py` | DIRECTOR 建置檢查（取代舊 setup_check 的 PO_PAGE_URL 檢查）；2.2.1-ds.1 加上游 2.2.1 的 shadow 檢查與 `--strict` |
 | `dsh_guard.py` | 風險指令的**自我提醒**（沒有 hook，不是自動阻擋） |
 | `selftest_ds.py` | 這版工具的冒煙測試（不重寫上游 selftest） |
 
@@ -146,6 +146,7 @@
 | 子代理中途改 effort | DSH 限制 | 開接班子代理 | 多一次交接成本 |
 | reviewer 只給讀取工具 | 子代理預設全工具；preset 屬使用者層 | 指示只准讀＋`dsh_audit.py` 核對 | 靠信任與事後檢查 |
 | 上游 selftest.py（527 KB） | 大量 Claude 專用測試 | 新寫 `selftest_ds.py` 冒煙測試 | 覆蓋率比上游低 |
+| 上游 `transcript_audit.py`（2.2.1） | 它讀 Claude Code 的 transcript（`~/.claude/projects`），DSH 沒有這種檔 | `dsh_audit.py` 本來就從 DSH session 紀錄事後重建；2.2.1-ds.1 起寫同樣的 `kind=rebuild` 第 1 行 | 無新增風險；兩者的 result 雜湊都不能和 hook 紀錄比 |
 
 ## 8. 驗證結果
 
@@ -187,7 +188,7 @@
 ## 9. 已知限制
 
 - **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；DeepSeek 版改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes。這是平台名詞與限制的必要說明，不是新增規則；DSH 版沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
-- 移植版本對應上游 2.2.0；上游之後的規則變更要手動跟（見第 10 節）。
+- 移植版本對應上游 2.2.1（2.2.1-ds.1；上游 2.2.1 只改工具，沒有改規則文件）；上游之後的規則變更要手動跟（見第 10 節）。
 - 用量與動作紀錄依賴 DSH session 檔格式（`session.v4.jsonl.zstd`）；DSH 升版改格式時要更新 `dsh_usage.py`／`dsh_audit.py`。
 - 模型只有 deepseek-flash；沒有任何「換更強模型」的選項，只能用 effort 與拆工。
 - 章節與範例中的歷史數字（原專案量到的）沿用，換平台後要自己重量。

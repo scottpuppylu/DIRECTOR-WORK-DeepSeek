@@ -3,7 +3,7 @@
 照順序做。每一步做完才做下一步。標「問 PO」的，放進待決帳（第 6 步：`ask_user_question` 加本機 `DIRECTOR/PO_PENDING.md`）並列進第一份回報，不自己做。
 照文件做不下去時（文件沒寫、寫錯、工具失敗），在 `DIRECTOR/DIRECTOR_LOG.md` 記一行 `BOOTSTRAP_STUCK 第 <n> 步 <原因>`；第 3 步之前卡住的，建好後補記。這是 `PURPOSE.md`「新專案導入時卡住的次數」的來源。
 `<RULES>` 指本規則包在本機的位置，`<REPO>` 指新專案的 git repo，`<WS>` 指放共用狀態的位置（見第 3 步）。
-本檔是 DeepSeek Harness（DSH）版；Claude 版原文見上游 https://github.com/scottpuppylu/DIRECTOR-WORK 的 `BOOTSTRAP.md`（v2.2.0）。DSH 上每個能力實際用哪個工具，見 `docs/11_dsh_operations.md`。
+本檔是 DeepSeek Harness（DSH）版；Claude 版原文見上游 https://github.com/scottpuppylu/DIRECTOR-WORK 的 `BOOTSTRAP.md`（v2.2.1）。DSH 上每個能力實際用哪個工具，見 `docs/11_dsh_operations.md`。
 
 ## 先問模式（第一則回覆）
 

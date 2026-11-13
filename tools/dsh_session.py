@@ -30,7 +30,8 @@ DSH keeps two things per session (both under the DSH home, default %USERPROFILE%
 Session identity, verified against real DSH sessions: a root (human) session has an id of the form
 "session-<uuid>" and its projection cache has no subagent identity; a subagent session has a bare "<uuid>" id and a
 subagent identity row. The parent root's subagentCatalog names its children (childId -> name, e.g. "tools-port").
-The root agent is called "lead" (REWRITE-GUIDE section 0); a root session may also be marked by
+The root agent is called "lead" (docs/01_roles_authority.md, docs/11_dsh_operations.md); a root session may also be
+marked by
 ".sessions/delegationDepth" 0 in the event-log header.
 
 Node is found as: env DSH_NODE, else <DSH_HOME>/dsh-runtimes/*/dependencies/node/bin/node.exe (or .../node), else
