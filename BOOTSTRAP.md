@@ -3,7 +3,7 @@
 照順序做。每一步做完才做下一步。標「問 PO」的，放進待決帳（第 6 步：`ask_user_question` 加本機 `DIRECTOR/PO_PENDING.md`）並列進第一份回報，不自己做。
 照文件做不下去時（文件沒寫、寫錯、工具失敗），在 `DIRECTOR/DIRECTOR_LOG.md` 記一行 `BOOTSTRAP_STUCK 第 <n> 步 <原因>`；第 3 步之前卡住的，建好後補記。這是 `PURPOSE.md`「新專案導入時卡住的次數」的來源。
 `<RULES>` 指本規則包在本機的位置，`<REPO>` 指新專案的 git repo，`<WS>` 指放共用狀態的位置（見第 3 步）。
-本檔是 DeepSeek Harness（DSH）版；Claude 版原文見 upstream（`repo/BOOTSTRAP.md`）。DSH 上每個能力實際用哪個工具，見 `docs/11_dsh_operations.md`。
+本檔是 DeepSeek Harness（DSH）版；Claude 版原文見上游 https://github.com/scottpuppylu/DIRECTOR-WORK 的 `BOOTSTRAP.md`（v2.2.0）。DSH 上每個能力實際用哪個工具，見 `docs/11_dsh_operations.md`。
 
 ## 先問模式（第一則回覆）
 
@@ -53,7 +53,7 @@
 
 ## 1. 取得規則包並讀完
 
-1. 把本規則包放到專案外的位置：`git clone <本規則包的 repo 網址> <RULES>`（PO 給了本機路徑就直接用）。第 3 步再把整個 `tools/` 複製到 `DIRECTOR/tools/`。
+1. 把本規則包放到專案外的位置：`git clone https://github.com/scottpuppylu/DIRECTOR-WORK-DeepSeek <RULES>`（PO 給了本機路徑就直接用）。第 3 步再把整個 `tools/` 複製到 `DIRECTOR/tools/`。
    沒有 git 程式時，PO 可以從 GitHub 下載 ZIP 解開放到 `<RULES>`，版本的 commit 記 `NONE (ZIP)`；這樣只能讀規則、跑不需要 git 的工具，完整導入和派工要 git（第 0 步第 1 點）。
    PO 給了連結，就算同意下載這一個專案。跑工具前先讀過它的程式碼；第一輪會跑 `dsh_setup_check.py`、`dsh_doctor.py`、`dsh_usage.py`、`memory_size_check.py`、`gate_check.py`，其他的等要用時再讀。
    記下規則包的版本（`<RULES>/VERSION` 加上 `git -C <RULES> rev-parse --short HEAD`），第 3 步寫進 `DIRECTOR_OPERATING_RULES.md`。
