@@ -25,6 +25,7 @@
 
 - 一律落檔：`DIRECTOR/orders/WO-<編號>-<短名>.md`，格式見 `templates/WORK_ORDER.md`。`send_message` 只附路徑、一句摘要和必要的決定。
 - 必填：`PRIMARY_WORKER / MODEL / EFFORT / FALLBACK / GOVERNANCE / BASE_REF / SCOPE / FORBIDDEN / ACCEPTANCE / DELIVERABLES / STOP_RULES`。
+- BASE_REF 寫 `origin/main @ <commit>`，派工前先 `git fetch`，填 fetch 後遠端分支的最新 commit（2.2.1-ds.3）。`gate_check.py --order --repo <專案>` 會自己 fetch 再比：commit 不存在或落後遠端時印 `~ WARN BASE_REF`，加 `--strict-base` 判不過；fetch 失敗會印「not compared with the remote」，不會當作通過。故意從舊版開工就在工單寫明理由。開關在 `director_work.json` 的 `"base_ref"`（`check`、`fetch`、`strict`，預設 true／true／false）。
 - 模型與 effort：`MODEL` 一律 `deepseek-flash`；`EFFORT` 只能寫 `off / low / high / max`（`docs/05`）。effort 在總監用 `subagent` 開 worker 時指定，開完不能中途改；要換就開接班子代理，並在工單 H 節記錄。
 - 內容分段：A 背景、B 目標（MUST / OPTIONAL / OUT OF SCOPE，加上 SCOPE / FORBIDDEN 路徑清單）、C 執行前檢查、D 實作要求、E 驗收條件、F 安全與版控、G 完成定義。
 - 驗收條件每項有：ID、類型、要求、驗證方法、預期。結果（實際、證據、狀態）寫在 TASK REPORT 的 ACCEPTANCE 表，不寫回工單。Mock 和單元測試不能當成真實環境的驗收。

@@ -12,6 +12,9 @@ evidence and the product is still the Director's job (docs/02, docs/07).
              criterion: the check the Director approves, locked by the dispatch hash. A Strict order with an AUTO
              criterion and no check is noted. An optional `REQUIRED_CHANGES:` list (globs the work must change, read
              by scope_check.py) must lie inside SCOPE and outside FORBIDDEN, or the order cannot be done
+             2.2.1-ds.3: the BASE_REF commit is compared with the remote branch after a git fetch (in --repo, default
+             the current folder): missing or behind prints `~ WARN BASE_REF`, --strict-base makes it fail; a failed
+             fetch says it did not compare with the remote. Switches: "base_ref" in director_work.json
   --report   required fields filled in; RESULT in the vocabulary; PASS is refused with NOT_RUN tests or a scope violation
   --test-request
              every field of templates/TEST_REQUEST.md filled; BUILD_GB, CACHE_GB and WRITE_GB in GiB, not GB;
@@ -1103,6 +1106,98 @@ def evidence_module():
     return module
 
 
+BASE_DEFAULTS = {"check": True, "fetch": True, "strict": False}
+BASE_SHA = re.compile(r"(?:(?P<ref>[\w./-]+)\s*@\s*)?\b(?P<sha>[0-9a-fA-F]{7,40})\b")
+
+
+def base_config(order_path, config_path):
+    """2.2.1-ds.3: the "base_ref" switches of director_work.json (same file lookup as the "sdd" ones)."""
+    config = dict(BASE_DEFAULTS)
+    path = pathlib.Path(config_path) if config_path else pathlib.Path(order_path).resolve().parent.parent / "director_work.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig")) if path.is_file() else {}
+    except (OSError, ValueError):
+        data = {}  # sdd_gate.load_config already reports an unreadable config
+    block = data.get("base_ref") if isinstance(data, dict) else None
+    if isinstance(block, dict):
+        config.update({key: value for key, value in block.items() if key in BASE_DEFAULTS})
+    return config
+
+
+def base_git(repo, *args, timeout=120):
+    import subprocess
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, str(error)
+    return proc.returncode, (proc.stdout if proc.returncode == 0 else (proc.stderr or proc.stdout)).strip()
+
+
+def base_ref_problems(order_text, repo, config, notes, fetched):
+    """2.2.1-ds.3: is the order's BASE_REF commit still the tip of the remote branch? A commit that is missing or behind
+    is a `WARN BASE_REF` note, a problem with --strict-base ("strict"). A fetch that fails says so: no silent pass.
+    fetched caches one fetch per repo and remote for the whole run."""
+    if not config["check"]:
+        return []
+    m = re.search(r"^[ \t]*BASE_REF[ \t]*=[ \t]*(.*)$", order_text, re.M)
+    value = re.split(r"\s+#", m.group(1))[0].strip() if m else ""  # a trailing ` # comment` is not the ref
+    found = BASE_SHA.search(value)
+    if not found:
+        notes.append("BASE_REF names no commit (a hash like `origin/main @ 1bfcb4a`); freshness not checked")
+        return []
+    problems = []
+
+    def warn(message):
+        (problems if config["strict"] else notes).append(("" if config["strict"] else "WARN ") + "BASE_REF: " + message)
+        return problems
+
+    sha, ref = found.group("sha").lower(), found.group("ref") or ""
+    code, top = base_git(repo, "rev-parse", "--show-toplevel")
+    if code:
+        return warn(f"not compared with the remote: {repo} is not a git repository (give --repo <project checkout>)")
+    code, remotes = base_git(repo, "remote")
+    remotes = remotes.split() if not code else []
+    remote, branch = None, None
+    if "/" in ref and ref.split("/", 1)[0] in remotes:
+        remote, branch = ref.split("/", 1)
+    elif remotes:
+        remote = "origin" if "origin" in remotes else remotes[0]
+        branch = ref if ref and "/" not in ref else None
+    if not remote:
+        return warn("not compared with the remote: the repository has no remote")
+    if config["fetch"]:
+        key = (top, remote)
+        if key not in fetched:
+            fetched[key] = base_git(repo, "fetch", "--quiet", remote)
+        code, message = fetched[key]
+        if code:
+            return warn(f"not compared with the remote: git fetch {remote} failed ({message.splitlines()[-1][:200] if message else code})")
+    else:
+        notes.append(f"BASE_REF: compared with the local copy of {remote} (\"base_ref\": {{\"fetch\": false}}); not fetched")
+    if not branch:
+        code, head = base_git(repo, "symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD")
+        branch = head.split("/", 1)[1] if not code and "/" in head else "main"
+    tip_ref = f"{remote}/{branch}"
+    code, tip = base_git(repo, "rev-parse", "--verify", "-q", tip_ref + "^{commit}")
+    if code:
+        return warn(f"not compared with the remote: {tip_ref} does not exist")
+    code, full = base_git(repo, "rev-parse", "--verify", "-q", sha + "^{commit}")
+    if code:
+        return warn(f"commit {sha} does not exist in {top}" + (" (even after fetching)" if config["fetch"] else ""))
+    if full == tip:
+        notes.append(f"BASE_REF {sha} = {tip_ref} ({'fetched now' if config['fetch'] else 'local copy'})")
+        return []
+    code, behind = base_git(repo, "rev-list", "--count", f"{full}..{tip}")
+    code2, ahead = base_git(repo, "rev-list", "--count", f"{tip}..{full}")
+    behind, ahead = int(behind or 0) if not code else 0, int(ahead or 0) if not code2 else 0
+    if behind:
+        return warn(f"{sha} is {behind} commit(s) behind {tip_ref} ({tip[:10]})" + (f" and {ahead} ahead" if ahead else "")
+                    + f"; start the work from {tip_ref} (git fetch, then a branch from it) or write in the order why not")
+    notes.append(f"BASE_REF {sha} is {ahead} commit(s) ahead of {tip_ref} (not pushed yet); not stale")
+    return []
+
+
 def sdd_module():
     """sdd_gate.py next to this file (ds.2: SPEC_CHANGE, locked tests, spec review and plan approval)."""
     import importlib.util
@@ -1562,6 +1657,8 @@ def main():
     ap.add_argument("--order-history", metavar="DIR", help="with --match: old orders, found by hash, for carried-over evidence")
     ap.add_argument("--artifact-root", metavar="DIR", help="with --po-acceptance: the folder the entry and manifest paths "
                     "are read from (default: the record file's folder)")
+    ap.add_argument("--strict-base", action="store_true", help="with --order: a BASE_REF commit that is missing or behind "
+                    "the remote branch, or a fetch that fails, fails (default: a WARN note)")
     ap.add_argument("--warn", action="store_true", help="report problems as WARN and exit 0")
     ap.add_argument("--since", metavar="YYYY-MM-DD", help="skip files dated before this day")
     a = ap.parse_args()
@@ -1600,6 +1697,8 @@ def main():
     if not jobs and not a.preflight:
         ap.error("give at least one of --resume / --order / --report / --verdict / --test-request / --po-acceptance / "
                  "--match / --preflight / --hash / --brief")
+    if a.strict_base and not a.order:
+        ap.error("--strict-base works with --order")
     if a.repo and not (a.preflight or a.order or a.match):
         ap.error("--repo works with --preflight, --order or --match")
     if a.config and not pathlib.Path(a.config).is_file():
@@ -1634,6 +1733,7 @@ def main():
             print(f"  ~ {line}")
 
     failed = skipped = undated = 0
+    fetched = {}  # 2.2.1-ds.3: one git fetch per repository and remote for the BASE_REF check
     for report_path, order_path in a.preflight:
         files = [pathlib.Path(report_path), pathlib.Path(order_path)]
         if not all(f.is_file() for f in files):
@@ -1689,6 +1789,10 @@ def main():
                 problems.append(problem)
             repo = pathlib.Path(a.repo or ".")
             problems += sdd.order_problems(order_text, order_path, repo, config, notes)
+            if kind == "order":
+                base = base_config(order_path, a.config)
+                base["strict"] = base["strict"] or a.strict_base
+                problems += base_ref_problems(order_text, repo, base, notes, fetched)
             if kind == "match":
                 problems += sdd.match_problems(order_text, order_ids(order_text, order_path), log_text, repo, config, notes)
         if brief and text is not None and kind in ("order", "match"):

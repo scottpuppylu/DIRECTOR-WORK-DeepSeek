@@ -19,6 +19,12 @@
     "prefer_auto": true,
     "openspec_bin": null
   },
+  "_comment_base_ref": "2.2.1-ds.3 gate_check.py --order compares the order's BASE_REF commit with the remote branch. check: run it; fetch: git fetch first (false = compare with the local copy, said in the output); strict: a stale or missing BASE_REF or a failed fetch fails (same as --strict-base).",
+  "base_ref": {
+    "check": true,
+    "fetch": true,
+    "strict": false
+  },
   "_comment_release": "2.2.1-ds.3 tools/release.py (optional; these are the defaults). title: {version} is filled in. selftest: a command line run in the repo. gh_repo: owner/name, null = from the remote URL.",
   "release": {
     "remote": "origin",

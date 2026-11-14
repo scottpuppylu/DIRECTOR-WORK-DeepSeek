@@ -29,6 +29,9 @@ Runs, on this machine and offline:
   release_scan  2.2.1-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
               <drive>:/Users path, DIRECTOR/ / _work/ / session files and a private author email, never prints a secret;
               noreply / .invalid emails and DIRECTOR/ named in text pass
+  base_ref_fresh 2.2.1-ds.3: gate_check --order fetches and compares BASE_REF with origin/main in a temp clone:
+              up to date is confirmed, 1 behind is a WARN note (--strict-base: FAIL), a missing commit is noted,
+              a failed fetch says it did not compare (--strict-base: FAIL)
   release_execute 2.2.1-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
               push and tag verified with ls-remote, the release step stops on a non-GitHub remote, a rerun skips
   sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
@@ -888,6 +891,49 @@ def release_execute(tmp):
     require("STEP push: SKIP" in again and "STEP tag: SKIP" in again and "UP_TO_DATE" in again,
             "a rerun did not skip what was already done: " + tail(again))
     return "merge --no-ff into release/1.1.0, push and tag verified, rerun skips them"
+
+
+@test
+def base_ref_fresh(tmp):
+    base = tmp / "bref"
+    base.mkdir(parents=True)
+    rgit(base, "init", "-q", "--bare", "-b", "main", "origin.git")
+    proj = release_clone(base / "origin.git", base / "proj")
+    repo, lock, env = sdd_fixture(base, "proj")
+    rgit(proj, "add", "-A")
+    rgit(proj, "commit", "-q", "-m", "base")
+    rgit(proj, "push", "-q", "origin", "HEAD:refs/heads/main")
+    sha = rgit(proj, "rev-parse", "--short=7", "HEAD")
+
+    def order(ref):
+        return sdd_order("openspec/changes/good-change", lock).replace("BASE_REF       = main @ abc1234",
+                                                                        "BASE_REF       = " + ref)
+
+    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    require(proc.returncode == 0 and "BASE_REF %s = origin/main (fetched now)" % sha in text,
+            "an up-to-date BASE_REF was not confirmed after a fetch: " + tail(text))
+    other = release_clone(base / "origin.git", base / "other")
+    write(other / "later.txt", "x\n")
+    rgit(other, "add", "later.txt")
+    rgit(other, "commit", "-q", "-m", "later")
+    rgit(other, "push", "-q", "origin", "HEAD:refs/heads/main")
+    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    require(proc.returncode == 0 and "~ WARN BASE_REF: %s is 1 commit(s) behind origin/main" % sha in text,
+            "a BASE_REF behind origin/main was not a WARN note: " + tail(text))
+    proc, text = sdd_run(repo, order("origin/main @ " + sha), env, "--strict-base")
+    require(proc.returncode == 1 and "  - BASE_REF: %s is 1 commit(s) behind" % sha in text,
+            "--strict-base did not fail a stale BASE_REF: " + tail(text))
+    proc, text = sdd_run(repo, order("origin/main @ deadbee"), env)
+    require(proc.returncode == 0 and "WARN BASE_REF: commit deadbee does not exist" in text,
+            "a BASE_REF commit that does not exist was not noted: " + tail(text))
+    rgit(proj, "remote", "set-url", "origin", str(base / "gone.git"))
+    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    require(proc.returncode == 0 and "WARN BASE_REF: not compared with the remote: git fetch origin failed" in text,
+            "a failed fetch was not said out loud: " + tail(text))
+    proc, text = sdd_run(repo, order("origin/main @ " + sha), env, "--strict-base")
+    require(proc.returncode == 1 and "  - BASE_REF: not compared with the remote" in text,
+            "--strict-base did not fail when the fetch failed: " + tail(text))
+    return "fresh = origin/main, 1 behind WARN / --strict-base FAIL, missing commit, fetch failure WARN / FAIL"
 
 
 @test

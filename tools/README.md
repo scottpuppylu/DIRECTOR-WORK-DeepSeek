@@ -22,7 +22,7 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 
 ## 上游保留（跨平台，已適配 DSH）
 
-- `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。ds.2：Standard／Strict 工單另查 SDD 規則（`--repo <專案>`、`--config director_work.json`）。
+- `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。ds.2：Standard／Strict 工單另查 SDD 規則（`--repo <專案>`、`--config director_work.json`）。2.2.1-ds.3：`--order` 先 `git fetch` 再比 BASE_REF 與遠端分支，落後或不存在印 `~ WARN BASE_REF`，`--strict-base` 判不過，fetch 失敗會明說沒比對。
 - `scope_check.py`：比對實際改動與工單 SCOPE／FORBIDDEN。ds.2：Standard／Strict 工單另查大小上限（`OVERSIZE`）。
 - `evidence_record.py`：跑驗收指令，留下 exit code、輸出尾段、產物 SHA-256；`verify --rerun` 可重跑。
 - `report_vs_audit.py`：拿 RAN 與 TESTS／EVIDENCE／DONE 的指令對動作紀錄（DSH 包殼指令會先剝殼再比；比對不到就 FAIL，不會亂放行）。2.2.1：被截在 500 字的行會照 JSON 字串解回引號與反斜線，長的 Windows 路徑指令也對得上；單字比對至少要 2 個不是 `...`／`<名稱>` 的字；讀到 `kind=rebuild` 的紀錄會印一行 note。
