@@ -1,6 +1,7 @@
 # GATE VERDICT — <TASK_ID> <gate 名稱>
 <YYYY-MM-DD HH:MM，讀 date> 總監
 ORDER: <WO-檔名.md> REVISION <n>
+（ORDER 行要以工單編號開頭，只寫檔名，例如 `ORDER: WO-101-clamp.md REVISION 1`；寫完整路徑或標題的話，`gate_check.py --verdict --match` 認不出工單（Strict 判不過，Standard 印 `~` 提示）。需要完整路徑就另起一行寫。這一行括號說明寫裁決時刪掉。）
 CANDIDATE_HEAD: <審查的 commit，40 位，git rev-parse worker 分支>
 ORDER_SHA256: <選用：gate_check.py --hash 工單>
 REPORT_SHA256: <選用：gate_check.py --hash 報告；寫了之後報告再被改，--match 會印 ~ VERDICT_RECORD>
@@ -34,4 +35,5 @@ EVIDENCE_RERUN <WO-ID> <AC> candidate=<40 位> result=ok record=<檔名>
 `<DIRECTOR>/orders/WO-<編號>-<短名>.md`
 
 ## F. 停止狀態
+（必填：缺這節或空白，`gate_check.py --verdict` 會判不過。）
 NO MERGE / NO PUSH / NO FINAL ACCEPTANCE（除非 PO 另行核准，寫明核准來源）

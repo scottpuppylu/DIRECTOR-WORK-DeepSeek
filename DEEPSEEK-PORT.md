@@ -188,7 +188,7 @@
 ## 9. 已知限制
 
 - **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；DeepSeek 版改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes。這是平台名詞與限制的必要說明，不是新增規則；DSH 版沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
-- 移植版本對應上游 2.2.1（2.2.1-ds.1；上游 2.2.1 只改工具，沒有改規則文件）；上游之後的規則變更要手動跟（見第 10 節）。
+- 移植版本對應上游 2.2.1（2.2.1-ds.1 起，現為 2.2.1-ds.2；上游 2.2.1 只改工具，沒有改規則文件）；上游之後的規則變更要手動跟（見第 10 節）。
 - 用量與動作紀錄依賴 DSH session 檔格式（`session.v4.jsonl.zstd`）；DSH 升版改格式時要更新 `dsh_usage.py`／`dsh_audit.py`。
 - 模型只有 deepseek-flash；沒有任何「換更強模型」的選項，只能用 effort 與拆工。
 - 章節與範例中的歷史數字（原專案量到的）沿用，換平台後要自己重量。
@@ -201,3 +201,9 @@
 1. 看 `CHANGELOG-upstream.md` 的該版變更，只搬「規則、工單格式、gate、證據、續航、初衷卡」這類平台中立的變更。
 2. 平台層（docs/04、05、11、12、BOOTSTRAP 的 DSH 段落、tools/dsh_*.py）以本版為準，不要直接覆蓋。
 3. 每次搬完跑 `tools/selftest_ds.py`，並在 `CHANGELOG.md` 記一筆。
+
+## 11. ds.2 起 DeepSeek 版自己加嚴的規則（上游沒有）
+
+- 規格先行（SDD）：Standard／Strict 工單要有 OpenSpec 變更、鎖定的驗收測試、Standard 也做規格審查、計畫閘門、≤3 檔約 200 行、停止規則 1 輪（`docs/13`）。
+- 理由：上游的品質靠 Opus 的判斷力與 Claude Desktop 機制；DSH 版的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以把判斷前移到派工前。
+- 跟上游同步時，`docs/02` 的「規格先行」一節、`templates/WORK_ORDER.md` 的 `SPEC_CHANGE`／`TESTS_LOCKED`／計畫閘門、`tools/sdd_gate.py` 和 `gate_check.py`／`scope_check.py` 的 ds.2 呼叫點以本版為準；上游改到同一段時手動合併。

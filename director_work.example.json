@@ -5,5 +5,18 @@
   "trace_id_pattern": "^(B|DD|OD)-\\d+$",
   "po_pending_files": ["PO_PENDING.md"],
   "po_item_pattern": "^\\s*ID\\s*:\\s*(OD|ACT|CH)-\\w+",
-  "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b"
+  "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b",
+  "_comment_sdd": "ds.2 spec-first (docs/13): every switch defaults to on when missing. Set one to false (a limit to 0) only with a reason in DIRECTOR_LOG. openspec_bin: path to openspec(.cmd); the OPENSPEC_BIN environment variable wins; null = openspec on PATH.",
+  "sdd": {
+    "require_spec_for_strict": true,
+    "require_spec_for_standard": true,
+    "spec_review_for_standard": true,
+    "tests_first": true,
+    "plan_gate": true,
+    "max_files_per_order": 3,
+    "max_lines_per_order": 200,
+    "stop_after_rounds": 1,
+    "prefer_auto": true,
+    "openspec_bin": null
+  }
 }

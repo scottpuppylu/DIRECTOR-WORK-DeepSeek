@@ -6,6 +6,7 @@ Without --file it looks for AGENTS.md: the nearest one from the current folder u
 instructions the DSH harness loads on every call). Only reads; tidy the index by hand as described in docs/09_memory.md.
 """
 import argparse
+import re
 import pathlib
 import sys
 

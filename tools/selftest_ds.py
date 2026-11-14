@@ -23,6 +23,11 @@ Runs, on this machine and offline:
               notes without --strict and fail with it; a clean folder passes --strict
   audit_rebuild 2.2.1-ds.1: dsh_audit.chain_lines writes the kind=rebuild first line, dsh_audit verify accepts the
               chain and report_vs_audit reads it with a note (no DSH session log needed)
+  sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
+              a valid Standard order passes; SPEC_CHANGE = NONE on Standard, a change that fails validate, a missing
+              CLI, an edited locked test, STOP_RULES over 1 round, a changed approved plan, a missing SPEC_REVIEW /
+              PLAN_APPROVED line and 4 changed files all FAIL. sdd_real_openspec runs the real CLI (SKIP when
+              neither OPENSPEC_BIN nor PATH has one)
 
 Prints PASS / FAIL / SKIP per test and a summary line
   SELFTEST_DS: PASS|FAIL tests=n pass=n fail=n skip=n
@@ -48,7 +53,7 @@ TIMEOUT = 240
 BT = chr(96)
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
-             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log")
+             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate")
 TESTS = []
 
 
@@ -61,10 +66,11 @@ def test(function):
     return function
 
 
-def run_tool(name, *args, cwd=None):
+def run_tool(name, *args, cwd=None, env=None):
     return subprocess.run(PY_ARGS + [str(TOOLS / (name + ".py"))] + [str(a) for a in args],
                           cwd=str(cwd) if cwd else None, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=TIMEOUT)
+                          errors="replace", timeout=TIMEOUT,
+                          env=dict(os.environ, **env) if env else None)
 
 
 def run_prog(args, cwd=None):
@@ -328,6 +334,178 @@ def evidence_record(tmp):
     require(verify.returncode == 0 and "EVIDENCE_VERIFY: OK" in text_of(verify),
             "evidence_record verify exit %s: %s" % (verify.returncode, tail(text_of(verify))))
     return "record+verify OK"
+
+
+# ds.2 SDD gate (sdd_gate.py through gate_check.py / scope_check.py). A stand-in openspec CLI (a .py file named by
+# OPENSPEC_BIN) answers `validate` so the glue is tested on any machine; sdd_real_openspec uses the real CLI when found.
+FAKE_OPENSPEC = '''import json, sys
+args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    print("0.0.0-selftest-stand-in"); sys.exit(0)
+name = args[1] if len(args) > 1 else ""
+ok = name == "good-change"
+issues = [] if ok else [{"level": "ERROR", "path": "file", "message": "Change must have at least one delta."}]
+print(json.dumps({"items": [{"id": name, "type": "change", "valid": ok, "issues": issues}],
+                  "summary": {"totals": {"items": 1, "passed": int(ok), "failed": int(not ok)}}}))
+sys.exit(0 if ok else 1)
+'''
+SDD_TEST = "import unittest\n\nclass T(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n"
+
+
+def sdd_order(spec, tests, governance="Standard", stop="1"):
+    return "\n".join([
+        "# WO-7 — sdd selftest", "**selftest order**", "", "```text",
+        "ISSUED_BY      = 總監 2026-11-14 09:00", "REVISION       = 1", "TRACES_TO      = NONE",
+        "PRIMARY_WORKER = 子代理「w1」", "MODEL / EFFORT = deepseek-flash / high", "FALLBACK       = 同名子代理續談",
+        f"GOVERNANCE     = {governance}", "BASE_REF       = main @ abc1234", f"SPEC_CHANGE    = {spec}", "```", "",
+        "```text", "SCOPE:", "- calc.py", "FORBIDDEN:", "- NONE", "```", "",
+        "```text", "TESTS_LOCKED:", f"- {tests}", "```", "",
+        "| ID | 類型 | 要求 | 驗證方法 | 預期 |", "|---|---|---|---|---|",
+        "| AC-1 | AUTO | add returns the sum | python -m unittest test_calc | exit 0 |", "",
+        "- DELIVERABLES: one commit", f"- STOP_RULES: 同一根因 {stop} 輪沒進展就停", ""])
+
+
+def sdd_fixture(tmp, name):
+    """A project folder with openspec/changes/{good,bad}-change, a locked test, a stand-in CLI and an order writer."""
+    repo = tmp / name
+    for change in ("good-change", "bad-change"):
+        write(repo / "openspec" / "changes" / change / ".openspec.yaml", "schema: spec-driven\n")
+    test_file = write(repo / "test_calc.py", SDD_TEST)
+    lock = "test_calc.py sha256=" + hashlib.sha256(test_file.read_bytes()).hexdigest()
+    fake = write(tmp / (name + "_fake_openspec.py"), FAKE_OPENSPEC)
+    return repo, lock, {"OPENSPEC_BIN": str(fake)}
+
+
+def sdd_run(repo, order_text, env, *extra):
+    order = write(repo / "orders" / "WO-7.md", order_text)
+    proc = run_tool("gate_check", "--order", order, "--repo", repo, *extra, env=env)
+    return proc, text_of(proc)
+
+
+@test
+def sdd_spec_ok(tmp):
+    repo, lock, env = sdd_fixture(tmp, "sdd_ok")
+    proc, text = sdd_run(repo, sdd_order("openspec/changes/good-change", lock), env)
+    require(proc.returncode == 0 and "OK   order" in text, "a valid Standard order did not pass: " + tail(text))
+    return "Standard + SPEC_CHANGE + locked test + validate OK"
+
+
+@test
+def sdd_no_spec_change(tmp):
+    repo, lock, env = sdd_fixture(tmp, "sdd_none")
+    proc, text = sdd_run(repo, sdd_order("NONE", lock), env)
+    require(proc.returncode == 1 and "SPEC_CHANGE: a Standard order" in text,
+            "a Standard order with SPEC_CHANGE = NONE did not FAIL clearly: " + tail(text))
+    direct, dtext = sdd_run(repo, sdd_order("NONE", lock, governance="Direct"), env)
+    require("SPEC_CHANGE" not in dtext, "a Direct order was asked for SPEC_CHANGE: " + tail(dtext))
+    return "NONE on Standard FAILs; Direct is not asked"
+
+
+@test
+def sdd_validate_fails(tmp):
+    repo, lock, env = sdd_fixture(tmp, "sdd_bad")
+    proc, text = sdd_run(repo, sdd_order("openspec/changes/bad-change", lock), env)
+    require(proc.returncode == 1 and "openspec validate bad-change --strict --json` failed" in text,
+            "a change that fails validate did not FAIL: " + tail(text))
+    gone, gtext = sdd_run(repo, sdd_order("openspec/changes/no-such-change", lock), env)
+    require(gone.returncode == 1 and "not found under" in gtext, "a missing change folder did not FAIL: " + tail(gtext))
+    return "validate failure FAILs; missing folder FAILs"
+
+
+@test
+def sdd_no_cli(tmp):
+    repo, lock, env = sdd_fixture(tmp, "sdd_nocli")
+    env = {"OPENSPEC_BIN": str(tmp / "no-such-dir" / "openspec.cmd")}
+    proc, text = sdd_run(repo, sdd_order("openspec/changes/good-change", lock), env)
+    require(proc.returncode == 1 and "openspec CLI not found" in text and "NOT validated" in text
+            and "install" in text, "a missing openspec CLI did not FAIL with an install hint: " + tail(text))
+    return "missing CLI FAILs with an install hint"
+
+
+@test
+def sdd_tests_locked(tmp):
+    repo, lock, env = sdd_fixture(tmp, "sdd_tests")
+    write(repo / "test_calc.py", SDD_TEST + "    def test_more(self):\n        pass\n")
+    proc, text = sdd_run(repo, sdd_order("openspec/changes/good-change", lock), env)
+    require(proc.returncode == 1 and "test_calc.py changed since it was locked" in text,
+            "an edited locked test did not FAIL: " + tail(text))
+    stop, stext = sdd_run(repo, sdd_order("openspec/changes/good-change", "NONE", stop="2"), env)
+    require(stop.returncode == 1 and "STOP_RULES: allows 2 rounds" in stext, "STOP_RULES 2 輪 did not FAIL: " + tail(stext))
+    config = write(repo / "director_work.json", json.dumps({"schema_version": 1, "sdd": {"stop_after_rounds": 2}}))
+    relaxed, rtext = sdd_run(repo, sdd_order("openspec/changes/good-change", "NONE", stop="2"), env, "--config", config)
+    require(relaxed.returncode == 0, "sdd.stop_after_rounds=2 did not relax the rule: " + tail(rtext))
+    return "edited test FAILs; STOP_RULES 2 輪 FAILs; switch relaxes it"
+
+
+@test
+def sdd_plan_and_review(tmp):
+    sdd = load_tool("sdd_gate")
+    repo, lock, env = sdd_fixture(tmp, "sdd_plan")
+    tasks = write(repo / "openspec" / "changes" / "good-change" / "tasks.md", "## 1. Code\n\n- [ ] 1.1 Add subtract\n")
+    order = sdd_order("openspec/changes/good-change", lock)
+    approved = sdd.plan_hash(tasks)
+    log = f"2026-11-14 09:00 | SPEC_REVIEW WO-7 tokens=UNKNOWN issues=0/0/0 adopted=0\nPLAN_APPROVED WO-7 sha={approved}\n"
+    config = dict(sdd.DEFAULTS)
+    unticked = sdd.match_problems(order, ["WO-7"], log, repo, config, [])
+    require(any("not ticked" in p for p in unticked), "a hand-in with an unticked task was not caught: %s" % unticked)
+    write(tasks, "## 1. Code\n\n- [x] 1.1 Add subtract\n")
+    require(sdd.match_problems(order, ["WO-7"], log, repo, config, []) == [], "approved plan + review was refused")
+    write(tasks, "## 1. Code\n\n- [x] 1.1 Add subtract\n- [x] 1.2 Also refactor everything\n")
+    changed = sdd.match_problems(order, ["WO-7"], log, repo, config, [])
+    require(any("differs from the approved plan" in p for p in changed), "an added task was not caught: %s" % changed)
+    missing = sdd.match_problems(order, ["WO-7"], "DISPATCH WO-7 rev=1 sha=" + "0" * 64 + "\n", repo, config, [])
+    require(any(p.startswith("SPEC_REVIEW") for p in missing) and any(p.startswith("PLAN_APPROVED") for p in missing),
+            "a log without SPEC_REVIEW / PLAN_APPROVED was not caught: %s" % missing)
+    return "unticked task FAILs; ticks keep the plan hash; changed plan FAILs; missing log lines FAIL"
+
+
+@test
+def sdd_oversize(tmp):
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    repo = tmp / "sdd_size"
+    repo.mkdir()
+    write(repo / "calc.py", "x = 1\n")
+    for args in (["git", "init", "-q", "-b", "main"], ["git", "config", "user.email", "selftest@example.invalid"],
+                 ["git", "config", "user.name", "Selftest"], ["git", "config", "core.autocrlf", "false"],
+                 ["git", "add", "calc.py"], ["git", "commit", "-q", "-m", "init"]):
+        proc = run_prog(args, cwd=repo)
+        require(proc.returncode == 0, " ".join(args) + " failed: " + tail(text_of(proc)))
+    order = write(tmp / "sdd_size_order" / "WO-7.md", sdd_order("NONE", "NONE").replace("- calc.py", "- src/**\n- openspec/**"))
+    for n in range(4):
+        write(repo / "src" / f"m{n}.py", "a = 1\n")
+    write(repo / "openspec" / "changes" / "x" / "tasks.md", "- [ ] 1.1 not counted\n")
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main")
+    text = text_of(proc)
+    require(proc.returncode == 1 and "OVERSIZE" in text and "files=4/3" in text, "4 changed files did not FAIL: " + tail(text))
+    (repo / "src" / "m3.py").unlink()
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main")
+    require(proc.returncode == 0 and "SIZE: files=3" in text_of(proc), "3 files did not pass: " + tail(text_of(proc)))
+    return "4 files OVERSIZE, 3 files PASS, openspec/ not counted"
+
+
+@test
+def sdd_real_openspec(tmp):
+    sdd = load_tool("sdd_gate")
+    command, how = sdd.find_cli(dict(sdd.DEFAULTS))
+    if command is None or how.endswith("stand-in)"):
+        raise Skip("no real openspec CLI (%s); set OPENSPEC_BIN or put openspec on PATH" % how)
+    repo = tmp / "sdd_real"
+    change = repo / "openspec" / "changes" / "add-subtract"
+    write(repo / "openspec" / "config.yaml", "schema: spec-driven\n")
+    write(change / ".openspec.yaml", "schema: spec-driven\n")
+    write(change / "proposal.md", "## Why\nNeed subtraction.\n\n## What Changes\n- Add subtract.\n")
+    spec = "## ADDED Requirements\n\n### Requirement: Subtract\nThe calculator SHALL subtract b from a.\n\n"
+    write(change / "specs" / "calc" / "spec.md", spec + "#### Scenario: basic\n- **WHEN** subtract(5, 3)\n- **THEN** 2\n")
+    write(change / "tasks.md", "## 1. Code\n\n- [ ] 1.1 Add subtract\n")
+    write(repo / "test_calc.py", SDD_TEST)
+    lock = "test_calc.py sha256=" + hashlib.sha256((repo / "test_calc.py").read_bytes()).hexdigest()
+    proc, text = sdd_run(repo, sdd_order("openspec/changes/add-subtract", lock), None)
+    require(proc.returncode == 0, "a valid change failed the real openspec validate: " + tail(text))
+    write(change / "specs" / "calc" / "spec.md", spec)  # no scenario: --strict must refuse it
+    bad, btext = sdd_run(repo, sdd_order("openspec/changes/add-subtract", lock), None)
+    require(bad.returncode == 1 and "--strict --json` failed" in btext, "a requirement without a scenario passed: " + tail(btext))
+    return "real CLI (%s): valid change OK, scenario-less change FAIL" % how
 
 
 def synthetic_audit(tmp, audit):
