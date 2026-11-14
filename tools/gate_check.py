@@ -1806,7 +1806,8 @@ SPEC_REVIEW_EVENT = re.compile(LOG_DATE + EVENT_COLUMN + r"SPEC_REVIEW[ \t]+([^\
 LOG_TIME = re.compile(r"#*[ \t]*(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?"
                       r"(?:[ \t]*(?:([+-])(\d{2}):?(\d{2})|(Z)))?")
 SESSION = re.compile(r"(?:^[ \t]*SESSION_ID[ \t]*[:=][ \t]*|\bsession=)`?([A-Za-z0-9][\w.:-]*)", re.M)
-REVIEW_FIELDS = ("tokens=", "issues=", "adopted=")
+# 2.2.5-ds.5: the SPEC_REVIEW fields (tokens= issues= adopted=) are checked by safety_gate.review_fields_lacking,
+# the same function --match uses; upstream keeps its own REVIEW_FIELDS here.
 
 
 def log_time(line):
@@ -1944,7 +1945,7 @@ def sequence_problems(order_text, order_path, log_text, log_path, repo, notes):
     reviewer = None
     if reviews:
         rest = reviews[-1][3].group(2) or ""
-        lacking = [f for f in REVIEW_FIELDS if f not in rest]
+        lacking = safety_module().review_fields_lacking(rest)
         if lacking:
             notes.append(f"SPEC_REVIEW {label}: the log line lacks {' '.join(lacking)}")
         reviewer = session_in(reviews[-1][3].group(0))

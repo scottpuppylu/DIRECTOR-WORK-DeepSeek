@@ -61,7 +61,7 @@ WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 
 - `verify_dsh_run` 設定的 `change`、`openspec_bin` 鍵已移除，寫了會被拒絕（未知鍵）。
 
 ### 驗證
-- `selftest_ds.py`：ds.4 是 50 項（不設 OPENSPEC_BIN 50/50；設了 OPENSPEC_BIN 的基準見 TASK_REPORT），B1～B5 之後 46 項，B7 之後 53 項；Python 3.11 和 3.9 各跑一次，都是 53/53、skip=0。
+- `selftest_ds.py`：ds.4 是 50 項（不設 OPENSPEC_BIN 50/50；設了 OPENSPEC_BIN 的基準見 TASK_REPORT），B1～B5 之後 46 項，B7 之後 54 項；Python 3.11 和 3.9 各跑一次，都是 54/54、skip=0。
   - 刪 8 項，都是 OpenSpec 專屬：`sdd_spec_ok`、`sdd_no_spec_change`、`sdd_validate_fails`、`sdd_no_cli`、`sdd_real_openspec`、`sdd_cli_lookup`、`sdd_cli_setup`、`sdd_which_off_224`。
   - 改名 4 項：`sdd_tests_locked` → `safety_tests_locked_225`、`sdd_plan_and_review` → `safety_plan_and_review_225`、`sdd_spec_off_gate` → `safety_switch_off_225`、`sdd_oversize` → `order_oversize`。
   - 新增 4 項：`safety_legacy_block_225`、`safety_mutations_225`（6 個 mutation）、`usage_final_225`（3 個 mutation）、`worker_worktree_225`（2 個 mutation）。
@@ -69,7 +69,8 @@ WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 
   - 安全閘門 selftest：ds.4 有 6 項，這一版有 8 項。
   - B7 新增 7 項（上游 2.2.5 的案例表、fixture、mutation 字串逐字相同，只換測試框架）：`report_vs_audit_225`（H1 的 10 個比對案例、18 次 CLI 執行、13 個 mutation，另查 `dsh_audit` 整條保留與 `--input-limit` 的 `input_cut`）、`weird_inputs_225`、`ran_line_225`（5 個 mutation；上游的 `browser_check` 那一項本版沒有這支工具，不搬）、`gate_order_225`（5 個）、`after_verdict_225`（1 個）、`final_225`（3 個）、`scope_shared_225`（4 個）。
   - B7 改內容：`after_verdict_224` 照上游 2.2.5 改成預設 FAIL（mutation 換成上游 2.2.5 的 5 個）；`worker_worktree_225` 改看上游格式的 WORKTREE 行；`usage_final_225` 加「沒有 E2E 就 `FAIL final`、exit 1」，usage 的檢查放在有 E2E 的情況下照舊。
-  - Python 3.9：`Path.write_text(newline=)` 要 3.10，selftest 的寫檔函式、`test_verify_dsh_run.py` 和 `verify_dsh_run.py` 的 `save` 改用 `open(..., newline=)`（和 `pause_ctl.py` 同寫法）。之前在 3.9 上 selftest 47 項壞在這裡，`verify_dsh_run.py` 寫報告也會壞。
+  - Python 3.9：修正前在 3.9 上 selftest 有 47 項壞在 `write_text(newline=)`（修法見上「上游 DW 2.2.5 移植」的 Python 3.9 修正）。
+  - 總監裁示後新增 `spec_fields_shared_225`（1 個 mutation：safety_gate 的 `review_fields_lacking` 改成什麼都不缺，`--match` 和 `--sequence` 的提示都要跟著消失）。
 - `test_verify_dsh_run.py` 33 項（Python 3.11、3.9 都 OK）：D10、步驟「4 鎖定測試」「7 計畫閘門」留著，計畫檔改成 PLAN.md。
 - 每輪必讀（docs/01、03、06、08）：10,964 → 10,964 bytes（這幾個檔沒改）。
 
@@ -86,7 +87,9 @@ WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 
 - `scope_check.py`：BASE_REF 括號當註解、`WORKTREE:` 行、長路徑訊息、最上層 `NOT_RUN`。`--shared` 用本版 ds.4 B2 的那份（上游 2.2.5 搬回去的就是它，查的東西相同；本版另外算大小）。
 - WORKTREE 行只留一份：`scope_check.worktree_line`（上游 2.2.5 B10）；`dsh_session.py --worktree-status` 和 `gate_check.py --report-skeleton` 都呼叫它。行的格式改成上游的 `WORKTREE: 隔離 worktree <路徑> (git worktree list: n)`／`WORKTREE: 共用 checkout（主 checkout） <路徑> (...)`。
 - 範本與文件：`SPEC_REVIEW` 清單加上游第 10～14 項（本版編號 13～17）、LOG 行加 `session=`；`WORK_ORDER` 加 `WORKER_LIMIT` 和交接；`GATE_VERDICT` 加 `SESSION_ID:` 和 G 節最終驗收；`TASK_REPORT` 的 RAN 行用 `ran_line.py`；`DECISION_REGISTER` 加「驗收案例」欄；`DIRECTOR_FILES` 加 DIRECTOR_LOG 時間戳格式和 IDEAS.md；`docs/02` 加閘門順序、裁決後鎖程式碼、最終驗收、輪數上限、TEMP 更正；`BOOTSTRAP` 開 worker 提示加 TEMP 更正。DSH 用語照本版（`subagent`、`send_message`、停止規則 1 輪）。
-- 規格審查的「有沒有審查」查了兩處：`--match`（`safety_gate.spec_review_problems`，本版 ds.4 B4，安全開關 `spec_review_for_standard` 管）和 `--sequence`（上游 2.2.5 B3，另查時間先後和 session）。兩處的輸入不同（`--match` 沒給 `--dispatch-log` 也會找 DIRECTOR_LOG），所以都留著；時間先後和 session 只在上游那份。
+- 規格審查的「有沒有審查」查了兩處：`--match`（`safety_gate.spec_review_problems`，本版 ds.4 B4，安全開關 `spec_review_for_standard` 管）和 `--sequence`（上游 2.2.5 B3，另查時間先後和 session）。兩處的輸入不同（`--match` 沒給 `--dispatch-log` 也會找 DIRECTOR_LOG）、查的東西不同，所以都留著（總監裁示：不算重複）；時間先後和 session 只在上游那份。兩處查 tokens／issues／adopted 三欄用同一個函式 `safety_gate.review_fields_lacking`，`gate_check.py` 不再自己定義 `REVIEW_FIELDS`（上游有）；差別寫在 docs/02「閘門順序」下的兩行。
+- 上游 fa848c2（DW 2.2.5 merge 前的最後一個修正）：`ran_line_225` 執行模式的正則改成單、雙引號都接受（Linux 上 `shlex.join` 用單引號）。
+- Python 3.9 修正（ds.4 起的舊問題，移植時發現）：`Path.write_text(newline=)` 要 3.10，工具 `verify_dsh_run.py` 寫報告的 `save` 在 3.9 會壞；改用 `open(..., newline=)`（和 `pause_ctl.py` 同寫法），`selftest_ds.py`、`test_verify_dsh_run.py` 的寫檔函式一起改。
 - 沒搬：`browser_check.py`（本版本來就沒有）、上游 `selftest.py`（案例改寫進 `selftest_ds.py`，見「驗證」）、`transcript_audit.py`（本版是 `dsh_audit.py`，見上）。
 
 ## 2.2.4-ds.4（2026-11-14）

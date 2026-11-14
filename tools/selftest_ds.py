@@ -2012,7 +2012,7 @@ def ran_line_225(tmp):
     code, out, err = ran_line_run("--to", report, "--utc-offset", "+00:00", "--", sys.executable, "-c",
                                   "import sys; sys.exit(3)")
     text = report.read_text(encoding="utf-8")
-    require(code == 3 and re.search(r"^- `.+ -c \"?import sys; sys\.exit\(3\)\"?` exit=3 at=\d\d:\d\d(-\d\d:\d\d)?$", text, re.M)
+    require(code == 3 and re.search(r"^- `.+ -c [\"']?import sys; sys\.exit\(3\)[\"']?` exit=3 at=\d\d:\d\d(-\d\d:\d\d)?$", text, re.M)
             and text.index("python -m old") < text.index("exit=3") and text.rstrip().endswith("NEXT: x"),
             "ran_line run mode: exit %s, report %r, stderr %r" % (code, text, err))
     before = datetime.datetime.now(datetime.timezone.utc)
@@ -2237,6 +2237,43 @@ def gate_order_225(tmp):
                 if not gate_order_wrong(mutated("gate_check", swaps), orders, log, repo, side)]
     require(not survived, "these gate order mutations get no case wrong: %s" % survived)
     return "6 CLI checks, %d orders in process, %d mutations killed" % (len(GO225_EXPECTED), len(GO225_MUTATIONS))
+
+
+@test
+def spec_fields_shared_225(tmp):
+    """2.2.5-ds.5 (B7, 總監 ruling 3): --match (safety_gate.spec_review_problems) and --sequence
+    (gate_check.sequence_problems) check the fields of a `SPEC_REVIEW <WO>` line with one function,
+    safety_gate.review_fields_lacking; gate_check keeps no REVIEW_FIELDS of its own. A safety_gate mutant whose function
+    finds nothing missing silences the note in both checks."""
+    folder = tmp / "spec_fields_shared_225"
+    order = write(folder / "orders" / "WO-021.md", "# WO-021 test\nGOVERNANCE = Standard\nSESSION_ID: S1\n")
+    log = write(folder / "DIRECTOR_LOG.md", "2026-11-14 10:00 +08:00 | PLAN_APPROVED WO-021\n"
+                "2026-11-14 10:01 +08:00 | SPEC_REVIEW WO-021 tokens=1 issues=0 session=S2\n")
+    text, log_text = order.read_text(encoding="utf-8"), log.read_text(encoding="utf-8")
+    gate, safety = load_tool("gate_check"), load_tool("safety_gate")
+    require(safety.review_fields_lacking("tokens=1 issues=0") == ["adopted="]
+            and safety.review_fields_lacking("tokens=UNKNOWN issues=0/0/0 adopted=0") == []
+            and safety.review_fields_lacking(None) == list(safety.REVIEW_FIELDS),
+            "review_fields_lacking: %r" % safety.review_fields_lacking("tokens=1 issues=0"))
+    require(not hasattr(gate, "REVIEW_FIELDS"), "gate_check keeps its own REVIEW_FIELDS")
+
+    def both(safety_module):
+        """(--match note, --sequence note) about the missing adopted= field, with safety_module as safety_gate."""
+        notes = []
+        safety_module.spec_review_problems(text, {"WO-021"}, log_text, {}, notes, str(order))
+        match = any("WO-021" in n and "has no adopted" in n for n in notes)
+        notes = []
+        gate.safety_module = lambda: safety_module
+        gate.sequence_problems(text, str(order), log_text, str(log), str(folder), notes)
+        return match, any("SPEC_REVIEW WO-021: the log line lacks adopted=" in n for n in notes)
+
+    require(both(safety) == (True, True), "the missing adopted= field: (--match, --sequence) = %s" % (both(safety),))
+    mutant = mutated("safety_gate", [('    return [key for key in REVIEW_FIELDS if key not in (rest or "")]\n',
+                                      "    return []\n")])
+    require(both(mutant) == (False, False),
+            "a safety_gate mutant that finds no missing field leaves (--match, --sequence) = %s; one of them does "
+            "not use review_fields_lacking" % (both(mutant),))
+    return "one function for both checks, 1 mutation killed in both"
 
 
 @test

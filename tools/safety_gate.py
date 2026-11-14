@@ -343,6 +343,12 @@ def log_lines(log_text, event):
 REVIEW_FIELDS = ("tokens=", "issues=", "adopted=")
 
 
+def review_fields_lacking(rest):
+    """The REVIEW_FIELDS (with "=") missing from the rest of a `SPEC_REVIEW <WO> ...` line. The one copy: gate_check
+    --sequence calls it too (2.2.5-ds.5 B7)."""
+    return [key for key in REVIEW_FIELDS if key not in (rest or "")]
+
+
 def review_sources(order_path, config):
     """2.2.4-ds.4 (B4): where a spec review of an order may be found without --dispatch-log: DIRECTOR_LOG.md and
     reviews/*SPEC_REVIEW* of the order's DIRECTOR folder (the folder of director_work.json, else orders/..)."""
@@ -381,7 +387,7 @@ def spec_review_problems(order_text, ids, log_text, config, notes, order_path):
     for where, text in sources:
         lines = [rest for name, rest in log_lines(text, "SPEC_REVIEW") if name.upper() in wanted]
         if lines:
-            lacking = [key.rstrip("=") for key in REVIEW_FIELDS if key not in lines[-1]]
+            lacking = [key.rstrip("=") for key in review_fields_lacking(lines[-1])]
             if lacking:
                 notes.append(f"SPEC_REVIEW: the line for {label} in {where} has no {'/'.join(lacking)}; write "
                              f"`SPEC_REVIEW {label} tokens=<n|UNKNOWN> issues=<P0/P1/P2> adopted=<n>`")
