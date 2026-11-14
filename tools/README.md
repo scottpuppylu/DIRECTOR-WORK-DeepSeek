@@ -18,6 +18,7 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 | `dsh_guard.py` | 動手前的自律檢查：force push、push、刪除、送出/發布、付款、改設定、秘密、永遠禁止的 git/程序模式、PAUSE 旗標；預設只提醒 | 不寫 |
 | `sdd_gate.py` | ds.2 規格先行的膠水（OpenSpec 沒有的部分）：`gate_check.py`／`scope_check.py` 載入它來查 `SPEC_CHANGE`＋`openspec validate --strict --json`、`TESTS_LOCKED` 雜湊、`SPEC_REVIEW`／`PLAN_APPROVED` 紀錄、工單大小、STOP_RULES 輪數；CLI：`--lock-tests`、`--plan-hash`、`--which`（`docs/13`） | 不寫 |
 | `release.py` | 2.2.1-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ VERSION 與 CHANGELOG 最上段一致、tag 排序高於遠端所有 tag → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create`，每步用 ls-remote／`gh release view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
+| `verify_dsh_run.py` | 2.2.1-ds.3 DSH 試跑驗證器（由 ds.2 的 WO-101 `verify_run.py` 通用化）：R01–R21 看 repo（候選 commit、各階段改了哪些檔、鎖定測試雜湊、總監重跑測試與隱藏 oracle、openspec validate、gate_check、evidence 重跑、DIRECTOR_LOG），D01–D14 看 DSH session 紀錄（模型、寫入範圍、禁止動作、偷看隱藏測試、計畫閘門、測試先寫、report_vs_audit）。工單專屬的檔名、代理名、oracle 寫在設定檔（`templates/VERIFY_DSH_RUN.json`）；單元測試 `test_verify_dsh_run.py` | 只寫 `--out` 資料夾 |
 | `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對、SDD gate 正反案例） | 只寫暫存資料夾 |
 
 ## 上游保留（跨平台，已適配 DSH）

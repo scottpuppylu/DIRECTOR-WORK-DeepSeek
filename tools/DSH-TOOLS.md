@@ -45,6 +45,12 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   default. Glue over git and gh: release-please / semantic-release need CI and conventional commits (see CHANGELOG).
   `release.py [--repo DIR] [--config FILE] [--version X] [--merge] [--execute]`
   exit 0 dry run clean or release done, 1 a step failed (a NEXT: line says what to do), 2 cannot run.
+- verify_dsh_run.py (2.2.1-ds.3) - verify a DSH trial run of one spec-first order from the files it left and the session
+  logs (R01-R21 repo half, D01-D14 DSH half; the WO-101 checks of _work/ds2-openspec, made generic). The run's names
+  come from a JSON config (templates/VERIFY_DSH_RUN.json). Unit tests: test_verify_dsh_run.py.
+  `verify_dsh_run.py --config FILE [--project-dir DIR] [--repo DIR] [--order FILE] [--out DIR] [--sessions-root DIR]
+  [--cache-root DIR] [--no-dsh]`
+  exit 0 PASS, 1 any FAIL, 2 SKIP only (INCOMPLETE) or cannot run.
 - selftest_ds.py - offline smoke tests of this toolchain (help, usage, audit + report, setup fixture, generated status,
   doctor, guard, gate hash, evidence record, report matching). `selftest_ds.py [--verbose] [--keep]`
   exit 0 all pass (SKIP is not a failure), 1 any FAIL.

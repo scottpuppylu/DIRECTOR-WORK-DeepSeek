@@ -32,6 +32,8 @@ Runs, on this machine and offline:
   base_ref_fresh 2.2.1-ds.3: gate_check --order fetches and compares BASE_REF with origin/main in a temp clone:
               up to date is confirmed, 1 behind is a WARN note (--strict-base: FAIL), a missing commit is noted,
               a failed fetch says it did not compare (--strict-base: FAIL)
+  verify_dsh_run_unit 2.2.1-ds.3: tools/test_verify_dsh_run.py: the 11 D08 peek cases of WO-101, config / order
+              settings, and a synthetic project run (--no-dsh) with a clean, a test-editing and a wrong worker branch
   release_execute 2.2.1-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
               push and tag verified with ls-remote, the release step stops on a non-GitHub remote, a rerun skips
   sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
@@ -52,6 +54,7 @@ import json
 import os
 import pathlib
 import py_compile
+import re
 import shutil
 import subprocess
 import sys
@@ -64,7 +67,8 @@ TIMEOUT = 240
 BT = chr(96)
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
-             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release")
+             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release",
+             "verify_dsh_run")
 TESTS = []
 
 
@@ -967,6 +971,15 @@ def release_scan(tmp):
     require(proc.returncode == 0 and "STEP scan: OK" in text_of(proc),
             "a clean change (noreply / .invalid emails, DIRECTOR/ only named in text) did not pass: " + tail(text_of(proc)))
     return "%d private kinds stopped, no secret printed, clean change passes" % len(cases)
+
+
+@test
+def verify_dsh_run_unit(tmp):
+    proc = run_prog([sys.executable, "-B", "-I", "-X", "utf8", "-m", "unittest", "discover", "-s", TOOLS, "-p",
+                     "test_verify_dsh_run.py"], cwd=tmp)
+    ran = re.search(r"Ran (\d+) test", text_of(proc))
+    require(proc.returncode == 0 and ran, "test_verify_dsh_run.py failed: " + tail(text_of(proc)))
+    return "%s unit tests (D08 peek cases, settings, synthetic run)" % ran.group(1)
 
 
 def main(argv=None):
