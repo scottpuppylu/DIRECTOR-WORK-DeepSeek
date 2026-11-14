@@ -1,5 +1,5 @@
 {
- "_comment": "tools/verify_dsh_run.py config for one DSH trial run of a spec-first order (2.2.1-ds.3). Paths are relative to this file. Only project_dir, repo, order and code_files are required; the others show their defaults or an example.",
+ "_comment": "tools/verify_dsh_run.py config for one DSH trial run of a spec-first order (2.2.2-ds.3). Paths are relative to this file. Only project_dir, repo, order and code_files are required; the others show their defaults or an example.",
  "project_dir": "<the folder DSH ran in, e.g. ../dsh-run>",
  "repo": "<the project's git repo, e.g. ../dsh-run/demo>",
  "order": "<the work order, e.g. ../dsh-run/DIRECTOR/orders/WO-101-clamp.md>",

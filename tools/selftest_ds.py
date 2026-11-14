@@ -23,20 +23,21 @@ Runs, on this machine and offline:
               notes without --strict and fail with it; a clean folder passes --strict
   audit_rebuild 2.2.1-ds.1: dsh_audit.chain_lines writes the kind=rebuild first line, dsh_audit verify accepts the
               chain and report_vs_audit reads it with a note (no DSH session log needed)
-  release_state 2.2.1-ds.3: release.py dry run on temp bare repos: BEHIND and DIVERGED stop, --merge predicts the
+  release_state 2.2.2-ds.3: release.py dry run on temp bare repos: BEHIND and DIVERGED stop, --merge predicts the
               conflicted file, AHEAD plans push / tag / release, a version below a remote tag and a VERSION that
-              differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1
-  release_scan  2.2.1-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
+              differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1; a -ds.N
+              not above every remote tag's -ds.N stops (1.1.0-ds.1 after v1.0.0-ds.2), 1.1.0-ds.3 passes
+  release_scan  2.2.2-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
               <drive>:/Users path, DIRECTOR/ / _work/ / session files and a private author email, never prints a secret;
               noreply / .invalid emails and DIRECTOR/ named in text pass
-  base_ref_fresh 2.2.1-ds.3: gate_check --order fetches and compares BASE_REF with origin/main in a temp clone:
+  base_ref_fresh 2.2.2-ds.3: gate_check --order fetches and compares BASE_REF with origin/main in a temp clone:
               up to date is confirmed, 1 behind is a WARN note (--strict-base: FAIL), a missing commit is noted,
               a failed fetch says it did not compare (--strict-base: FAIL)
-  verify_dsh_run_unit 2.2.1-ds.3: tools/test_verify_dsh_run.py: the 11 D08 peek cases of WO-101, config / order
+  verify_dsh_run_unit 2.2.2-ds.3: tools/test_verify_dsh_run.py: the 11 D08 peek cases of WO-101, config / order
               settings, and a synthetic project run (--no-dsh) with a clean, a test-editing and a wrong worker branch
-  report_skeleton 2.2.1-ds.3: gate_check --report-skeleton fills the order's fields, hash and one row per AC; left
+  report_skeleton 2.2.2-ds.3: gate_check --report-skeleton fills the order's fields, hash and one row per AC; left
               unfilled it fails --report; filled with the evidence its printed commands record, it passes --match
-  release_execute 2.2.1-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
+  release_execute 2.2.2-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
               push and tag verified with ls-remote, the release step stops on a non-GitHub remote, a rerun skips
   sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
               a valid Standard order passes; SPEC_CHANGE = NONE on Standard, a change that fails validate, a missing
@@ -869,7 +870,19 @@ def release_state(tmp):
     code, out = release(mismatch)
     require(code == 1 and "VERSION is 1.2.0 but the first CHANGELOG.md heading is 1.1.0" in out,
             "VERSION different from the CHANGELOG top was not stopped: " + tail(out))
-    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order and CHANGELOG mismatch"
+    # the -ds.N serial: after v1.0.0-ds.2, 1.1.0-ds.1 stops although 1.1.0 is a higher base; 1.1.0-ds.3 passes
+    rgit(other, "tag", "-a", "v1.0.0-ds.2", "-m", "v1.0.0-ds.2")
+    rgit(other, "push", "-q", "origin", "refs/tags/v1.0.0-ds.2")
+    restart = release_clone(origin, base / "restart")
+    release_commit(restart, "1.1.0-ds.1")
+    code, out = release(restart)
+    require(code == 1 and "-ds.1 is not above the -ds.N of the remote tag(s) v1.0.0-ds.2" in out
+            and "use -ds.3" in out, "a -ds.N serial that restarted was not stopped: " + tail(out))
+    serial = release_clone(origin, base / "serial")
+    release_commit(serial, "1.1.0-ds.3")
+    code, out = release(serial)
+    require(code == 0 and "STEP version: OK 1.1.0-ds.3" in out, "a -ds.N above every remote one was stopped: " + tail(out))
+    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order, -ds.N serial and CHANGELOG mismatch"
 
 
 @test

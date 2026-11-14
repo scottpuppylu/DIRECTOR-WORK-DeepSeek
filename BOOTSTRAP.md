@@ -185,7 +185,7 @@ Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只�
 
 1. 照 `docs/12` 第三節：和使用者談到 `templates/BRIEF.md` 每一列都填得出來，寫成 `DIRECTOR/BRIEF.md`，整張貼給使用者確認。使用者說對才改成 `LOCKED`，之後只有使用者能改。卡可以只鎖「第一階段」；看過真實畫面才能選的事（配色、字型這類）放卡上的「待預覽」，不編 B 號。
 2. **一句回覆同時確認卡和授權開工**：把卡和開工說明（交付與停點、開幾位子代理、effort、用量與額外費用、會動哪些檔）放在同一則。使用者回「卡片對，請開一位助手做這一批」這類明確包含兩件事的話，才同時鎖卡並開線；只說「對」只鎖卡。範本和狀態（`LOCK_ONLY`、`NO_START`、`LOCK_AND_USER_ASKED`……）見 `docs/12` 第三節。
-3. 開線那一輪依序做：記錄同意並鎖卡 → 核對範圍和工單雜湊跟貼出的一致 → 跑 `gate_check --order`（2.2.1-ds.3 起會先 `git fetch` 再比 BASE_REF；印 `~ WARN BASE_REF` 落後就先把工單的 BASE_REF 改成遠端最新的 commit，fetch 失敗它會明說沒比對）和追溯核對 → 寫 `DISPATCH` 進 `DIRECTOR_LOG` → 同一輪用 `subagent` 把第一批開完（名稱、cwd、effort 照工單）→ `list_agents()` 確認。
+3. 開線那一輪依序做：記錄同意並鎖卡 → 核對範圍和工單雜湊跟貼出的一致 → 跑 `gate_check --order`（2.2.2-ds.3 起會先 `git fetch` 再比 BASE_REF；印 `~ WARN BASE_REF` 落後就先把工單的 BASE_REF 改成遠端最新的 commit，fetch 失敗它會明說沒比對）和追溯核對 → 寫 `DISPATCH` 進 `DIRECTOR_LOG` → 同一輪用 `subagent` 把第一批開完（名稱、cwd、effort 照工單）→ `list_agents()` 確認。
 4. 之後每張工單的 `TRACES_TO` 都寫 B 編號，派工前跑：
 
    ```text

@@ -38,14 +38,14 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_guard.py --command "git push" [--mode remind|block] [--profile worker|director] [--pause-flag FILE]
   [--rules FILE] [--shell bash|powershell|cmd] [--cwd DIR] [--json]`
   exit 0 clean, 1 remind (default), 2 block / pause flag exists / rules unreadable.
-- release.py (2.2.1-ds.3) - release this repository in one pass: fetch, HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
+- release.py (2.2.2-ds.3) - release this repository in one pass: fetch, HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
   BEHIND / DIVERGED; --merge merges into release/<version> with --no-ff and stops on conflicts), VERSION = CHANGELOG top
   and the tag sorts above every remote tag, selftest, a scan of everything about to go public, then push (no --force),
   annotated tag, `gh release create --verify-tag --latest`, each checked with ls-remote / gh release view. Dry run by
   default. Glue over git and gh: release-please / semantic-release need CI and conventional commits (see CHANGELOG).
   `release.py [--repo DIR] [--config FILE] [--version X] [--merge] [--execute]`
   exit 0 dry run clean or release done, 1 a step failed (a NEXT: line says what to do), 2 cannot run.
-- verify_dsh_run.py (2.2.1-ds.3) - verify a DSH trial run of one spec-first order from the files it left and the session
+- verify_dsh_run.py (2.2.2-ds.3) - verify a DSH trial run of one spec-first order from the files it left and the session
   logs (R01-R21 repo half, D01-D14 DSH half; the WO-101 checks of _work/ds2-openspec, made generic). The run's names
   come from a JSON config (templates/VERIFY_DSH_RUN.json). Unit tests: test_verify_dsh_run.py.
   `verify_dsh_run.py --config FILE [--project-dir DIR] [--repo DIR] [--order FILE] [--out DIR] [--sessions-root DIR]
@@ -57,7 +57,7 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 
 ## Kept upstream tools (platform-neutral)
 
-gate_check.py (2.2.1-ds.3: --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
+gate_check.py (2.2.2-ds.3: --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
 is a `~ WARN BASE_REF` note, --strict-base fails it; a failed fetch is said, never passed; --report-skeleton ORDER
 prints a TASK REPORT with the order's fields, hash and AC rows filled in plus the evidence / scope_check / --match
 commands, so a DSH worker does not read the checker's source to learn the format), scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line

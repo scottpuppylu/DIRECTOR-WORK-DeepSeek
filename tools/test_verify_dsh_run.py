@@ -1,4 +1,4 @@
-"""Unit tests of tools/verify_dsh_run.py (moved from _work/ds2-openspec/verify/test_verify_run.py in 2.2.1-ds.3).
+"""Unit tests of tools/verify_dsh_run.py (moved from _work/ds2-openspec/verify/test_verify_run.py in 2.2.2-ds.3).
 
   python -B -I -X utf8 -m unittest discover -s tools -p test_verify_dsh_run.py
 

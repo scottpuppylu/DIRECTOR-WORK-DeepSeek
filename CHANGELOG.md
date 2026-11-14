@@ -3,7 +3,7 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.1（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
-## 2.2.1-ds.3（2026-11-14）
+## 2.2.2-ds.3（2026-11-14）
 
 ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的、DSH 試跑驗證器通用化，並根據 WO-101 實機紀錄的量測減少 DSH 的 token 用量。規則和工單格式沒有變；新的檢查預設只提示，不會讓舊工單判不過。
 
@@ -13,6 +13,7 @@ ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的�
   - `--merge`：分岔時開 `release/<版本>` 做 `merge --no-ff`，有衝突就停並列出檔案；演練時用 `git merge-tree` 先預測衝突。
   - 公開掃描範圍：金鑰與 token 格式（沿用 `secret_mask.py`）、`key = value` 形式的密碼、noreply 和 `*.invalid` 以外的 email、使用者資料夾路徑、`DIRECTOR/`、`_work/`、`AGENTS.local.md`、DSH session 檔、commit 訊息與作者 email。找到時不印出密碼本身；有 gitleaks 時一併跑。
   - 中途停掉後重跑，已完成的步驟會跳過。
+  - 版本檢查：整個版本號要比遠端所有 tag 新，而且 `-ds.N` 要比遠端所有 `-ds.*` tag 的 N 大（流水號不因上游換版本歸 1；規則寫在 `DEEPSEEK-PORT.md` 第 10 節）。
   - 選型：release-please 和 semantic-release 都要 CI 和 conventional commits，semver 也排不出 `2.2.1-ds.N`，所以不用；`gh release create` 已有 `--verify-tag`、`--notes-file`、`--latest`，直接用。
 - `gate_check.py --order` 檢查 BASE_REF 是否最新：先自己 `git fetch`，再把 BASE_REF 的 commit 和遠端分支比。
   - 不存在或落後：印 `~ WARN BASE_REF`。
@@ -44,7 +45,7 @@ ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的�
 - `templates/WORK_ORDER.md`：BASE_REF 註明先 `git fetch`，格式 `<remote/branch @ commit>`。
 - `docs/13`：省 token 一節、已知限制改指 `verify_dsh_run.py`。
 - `BOOTSTRAP.md`：開線那一輪的 BASE_REF 提示，10.5 第 6 點（省 token、試跑驗證）。
-- `DEEPSEEK-PORT.md` 第 10 節：發版用 `release.py`。
+- `DEEPSEEK-PORT.md` 第 10 節：發版用 `release.py`；版本號規則 `<上游版本>-ds.<N>`，N 一直往上加。
 - `README.md`、`tools/README.md`、`tools/DSH-TOOLS.md`、`director_work.example.json`（`"release"`、`"base_ref"` 兩段）。
 
 ### 驗證

@@ -12,7 +12,7 @@ evidence and the product is still the Director's job (docs/02, docs/07).
              criterion: the check the Director approves, locked by the dispatch hash. A Strict order with an AUTO
              criterion and no check is noted. An optional `REQUIRED_CHANGES:` list (globs the work must change, read
              by scope_check.py) must lie inside SCOPE and outside FORBIDDEN, or the order cannot be done
-             2.2.1-ds.3: the BASE_REF commit is compared with the remote branch after a git fetch (in --repo, default
+             2.2.2-ds.3: the BASE_REF commit is compared with the remote branch after a git fetch (in --repo, default
              the current folder): missing or behind prints `~ WARN BASE_REF`, --strict-base makes it fail; a failed
              fetch says it did not compare with the remote. Switches: "base_ref" in director_work.json
   --report   required fields filled in; RESULT in the vocabulary; PASS is refused with NOT_RUN tests or a scope violation
@@ -60,7 +60,7 @@ evidence and the product is still the Director's job (docs/02, docs/07).
              The report's `ORDER: <file> REVISION n` line must name the order's REVISION; without a revision Strict
              fails and Standard notes it.
   --report-skeleton ORDER [--repo DIR] [--evidence-dir DIR] [--out FILE]
-             2.2.1-ds.3: print a TASK REPORT for ORDER with what the order fixes filled in (TASK_ID, worker, model,
+             2.2.2-ds.3: print a TASK REPORT for ORDER with what the order fixes filled in (TASK_ID, worker, model,
              BASE, ORDER line, ORDER_SHA256, one ACCEPTANCE row per AC with the statuses its type allows) and
              `<...>` for the rest, then the commands that finish the job: evidence_record.py run per CHECKS line,
              scope_check.py, --match. --out writes the skeleton to a new file. An unfilled skeleton fails --report
@@ -1116,7 +1116,7 @@ BASE_SHA = re.compile(r"(?:(?P<ref>[\w./-]+)\s*@\s*)?\b(?P<sha>[0-9a-fA-F]{7,40}
 
 
 def base_config(order_path, config_path):
-    """2.2.1-ds.3: the "base_ref" switches of director_work.json (same file lookup as the "sdd" ones)."""
+    """2.2.2-ds.3: the "base_ref" switches of director_work.json (same file lookup as the "sdd" ones)."""
     config = dict(BASE_DEFAULTS)
     path = pathlib.Path(config_path) if config_path else pathlib.Path(order_path).resolve().parent.parent / "director_work.json"
     try:
@@ -1140,7 +1140,7 @@ def base_git(repo, *args, timeout=120):
 
 
 def base_ref_problems(order_text, repo, config, notes, fetched):
-    """2.2.1-ds.3: is the order's BASE_REF commit still the tip of the remote branch? A commit that is missing or behind
+    """2.2.2-ds.3: is the order's BASE_REF commit still the tip of the remote branch? A commit that is missing or behind
     is a `WARN BASE_REF` note, a problem with --strict-base ("strict"). A fetch that fails says so: no silent pass.
     fetched caches one fetch per repo and remote for the whole run."""
     if not config["check"]:
@@ -1653,7 +1653,7 @@ def shell_quote(part):
 
 
 def report_skeleton(order_path, repo=None, evidence_dir=None):
-    """(skeleton, commands) for `--report-skeleton` (2.2.1-ds.3): a TASK REPORT with everything the order already
+    """(skeleton, commands) for `--report-skeleton` (2.2.2-ds.3): a TASK REPORT with everything the order already
     fixes filled in (TASK_ID, MODEL, BASE, ORDER line, ORDER_SHA256, one ACCEPTANCE row per AC with its allowed
     statuses) and `<...>` where the worker writes; and the commands that finish the job (evidence per AC from the
     order's CHECKS, scope_check, --match). In the WO-101 DSH run the worker spent about 12 steps reading this tool's
@@ -1774,7 +1774,7 @@ def main():
     ap.add_argument("--strict-base", action="store_true", help="with --order: a BASE_REF commit that is missing or behind "
                     "the remote branch, or a fetch that fails, fails (default: a WARN note)")
     ap.add_argument("--report-skeleton", metavar="ORDER", help="print a TASK REPORT skeleton for ORDER (order fields, "
-                    "hash and one ACCEPTANCE row per AC filled in) and the commands that finish the job (2.2.1-ds.3)")
+                    "hash and one ACCEPTANCE row per AC filled in) and the commands that finish the job (2.2.2-ds.3)")
     ap.add_argument("--out", metavar="FILE", help="with --report-skeleton: write the skeleton to FILE (refused when FILE "
                     "exists) and print only the commands")
     ap.add_argument("--warn", action="store_true", help="report problems as WARN and exit 0")
@@ -1874,7 +1874,7 @@ def main():
             print(f"  ~ {line}")
 
     failed = skipped = undated = 0
-    fetched = {}  # 2.2.1-ds.3: one git fetch per repository and remote for the BASE_REF check
+    fetched = {}  # 2.2.2-ds.3: one git fetch per repository and remote for the BASE_REF check
     for report_path, order_path in a.preflight:
         files = [pathlib.Path(report_path), pathlib.Path(order_path)]
         if not all(f.is_file() for f in files):

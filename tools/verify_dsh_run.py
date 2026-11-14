@@ -4,7 +4,7 @@ trusting anything DSH wrote about itself. Only reads the run; clones go to --out
   python -I -X utf8 tools/verify_dsh_run.py --config RUN.verify.json [--project-dir DIR] [--repo DIR] [--order FILE]
       [--out DIR] [--sessions-root DIR] [--cache-root DIR] [--no-dsh]
 
-Moved from _work/ds2-openspec/verify/verify_run.py (WO-101 clamp, 2026-11-14) in 2.2.1-ds.3; everything that was
+Moved from _work/ds2-openspec/verify/verify_run.py (WO-101 clamp, 2026-11-14) in 2.2.2-ds.3; everything that was
 WO-101 only (file names, agents, hidden checks) now comes from the config (templates/VERIFY_DSH_RUN.json lists the
 keys). Paths in the config are relative to the config file. Command-line paths win over the config.
 

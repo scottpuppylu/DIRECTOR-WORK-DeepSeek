@@ -188,7 +188,7 @@
 ## 9. 已知限制
 
 - **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；DeepSeek 版改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes。這是平台名詞與限制的必要說明，不是新增規則；DSH 版沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
-- 移植版本對應上游 2.2.1（2.2.1-ds.1 起，現為 2.2.1-ds.3；上游 2.2.1 只改工具，沒有改規則文件）；上游之後的規則變更要手動跟（見第 10 節）。
+- 移植版本對應上游：2.2.1-ds.1、2.2.1-ds.2 對應上游 2.2.1（上游 2.2.1 只改工具，沒有改規則文件）；2.2.2-ds.3 對應上游 2.2.2。版本號規則見第 10 節第 5 點；上游之後的規則變更要手動跟（見第 10 節）。
 - 用量與動作紀錄依賴 DSH session 檔格式（`session.v4.jsonl.zstd`）；DSH 升版改格式時要更新 `dsh_usage.py`／`dsh_audit.py`。
 - 模型只有 deepseek-flash；沒有任何「換更強模型」的選項，只能用 effort 與拆工。
 - 章節與範例中的歷史數字（原專案量到的）沿用，換平台後要自己重量。
@@ -201,7 +201,12 @@
 1. 看 `CHANGELOG-upstream.md` 的該版變更，只搬「規則、工單格式、gate、證據、續航、初衷卡」這類平台中立的變更。
 2. 平台層（docs/04、05、11、12、BOOTSTRAP 的 DSH 段落、tools/dsh_*.py）以本版為準，不要直接覆蓋。
 3. 每次搬完跑 `tools/selftest_ds.py`，並在 `CHANGELOG.md` 記一筆。
-4. 發版用 `python -I -X utf8 tools/release.py`（2.2.1-ds.3）：預設只演練（dry run），檢查和 origin/main 的落後／分岔、VERSION 和 CHANGELOG 最上面一段相同且比遠端所有 tag 新、selftest、公開掃描（金鑰、私人 email、私人路徑、DIRECTOR/、_work/、session 檔）；加 `--execute` 才 push、打 tag、建 GitHub Release，每步用 `ls-remote`／`gh release view` 確認。發版仍要 PO 核准。
+4. 發版用 `python -I -X utf8 tools/release.py`（2.2.2-ds.3）：預設只演練（dry run），檢查和 origin/main 的落後／分岔、VERSION 和 CHANGELOG 最上面一段相同且比遠端所有 tag 新、selftest、公開掃描（金鑰、私人 email、私人路徑、DIRECTOR/、_work/、session 檔）；加 `--execute` 才 push、打 tag、建 GitHub Release，每步用 `ls-remote`／`gh release view` 確認。發版仍要 PO 核准。
+5. 版本號是 `<上游版本>-ds.<N>`（PO 2026-11-14）：
+   - 前面的 `<上游版本>` 跟 DW 原版，搬到哪一版就寫哪一版。
+   - `-ds.<N>` 是 DeepSeek 版自己的流水號，每次發版加 1，**上游換版本也不從 1 重來**。例：v2.2.1-ds.2 之後是 2.2.2-ds.3，不是 2.2.2-ds.1。
+   - `release.py` 的版本檢查照這條：整個版本號要比遠端所有 tag 新，而且 `ds.N` 要比遠端所有 `-ds.*` tag 的 N 都大，否則停下並提示下一個可用的 N。
+   - 2.2.1-ds.1 以前的 tag（v2.2.0-ds.1、v2.2.1-ds.1）是這條規則訂下前發的，不改。
 
 ## 11. ds.2 起 DeepSeek 版自己加嚴的規則（上游沒有）
 
