@@ -60,24 +60,27 @@ Runs, on this machine and offline:
               unfilled it fails --report; filled with the evidence its printed commands record, it passes --match
   release_execute 2.2.2-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
               push and tag verified with ls-remote, the release step stops on a non-GitHub remote, a rerun skips
-  sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
-              a valid Standard order passes; SPEC_CHANGE = NONE on Standard, a change that fails validate, a missing
-              CLI, an edited locked test, STOP_RULES over 1 round, a changed approved plan, a missing SPEC_REVIEW /
-              PLAN_APPROVED line and 4 changed files all FAIL. sdd_real_openspec runs the real CLI (SKIP when
-              no level of sdd_gate.find_cli finds one)
-  sdd_cli_lookup 2.2.3-ds.3: sdd_gate --which with fake folders: OPENSPEC_BIN > sdd.openspec_bin (%VAR% expanded) >
-              %LOCALAPPDATA%/dw-ds-tools/openspec-*/ (newest of several; a folder without a launcher skipped) > PATH >
-              NOT_FOUND with the 「安裝 openspec」 hint; a wrong explicit path fails; the null hint is in variable form
-  sdd_cli_setup 2.2.3-ds.3: dsh_setup_check reports the CLI level / version, hints the value for a null
-              sdd.openspec_bin (shadow, --strict FAIL), flags require_spec off with a CLI until the PO answers, and
-              asks for a PO_PENDING 「安裝 openspec」 entry when there is no CLI
+  order_oversize ds.2: scope_check on a Standard order: 4 changed files OVERSIZE, 3 pass
   revision_sync 2.2.3-ds.3: gate_check --order on REVISION 2 notes BRIEF / tasks.md / RESUME_STATE to sync and
               marks a WORK_DIR file older than the order `shadow: REVISION_SYNC`; exit code unchanged; REVISION 1 silent
-  bootstrap_repo 2.2.3-ds.3: bootstrap_repo.py adds .memsearch/ to .git/info/exclude once, writes a found CLI into
-              a null sdd.openspec_bin (%LOCALAPPDATA% form, only that value changes), a rerun is clean, --check writes
-              nothing; without a CLI it names the PO_PENDING 「安裝 openspec」 item
-  sdd_spec_off_gate 2.2.3-ds.3: gate_check --order with require_spec_for_standard=false: FAIL while a CLI is found
-              and the PO has not answered; passes after the answer, and without a CLI (with an install note)
+  bootstrap_repo 2.2.3-ds.3: bootstrap_repo.py adds .memsearch/ to .git/info/exclude once, a rerun is clean, --check
+              writes nothing. 2.2.5-ds.5 (B1 / B3, L-061): a ds.4 config with the old sdd block (openspec_bin null or
+              a missing path) and a stand-in CLI on OPENSPEC_BIN: only the B1 WARN lines, no lookup, nothing written,
+              no init, no install TODO, exit 0
+  safety_tests_locked_225 / safety_plan_and_review_225 / spec_review_224 / safety_switch_off_225 /
+  safety_legacy_block_225 / safety_mutations_225 2.2.5-ds.5 B1 (A4c): the safety gates without OpenSpec: edited
+              locked test, missing TESTS_LOCKED, STOP_RULES 2 輪, changed or unticked PLAN.md, no PLAN_APPROVED, no
+              SPEC_REVIEW, a switch turned off without the PO's answer all FAIL; an old sdd block: switches read with
+              請搬到 safety, OpenSpec keys ignored with a WARN; 5 mutations
+  worker_worktree_225 2.2.5-ds.5 B4: dsh_session --worker-worktree opens <REPO>/../wt/<WO> on its own branch; the
+              WORKTREE line (--worktree-status, gate_check --report-skeleton) comes from git worktree list
+              (main = 共用 checkout, linked = 隔離 worktree); an existing folder or a bad id is refused; 2 mutations
+  usage_final_225 2.2.5-ds.5 B2: gate_check --final DIRECTOR: usage.json missing, unreadable or NO_DATA is
+              `~ WARN USAGE` with exit 0; a dsh_usage.py --out file is `ok USAGE`; 3 mutations
+(2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
+sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
+sdd_plan_and_review and sdd_spec_off_gate were rewritten without OpenSpec as safety_tests_locked_225,
+safety_plan_and_review_225 and safety_switch_off_225; spec_review_224 is kept.)
 
 Prints PASS / FAIL / SKIP per test and a summary line
   SELFTEST_DS: PASS|FAIL tests=n pass=n fail=n skip=n
@@ -111,7 +114,7 @@ os.environ.update({"GIT_CONFIG_COUNT": str(_GIT_N + 1), "GIT_CONFIG_KEY_%d" % _G
                    "GIT_CONFIG_VALUE_%d" % _GIT_N: "true"})
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
-             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release",
+             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "release",
              "verify_dsh_run", "bootstrap_repo", "dsh_session")
 TESTS = []
 
@@ -281,7 +284,7 @@ def temp_env_224(tmp):
                            text=True, env=dict(os.environ, **env), timeout=TIMEOUT)
     require(child.returncode == 0 and os.path.normcase(child.stdout.strip()) == os.path.normcase(want),
             "a child's tempfile.gettempdir() is not WORK_DIR/tmp: " + child.stdout.strip())
-    order = sdd_order("NONE", "NONE", governance="Direct").replace(
+    order = wo_text("NONE", governance="Direct").replace(
         "FALLBACK       = 同名子代理續談", "FALLBACK       = 同名子代理續談\nWORK_DIR       = D:/work/wo-7  # 腳本與暫存")
     order_path = write(tmp / "temp224" / "DIRECTOR" / "orders" / "WO-7.md", order)
     gate = load_tool("gate_check")
@@ -295,7 +298,7 @@ def temp_env_224(tmp):
 def effort_check_224(tmp):
     """2.2.4-ds.4 B8: the order's EFFORT against the session's; EFFORT_ACTUAL line; shadow WARN on a mismatch."""
     usage, gate = load_tool("dsh_usage"), load_tool("gate_check")
-    order = sdd_order("NONE", "NONE")  # PRIMARY_WORKER = 子代理「w1」, MODEL / EFFORT = deepseek-flash / high
+    order = wo_text("NONE")  # PRIMARY_WORKER = 子代理「w1」, MODEL / EFFORT = deepseek-flash / high
     require(usage.order_effort(order) == ("w1", "deepseek-flash", "high"), "order_effort: %s" % (usage.order_effort(order),))
     rows = [{"agent": "lead", "effort": "max", "id": "session-1"}, {"agent": "w1", "effort": "max", "id": "w1-a"}]
     lines, off = usage.effort_lines(order, "WO-7", rows)
@@ -506,28 +509,15 @@ def evidence_record(tmp):
     return "record+verify OK"
 
 
-# ds.2 SDD gate (sdd_gate.py through gate_check.py / scope_check.py). A stand-in openspec CLI (a .py file named by
-# OPENSPEC_BIN) answers `validate` so the glue is tested on any machine; sdd_real_openspec uses the real CLI when found.
-FAKE_OPENSPEC = '''import json, sys
-args = sys.argv[1:]
-if args[:1] == ["--version"]:
-    print("0.0.0-selftest-stand-in"); sys.exit(0)
-name = args[1] if len(args) > 1 else ""
-ok = name == "good-change"
-issues = [] if ok else [{"level": "ERROR", "path": "file", "message": "Change must have at least one delta."}]
-print(json.dumps({"items": [{"id": name, "type": "change", "valid": ok, "issues": issues}],
-                  "summary": {"totals": {"items": 1, "passed": int(ok), "failed": int(not ok)}}}))
-sys.exit(0 if ok else 1)
-'''
-SDD_TEST = "import unittest\n\nclass T(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n"
+CALC_TEST = "import unittest\n\nclass T(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n"
 
 
-def sdd_order(spec, tests, governance="Standard", stop="1"):
+def wo_text(tests, governance="Standard", stop="1"):
     return "\n".join([
-        "# WO-7 — sdd selftest", "**selftest order**", "", "```text",
+        "# WO-7 — selftest", "**selftest order**", "", "```text",
         "ISSUED_BY      = 總監 2026-11-14 09:00", "REVISION       = 1", "TRACES_TO      = NONE",
         "PRIMARY_WORKER = 子代理「w1」", "MODEL / EFFORT = deepseek-flash / high", "FALLBACK       = 同名子代理續談",
-        f"GOVERNANCE     = {governance}", "BASE_REF       = main @ abc1234", f"SPEC_CHANGE    = {spec}", "```", "",
+        f"GOVERNANCE     = {governance}", "BASE_REF       = main @ abc1234", "```", "",
         "```text", "SCOPE:", "- calc.py", "FORBIDDEN:", "- NONE", "```", "",
         "```text", "TESTS_LOCKED:", f"- {tests}", "```", "",
         "| ID | 類型 | 要求 | 驗證方法 | 預期 |", "|---|---|---|---|---|",
@@ -535,105 +525,241 @@ def sdd_order(spec, tests, governance="Standard", stop="1"):
         "- DELIVERABLES: one commit", f"- STOP_RULES: 同一根因 {stop} 輪沒進展就停", ""])
 
 
-def sdd_fixture(tmp, name):
-    """A project folder with openspec/changes/{good,bad}-change, a locked test, a stand-in CLI and an order writer."""
+def wo_fixture(tmp, name):
+    """A project folder with a locked test (TESTS_LOCKED line) for gate_check --order."""
     repo = tmp / name
-    for change in ("good-change", "bad-change"):
-        write(repo / "openspec" / "changes" / change / ".openspec.yaml", "schema: spec-driven\n")
-    test_file = write(repo / "test_calc.py", SDD_TEST)
+    test_file = write(repo / "test_calc.py", CALC_TEST)
     lock = "test_calc.py sha256=" + hashlib.sha256(test_file.read_bytes()).hexdigest()
-    fake = write(tmp / (name + "_fake_openspec.py"), FAKE_OPENSPEC)
-    return repo, lock, {"OPENSPEC_BIN": str(fake)}
+    return repo, lock
 
 
-def sdd_run(repo, order_text, env, *extra):
+def wo_run(repo, order_text, *extra):
     order = write(repo / "orders" / "WO-7.md", order_text)
-    proc = run_tool("gate_check", "--order", order, "--repo", repo, *extra, env=env)
+    proc = run_tool("gate_check", "--order", order, "--repo", repo, *extra)
     return proc, text_of(proc)
 
 
-@test
-def sdd_spec_ok(tmp):
-    repo, lock, env = sdd_fixture(tmp, "sdd_ok")
-    proc, text = sdd_run(repo, sdd_order("openspec/changes/good-change", lock), env)
-    require(proc.returncode == 0 and "OK   order" in text, "a valid Standard order did not pass: " + tail(text))
-    return "Standard + SPEC_CHANGE + locked test + validate OK"
+def safety_dir(tmp, name, safety=None, legacy=None):
+    """A DIRECTOR folder with director_work.json ("safety" and / or an old "sdd" block) for the safety gates."""
+    director = tmp / name / "DIRECTOR"
+    data = {"schema_version": 1}
+    if safety is not None:
+        data["safety"] = safety
+    if legacy is not None:
+        data["sdd"] = legacy
+    return director, write(director / "director_work.json", json.dumps(data))
 
 
 @test
-def sdd_no_spec_change(tmp):
-    repo, lock, env = sdd_fixture(tmp, "sdd_none")
-    proc, text = sdd_run(repo, sdd_order("NONE", lock), env)
-    require(proc.returncode == 1 and "SPEC_CHANGE: a Standard order" in text,
-            "a Standard order with SPEC_CHANGE = NONE did not FAIL clearly: " + tail(text))
-    direct, dtext = sdd_run(repo, sdd_order("NONE", lock, governance="Direct"), env)
-    require("SPEC_CHANGE" not in dtext, "a Direct order was asked for SPEC_CHANGE: " + tail(dtext))
-    return "NONE on Standard FAILs; Direct is not asked"
-
-
-@test
-def sdd_validate_fails(tmp):
-    repo, lock, env = sdd_fixture(tmp, "sdd_bad")
-    proc, text = sdd_run(repo, sdd_order("openspec/changes/bad-change", lock), env)
-    require(proc.returncode == 1 and "openspec validate bad-change --strict --json` failed" in text,
-            "a change that fails validate did not FAIL: " + tail(text))
-    gone, gtext = sdd_run(repo, sdd_order("openspec/changes/no-such-change", lock), env)
-    require(gone.returncode == 1 and "not found under" in gtext, "a missing change folder did not FAIL: " + tail(gtext))
-    return "validate failure FAILs; missing folder FAILs"
-
-
-@test
-def sdd_no_cli(tmp):
-    repo, lock, env = sdd_fixture(tmp, "sdd_nocli")
-    env = {"OPENSPEC_BIN": str(tmp / "no-such-dir" / "openspec.cmd")}
-    proc, text = sdd_run(repo, sdd_order("openspec/changes/good-change", lock), env)
-    require(proc.returncode == 1 and "openspec CLI not found" in text and "NOT validated" in text
-            and "install" in text, "a missing openspec CLI did not FAIL with an install hint: " + tail(text))
-    return "missing CLI FAILs with an install hint"
-
-
-@test
-def sdd_tests_locked(tmp):
-    repo, lock, env = sdd_fixture(tmp, "sdd_tests")
-    write(repo / "test_calc.py", SDD_TEST + "    def test_more(self):\n        pass\n")
-    proc, text = sdd_run(repo, sdd_order("openspec/changes/good-change", lock), env)
+def safety_tests_locked_225(tmp):
+    """2.2.5-ds.5 B1 (A4c; was sdd_tests_locked of ds.2): TESTS_LOCKED and STOP_RULES without OpenSpec: an edited
+    locked test FAILs, a Standard order without TESTS_LOCKED FAILs, STOP_RULES 2 輪 FAILs, safety.stop_after_rounds=2
+    relaxes it, and an old sdd.stop_after_rounds=2 still counts with 「請搬到 safety」."""
+    repo, lock = wo_fixture(tmp, "safety_tests")
+    proc, text = wo_run(repo, wo_text(lock))
+    require(proc.returncode == 0 and "OK   order" in text, "a locked, unchanged test was refused: " + tail(text))
+    write(repo / "test_calc.py", CALC_TEST + "    def test_more(self):\n        pass\n")
+    proc, text = wo_run(repo, wo_text(lock))
     require(proc.returncode == 1 and "test_calc.py changed since it was locked" in text,
             "an edited locked test did not FAIL: " + tail(text))
-    stop, stext = sdd_run(repo, sdd_order("openspec/changes/good-change", "NONE", stop="2"), env)
+    proc, text = wo_run(repo, wo_text(lock).replace("TESTS_LOCKED:\n- " + lock + "\n", ""))
+    require(proc.returncode == 1 and "TESTS_LOCKED: missing" in text, "no TESTS_LOCKED did not FAIL: " + tail(text))
+    stop, stext = wo_run(repo, wo_text("NONE", stop="2"))
     require(stop.returncode == 1 and "STOP_RULES: allows 2 rounds" in stext, "STOP_RULES 2 輪 did not FAIL: " + tail(stext))
-    config = write(repo / "director_work.json", json.dumps({"schema_version": 1, "sdd": {"stop_after_rounds": 2}}))
-    relaxed, rtext = sdd_run(repo, sdd_order("openspec/changes/good-change", "NONE", stop="2"), env, "--config", config)
-    require(relaxed.returncode == 0, "sdd.stop_after_rounds=2 did not relax the rule: " + tail(rtext))
-    return "edited test FAILs; STOP_RULES 2 輪 FAILs; switch relaxes it"
+    _, config = safety_dir(tmp, "safety_rounds", safety={"stop_after_rounds": 2})
+    relaxed, rtext = wo_run(repo, wo_text("NONE", stop="2"), "--config", config)
+    require(relaxed.returncode == 0, "safety.stop_after_rounds=2 did not relax the rule: " + tail(rtext))
+    _, old = safety_dir(tmp, "safety_rounds_old", legacy={"stop_after_rounds": 2})
+    legacy, ltext = wo_run(repo, wo_text("NONE", stop="2"), "--config", old)
+    require(legacy.returncode == 0 and "sdd.stop_after_rounds 照讀，請搬到 safety" in ltext,
+            "an old sdd.stop_after_rounds was not read with 請搬到 safety: " + tail(ltext))
+    return "edited test FAILs; no TESTS_LOCKED FAILs; STOP_RULES 2 輪 FAILs; safety switch relaxes; old sdd key read + WARN"
 
 
 @test
-def sdd_plan_and_review(tmp):
-    sdd = load_tool("sdd_gate")
-    repo, lock, env = sdd_fixture(tmp, "sdd_plan")
-    tasks = write(repo / "openspec" / "changes" / "good-change" / "tasks.md", "## 1. Code\n\n- [ ] 1.1 Add subtract\n")
-    order = sdd_order("openspec/changes/good-change", lock)
-    approved = sdd.plan_hash(tasks)
+def safety_plan_and_review_225(tmp):
+    """2.2.5-ds.5 B1 (A4c; was sdd_plan_and_review): the plan gate with <WORK_DIR>/<WO>/PLAN.md, no OpenSpec: an
+    unticked task FAILs, ticks keep the plan hash, an added task FAILs, no PLAN_APPROVED FAILs, no PLAN.md FAILs,
+    and a log without SPEC_REVIEW FAILs."""
+    safety = load_tool("safety_gate")
+    repo, lock = wo_fixture(tmp, "safety_plan")
+    work = tmp / "safety_plan_work"
+    plan = write(work / "WO-7" / "PLAN.md", "## 1. Code\n\n- [ ] 1.1 Add subtract\n")
+    order = wo_text(lock).replace("BASE_REF       =", "WORK_DIR       = %s\nBASE_REF       =" % work.as_posix())
+    approved = safety.plan_hash(plan)
     log = f"2026-11-14 09:00 | SPEC_REVIEW WO-7 tokens=UNKNOWN issues=0/0/0 adopted=0\nPLAN_APPROVED WO-7 sha={approved}\n"
-    config = dict(sdd.DEFAULTS)
-    unticked = sdd.match_problems(order, ["WO-7"], log, repo, config, [])
+    config = dict(safety.DEFAULTS)
+    unticked = safety.match_problems(order, ["WO-7"], log, repo, config, [])
     require(any("not ticked" in p for p in unticked), "a hand-in with an unticked task was not caught: %s" % unticked)
-    write(tasks, "## 1. Code\n\n- [x] 1.1 Add subtract\n")
-    require(sdd.match_problems(order, ["WO-7"], log, repo, config, []) == [], "approved plan + review was refused")
-    write(tasks, "## 1. Code\n\n- [x] 1.1 Add subtract\n- [x] 1.2 Also refactor everything\n")
-    changed = sdd.match_problems(order, ["WO-7"], log, repo, config, [])
+    write(plan, "## 1. Code\n\n- [x] 1.1 Add subtract\n")
+    require(safety.match_problems(order, ["WO-7"], log, repo, config, []) == [], "approved plan + review was refused")
+    printed = run_tool("safety_gate", "--plan-hash", plan, "--order", write(repo / "orders" / "WO-7.md", order))
+    require(printed.returncode == 0 and ("PLAN_APPROVED WO-7 sha=" + approved) in text_of(printed),
+            "--plan-hash did not print the approved line (ticks must keep the hash): " + tail(text_of(printed)))
+    write(plan, "## 1. Code\n\n- [x] 1.1 Add subtract\n- [x] 1.2 Also refactor everything\n")
+    changed = safety.match_problems(order, ["WO-7"], log, repo, config, [])
     require(any("differs from the approved plan" in p for p in changed), "an added task was not caught: %s" % changed)
-    missing = sdd.match_problems(order, ["WO-7"], "DISPATCH WO-7 rev=1 sha=" + "0" * 64 + "\n", repo, config, [])
-    require(any(p.startswith("SPEC_REVIEW") for p in missing) and any(p.startswith("PLAN_APPROVED") for p in missing),
+    missing = safety.match_problems(order, ["WO-7"], "DISPATCH WO-7 rev=1 sha=" + "0" * 64 + "\n", repo, config, [])
+    require(any(p.startswith("SPEC_REVIEW") for p in missing) and any(p.startswith("PLAN_APPROVED: no") for p in missing),
             "a log without SPEC_REVIEW / PLAN_APPROVED was not caught: %s" % missing)
-    return "unticked task FAILs; ticks keep the plan hash; changed plan FAILs; missing log lines FAIL"
+    plan.unlink()
+    gone = safety.match_problems(order, ["WO-7"], log, repo, config, [])
+    require(any("PLAN.md not found" in p for p in gone), "a missing PLAN.md passed: %s" % gone)
+    direct = safety.match_problems(wo_text(lock, governance="Direct"), ["WO-7"], "", repo, config, [])
+    require(direct == [], "a Direct order was asked for a plan: %s" % direct)
+    return "unticked FAILs; ticks keep the hash; added task FAILs; no PLAN_APPROVED / SPEC_REVIEW / PLAN.md FAILs"
 
 
 @test
-def sdd_oversize(tmp):
+def spec_review_224(tmp):
+    """2.2.4-ds.4 B4 (kept in 2.2.5-ds.5, A4c): a Standard/Strict order with no SPEC_REVIEW fails --match, with or
+    without --dispatch-log."""
+    safety = load_tool("safety_gate")
+    director = tmp / "review224" / "DIRECTOR"
+    order_path = write(director / "orders" / "WO-7.md", wo_text("NONE"))
+    order = order_path.read_text(encoding="utf-8")
+    config = dict(safety.DEFAULTS, plan_gate=False)
+    none = safety.match_problems(order, ["WO-7"], None, tmp, config, [], order_path)
+    require(any(p.startswith("SPEC_REVIEW: no") for p in none),
+            "no --dispatch-log and no review anywhere did not FAIL (the old behaviour passed): %s" % none)
+    write(director / "reviews" / "WO-70_SPEC_REVIEW.md", "another order's review\n")
+    other = safety.match_problems(order, ["WO-7"], None, tmp, config, [], order_path)
+    require(any(p.startswith("SPEC_REVIEW: no") for p in other), "WO-70's review counted for WO-7: %s" % other)
+    write(director / "reviews" / "WO-7_SPEC_REVIEW.md", "審查紀錄\n")
+    notes = []
+    found = safety.match_problems(order, ["WO-7"], None, tmp, config, notes, order_path)
+    require(found == [] and any("review file" in n for n in notes), "a review file was not found: %s %s" % (found, notes))
+    (director / "reviews" / "WO-7_SPEC_REVIEW.md").unlink()
+    write(director / "DIRECTOR_LOG.md", "2026-11-14 09:00 | SPEC_REVIEW WO-7 done\n")
+    notes = []
+    logged = safety.match_problems(order, ["WO-7"], None, tmp, config, notes, order_path)
+    require(logged == [] and any("no tokens/issues/adopted" in n for n in notes),
+            "a DIRECTOR_LOG line was not read, or its missing fields not noted: %s %s" % (logged, notes))
+    given = safety.match_problems(order, ["WO-7"], "DISPATCH WO-7 rev=1\n", tmp, config, [], order_path)
+    require(any("looked in: --dispatch-log" in p for p in given), "--dispatch-log without the line passed: %s" % given)
+    direct = safety.match_problems(wo_text("NONE", governance="Direct"), ["WO-7"], None, tmp, config, [], order_path)
+    off = safety.match_problems(order, ["WO-7"], "", tmp, dict(config, spec_review_for_standard=False), [], order_path)
+    strict = safety.match_problems(wo_text("NONE", governance="Strict"), ["WO-7"], "", tmp,
+                                   dict(config, spec_review_for_standard=False), [], order_path)
+    require(direct == [] and off == [] and any(p.startswith("SPEC_REVIEW") for p in strict),
+            "Direct, or spec_review_for_standard false, was asked for a review; or Strict was let off")
+    return "no review FAILs (was: passed without --dispatch-log); review file / DIRECTOR_LOG found; Direct not asked"
+
+
+@test
+def safety_switch_off_225(tmp):
+    """2.2.5-ds.5 B1 (A4c; the 2.2.3-ds.3 require_spec rule moved to the safety switches): a safety switch turned off
+    for a Standard/Strict order FAILs gate_check --order until a PO_PENDING entry naming it is answered; the same for
+    an old sdd.<switch>; Direct orders are not asked."""
+    repo, lock = wo_fixture(tmp, "safety_off")
+    for key, value in (("tests_first", False), ("plan_gate", False), ("spec_review_for_standard", False),
+                       ("stop_after_rounds", 0), ("prefer_auto", False)):
+        director, config = safety_dir(tmp, "safety_off_" + key, safety={key: value})
+        proc, text = wo_run(repo, wo_text(lock), "--config", config)
+        require(proc.returncode == 1 and f"safety.{key} is off for a Standard order" in text
+                and "may not turn a safety gate off" in text, f"{key} off passed without the PO: " + tail(text))
+        write(director / "PO_PENDING.md", f"ID: OD-1\nSTATUS: open\nQUESTION: turn {key} off?\n"
+              "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER:\n")
+        proc, text = wo_run(repo, wo_text(lock), "--config", config)
+        require(proc.returncode == 1 and "still open: wait for the PO" in text, f"{key}: an open entry passed: " + tail(text))
+        write(director / "PO_PENDING.md", f"ID: OD-1\nSTATUS: answered\nQUESTION: turn {key} off?\n"
+              "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER: a) yes\n")
+        proc, text = wo_run(repo, wo_text(lock), "--config", config)
+        require(proc.returncode == 0 and "the PO answered it" in text, f"{key}: the PO's answer did not allow it: " + tail(text))
+    director, config = safety_dir(tmp, "safety_off_legacy", legacy={"tests_first": False, "openspec_bin": None})
+    proc, text = wo_run(repo, wo_text(lock), "--config", config)
+    require(proc.returncode == 1 and "safety.tests_first is off" in text and "sdd.tests_first 照讀，請搬到 safety" in text,
+            "an old sdd.tests_first=false was not read as the switch: " + tail(text))
+    proc, text = wo_run(repo, wo_text(lock, governance="Direct"), "--config", config)
+    require(proc.returncode == 0 and "is off" not in text, "a Direct order was held to the switches: " + tail(text))
+    strict = safety_dir(tmp, "safety_off_strict", safety={"spec_review_for_standard": False})[1]
+    proc, text = wo_run(repo, wo_text(lock, governance="Strict"), "--config", strict)
+    require(proc.returncode == 0, "spec_review_for_standard off held a Strict order: " + tail(text))
+    return "5 switches: off FAILs, open PO entry FAILs, answered passes; old sdd switch counts; Direct / Strict review ok"
+
+
+@test
+def safety_legacy_block_225(tmp):
+    """2.2.5-ds.5 B1 (A4c): an old ds.4 "sdd" block reads without error: OpenSpec keys (openspec_bin, require_spec_*)
+    are ignored with 「OpenSpec 已在 2.2.5-ds.5 移除，此鍵被忽略」, safety switches still count with 「請搬到 safety」, a
+    switch also in "safety" is ignored with a WARN, a SPEC_CHANGE line is only a note; no CLI is looked up."""
+    safety = load_tool("safety_gate")
+    old = {"require_spec_for_strict": True, "require_spec_for_standard": False, "openspec_bin": None,
+           "tests_first": True, "plan_gate": False, "stop_after_rounds": 1}
+    director, path = safety_dir(tmp, "legacy", safety={"plan_gate": True}, legacy=old)
+    config, problem = safety.load_config(None, path)
+    notes = safety.legacy_notes(config)
+    require(problem is None and config["plan_gate"] is True and config["tests_first"] is True
+            and "require_spec_for_standard" not in config and "openspec_bin" not in config,
+            "the old block was not read as designed: %s %s" % (problem, config))
+    require(len(notes) == 3 and safety.REMOVED_WARN in notes[0] and "sdd.openspec_bin" in notes[0]
+            and "sdd.require_spec_for_standard" in notes[0] and safety.MOVE_WARN in notes[1]
+            and "sdd.stop_after_rounds" in notes[1] and "sdd.plan_gate 被忽略" in notes[2],
+            "the WARN lines are wrong: %s" % notes)
+    mark = tmp / "legacy" / "cli_was_run.txt"
+    stand_in = write(tmp / "legacy" / "stand_in.py", "import pathlib\npathlib.Path(%r).write_text('ran')\n" % str(mark))
+    repo, lock = wo_fixture(tmp, "legacy_repo")
+    order = wo_text(lock).replace("BASE_REF       =", "SPEC_CHANGE    = openspec/changes/x\nBASE_REF       =")
+    proc = run_tool("gate_check", "--order", write(repo / "orders" / "WO-7.md", order), "--repo", repo,
+                    "--config", path, env={"OPENSPEC_BIN": str(stand_in)})
+    text = text_of(proc)
+    require(proc.returncode == 0 and text.count(safety.REMOVED_WARN) == 1 and "SPEC_CHANGE: the field is ignored" in text
+            and not mark.exists(), "gate_check --order with the old block: " + tail(text))
+    empty = safety_dir(tmp, "legacy_empty", legacy={})[1]
+    require(safety.legacy_notes(safety.load_config(None, empty)[0]) == [
+        "WARN: director_work.json 的 \"sdd\" 區塊是空的，2.2.5-ds.5 起沒有作用，可以刪掉（安全開關在 \"safety\"）"],
+        "an empty sdd block is not one WARN")
+    require(safety.legacy_notes(safety.load_config(None, safety_dir(tmp, "legacy_none", safety={})[1])[0]) == [],
+            "a config without sdd printed a WARN")
+    return "OpenSpec keys ignored + WARN, switches read + 請搬到 safety, safety wins + WARN, no CLI run, empty block WARN"
+
+
+SAFETY_MUTATIONS = [
+    ("locked test hash not compared", [("        elif file_hash(path) != m.group(2).lower():",
+                                        "        elif False:")]),
+    ("plan hash not compared", [("    elif plan_hash(plan) != sha.group(1).lower():", "    elif False:")]),
+    ("PLAN_APPROVED not required", [("    if not approved:\n", "    if not approved:\n        return problems\n")]),
+    ("switch may be turned off", [("        if not is_off(config.get(key)):\n            continue\n",
+                                   "        continue\n")]),
+    ("old sdd switch not read", [("        config.update(moved)\n", "")]),
+]
+
+
+@test
+def safety_mutations_225(tmp):
+    """2.2.5-ds.5 B1: each safety gate is needed: a safety_gate.py with one check taken out lets a bad case through."""
+    good = load_tool("safety_gate")
+    repo, lock = wo_fixture(tmp, "safety_mut")
+    work = tmp / "safety_mut_work"
+    plan = write(work / "WO-7" / "PLAN.md", "- [x] 1.1 a\n")
+    order = wo_text(lock).replace("BASE_REF       =", "WORK_DIR       = %s\nBASE_REF       =" % work.as_posix())
+    review = "SPEC_REVIEW WO-7 tokens=1 issues=0/0/0 adopted=0\n"
+    other_plan = good.plan_hash(plan).replace(good.plan_hash(plan)[0], "0" if good.plan_hash(plan)[0] != "0" else "1", 1)
+    _, path = safety_dir(tmp, "safety_mut_cfg", legacy={"tests_first": False})
+
+    def wrong_with(module):
+        notes = []
+        cfg = dict(module.DEFAULTS)
+        edited = write(tmp / "safety_mut_edit" / "test_calc.py", CALC_TEST + "# edited\n")
+        bad = [module.order_problems(order, None, edited.parent, cfg, notes),
+               module.match_problems(order, ["WO-7"], review + f"PLAN_APPROVED WO-7 sha={other_plan}\n", repo, cfg, []),
+               module.match_problems(order, ["WO-7"], review, repo, cfg, []),
+               module.order_problems(order, None, repo, dict(cfg, tests_first=False), [])]
+        old_cfg = module.load_config(None, path)[0]
+        bad.append(["read"] if old_cfg.get("tests_first") is False else [])
+        return any(not problems for problems in bad)
+
+    require(not wrong_with(good), "the real safety_gate.py lets a bad case through")
+    survived = [name for name, swaps in SAFETY_MUTATIONS if not wrong_with(mutated("safety_gate", swaps))]
+    require(not survived, "these safety mutations get nothing wrong: %s" % survived)
+    return "%d mutations killed (locked hash, plan hash, PLAN_APPROVED, switch off, old sdd switch)" % len(SAFETY_MUTATIONS)
+
+
+@test
+def order_oversize(tmp):
     if shutil.which("git") is None:
         raise Skip("git is not on PATH")
-    repo = tmp / "sdd_size"
+    repo = tmp / "order_size"
     repo.mkdir()
     write(repo / "calc.py", "x = 1\n")
     for args in (["git", "init", "-q", "-b", "main"], ["git", "config", "user.email", "selftest@example.invalid"],
@@ -641,17 +767,16 @@ def sdd_oversize(tmp):
                  ["git", "add", "calc.py"], ["git", "commit", "-q", "-m", "init"]):
         proc = run_prog(args, cwd=repo)
         require(proc.returncode == 0, " ".join(args) + " failed: " + tail(text_of(proc)))
-    order = write(tmp / "sdd_size_order" / "WO-7.md", sdd_order("NONE", "NONE").replace("- calc.py", "- src/**\n- openspec/**"))
+    order = write(tmp / "order_size_order" / "WO-7.md", wo_text("NONE").replace("- calc.py", "- src/**"))
     for n in range(4):
         write(repo / "src" / f"m{n}.py", "a = 1\n")
-    write(repo / "openspec" / "changes" / "x" / "tasks.md", "- [ ] 1.1 not counted\n")
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main")
     text = text_of(proc)
     require(proc.returncode == 1 and "OVERSIZE" in text and "files=4/3" in text, "4 changed files did not FAIL: " + tail(text))
     (repo / "src" / "m3.py").unlink()
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main")
     require(proc.returncode == 0 and "SIZE: files=3" in text_of(proc), "3 files did not pass: " + tail(text_of(proc)))
-    return "4 files OVERSIZE, 3 files PASS, openspec/ not counted"
+    return "4 files OVERSIZE, 3 files PASS"
 
 
 def git_repo(path, files):
@@ -675,12 +800,13 @@ def git_commit(repo, message, *paths):
 
 @test
 def order_limits_224(tmp):
-    """2.2.4-ds.4 B1: limits in the top-level order_limits block; old sdd.* still read with a WARN; test files apart."""
+    """2.2.4-ds.4 B1: limits in the top-level order_limits block; test files apart; an old sdd.max_* key still
+    counts with 「請搬到 order_limits」 (kept in 2.2.5-ds.5, read by safety_gate.py)."""
     if shutil.which("git") is None:
         raise Skip("git is not on PATH")
     repo = git_repo(tmp / "limits", {"calc.py": "x = 1\n"})
     order = write(tmp / "limits_order" / "WO-7.md",
-                  sdd_order("NONE", "NONE").replace("- calc.py", "- src/**\n- tests/**\n- test_*.py"))
+                  wo_text("NONE").replace("- calc.py", "- src/**\n- tests/**\n- test_*.py"))
     write(repo / "src" / "a.py", "a = 1\n" * 150)
     write(repo / "tests" / "test_a.py", "b = 1\n" * 300)  # 300 test lines: over 200, under the test limit 400
     write(repo / "test_b.py", "c = 1\n" * 50)
@@ -697,21 +823,21 @@ def order_limits_224(tmp):
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", old)
     text = text_of(proc)
     require(proc.returncode == 1 and "lines=150/100" in text and "請搬到 order_limits" in text,
-            "an old sdd.max_lines_per_order was not read with a WARN: " + tail(text))
+            "an old sdd.max_lines_per_order was not read with its shadow WARN: " + tail(text))
     both = write(tmp / "limits_cfg" / "both.json", json.dumps({"sdd": {"max_lines_per_order": 100},
                                                               "order_limits": {"max_lines_per_order": 500}}))
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", both)
     text = text_of(proc)
     require(proc.returncode == 0 and "limit=3/500/400" in text and "is ignored (order_limits" in text,
-            "order_limits did not win over sdd, or no WARN: " + tail(text))
+            "order_limits did not win over an old sdd key: " + tail(text))
     tests = write(tmp / "limits_cfg" / "tests.json", json.dumps({"order_limits": {"max_test_lines_per_order": 300}}))
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", tests)
     text = text_of(proc)
     require(proc.returncode == 1 and "test_lines=350/300" in text, "the test-line limit did not FAIL: " + tail(text))
-    sdd = load_tool("sdd_gate")
-    require(sdd.is_test_file("tests/x/helper.py") and sdd.is_test_file("a/test_x.py") and sdd.is_test_file("x_test.py")
-            and not sdd.is_test_file("src/testing.py") and not sdd.is_test_file("contest_x.py"),
-            "is_test_file is wrong")
+    limits = load_tool("safety_gate")
+    require(limits.is_test_file("tests/x/helper.py") and limits.is_test_file("a/test_x.py")
+            and limits.is_test_file("x_test.py") and not limits.is_test_file("src/testing.py")
+            and not limits.is_test_file("contest_x.py"), "is_test_file is wrong")
     return "defaults 3/200/400; order_limits read; old sdd.* + WARN; both: order_limits wins; test limit FAILs"
 
 
@@ -721,7 +847,7 @@ def scope_shared_224(tmp):
     if shutil.which("git") is None:
         raise Skip("git is not on PATH")
     repo = git_repo(tmp / "shared", {"a.py": "a = 1\n", "b.py": "b = 1\n"})
-    base = sdd_order("NONE", "NONE", governance="Direct").replace(
+    base = wo_text("NONE", governance="Direct").replace(
         "PRIMARY_WORKER = 子代理「w1」", "PRIMARY_WORKER = 子代理「w1」\nWORKTREE       = 共用 checkout")
     one = write(tmp / "shared_orders" / "WO-11.md", base.replace("# WO-7", "# WO-11").replace("- calc.py", "- a.py"))
     two = write(tmp / "shared_orders" / "WO-12.md", base.replace("# WO-7", "# WO-12").replace("- calc.py", "- b.py"))
@@ -762,7 +888,7 @@ def protected_tests_224(tmp):
         raise Skip("git is not on PATH")
     test_text = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1, 1)\n"
     repo = git_repo(tmp / "protect", {"calc.py": "x = 1\n", "test_money.py": test_text, "test_csv.py": test_text})
-    order = write(tmp / "protect_order" / "WO-7.md", sdd_order("NONE", "NONE", governance="Direct").replace(
+    order = write(tmp / "protect_order" / "WO-7.md", wo_text("NONE", governance="Direct").replace(
         "- calc.py", "- calc.py\n- test_*.py"))
     config = write(tmp / "protect_order" / "cfg.json", json.dumps({"protected_tests": ["test_money.py", "test_csv.py"]}))
     write(repo / "test_money.py", test_text + "\n    def test_b(self):\n        self.assertEqual(2, 2)\n")
@@ -782,7 +908,7 @@ def protected_tests_224(tmp):
     write(repo / "test_csv.py", test_text.replace("\n", "\r\n"))  # line endings only
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", config)
     require(proc.returncode == 0, "CRLF alone counted as a change: " + tail(text_of(proc)))
-    locked = write(tmp / "protect_order" / "WO-8.md", sdd_order("NONE", "test_csv.py sha256=" + "0" * 64,
+    locked = write(tmp / "protect_order" / "WO-8.md", wo_text("test_csv.py sha256=" + "0" * 64,
                                                                governance="Direct").replace("- calc.py", "- test_*.py"))
     write(repo / "test_csv.py", "# rewritten\n")
     proc = run_tool("scope_check", "--order", locked, "--repo", repo, "--base", "main")
@@ -792,52 +918,20 @@ def protected_tests_224(tmp):
 
 
 @test
-def spec_review_224(tmp):
-    """2.2.4-ds.4 B4: a Standard/Strict order with no SPEC_REVIEW fails --match, with or without --dispatch-log."""
-    sdd = load_tool("sdd_gate")
-    director = tmp / "review224" / "DIRECTOR"
-    order_path = write(director / "orders" / "WO-7.md", sdd_order("NONE", "NONE"))
-    order = order_path.read_text(encoding="utf-8")
-    config = dict(sdd.DEFAULTS, plan_gate=False)
-    none = sdd.match_problems(order, ["WO-7"], None, tmp, config, [], order_path)
-    require(any(p.startswith("SPEC_REVIEW: no") for p in none),
-            "no --dispatch-log and no review anywhere did not FAIL (the old behaviour passed): %s" % none)
-    write(director / "reviews" / "WO-70_SPEC_REVIEW.md", "another order's review\n")
-    other = sdd.match_problems(order, ["WO-7"], None, tmp, config, [], order_path)
-    require(any(p.startswith("SPEC_REVIEW: no") for p in other), "WO-70's review counted for WO-7: %s" % other)
-    write(director / "reviews" / "WO-7_SPEC_REVIEW.md", "審查紀錄\n")
-    notes = []
-    found = sdd.match_problems(order, ["WO-7"], None, tmp, config, notes, order_path)
-    require(found == [] and any("review file" in n for n in notes), "a review file was not found: %s %s" % (found, notes))
-    (director / "reviews" / "WO-7_SPEC_REVIEW.md").unlink()
-    write(director / "DIRECTOR_LOG.md", "2026-11-14 09:00 | SPEC_REVIEW WO-7 done\n")
-    notes = []
-    logged = sdd.match_problems(order, ["WO-7"], None, tmp, config, notes, order_path)
-    require(logged == [] and any("no tokens/issues/adopted" in n for n in notes),
-            "a DIRECTOR_LOG line was not read, or its missing fields not noted: %s %s" % (logged, notes))
-    given = sdd.match_problems(order, ["WO-7"], "DISPATCH WO-7 rev=1\n", tmp, config, [], order_path)
-    require(any("looked in: --dispatch-log" in p for p in given), "--dispatch-log without the line passed: %s" % given)
-    direct = sdd.match_problems(sdd_order("NONE", "NONE", governance="Direct"), ["WO-7"], None, tmp, config, [], order_path)
-    off = sdd.match_problems(order, ["WO-7"], "", tmp, dict(config, spec_review_for_standard=False), [], order_path)
-    require(direct == [] and off == [], "Direct, or spec_review_for_standard false, was asked for a review")
-    return "no review FAILs (was: passed without --dispatch-log); review file / DIRECTOR_LOG found; Direct not asked"
-
-
-@test
 def protected_report_224(tmp):
     """2.2.4-ds.4 B5: the report's PROTECTED_CHANGED is held against git by gate_check --match."""
     if shutil.which("git") is None:
         raise Skip("git is not on PATH")
-    gate, sdd = load_tool("gate_check"), load_tool("sdd_gate")
+    gate, limits = load_tool("gate_check"), load_tool("safety_gate")
     body = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1, 1)\n"
     repo = git_repo(tmp / "protect_report", {"calc.py": "x = 1\n", "test_money.py": body, "test_csv.py": body})
     start = run_prog(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
-    order_path = write(tmp / "protect_report_dir" / "orders" / "WO-7.md", sdd_order("NONE", "NONE", governance="Direct")
+    order_path = write(tmp / "protect_report_dir" / "orders" / "WO-7.md", wo_text("NONE", governance="Direct")
                        .replace("- calc.py", "- calc.py\n- test_*.py").replace("main @ abc1234", "main @ " + start))
     write(tmp / "protect_report_dir" / "director_work.json", json.dumps({"protected_tests": ["test_money.py",
                                                                                             "test_csv.py"]}))
     order = order_path.read_text(encoding="utf-8")
-    config, problem = sdd.load_config(order_path)
+    config, problem = limits.load_config(order_path)
     require(problem is None and config.get("_protected_tests"), "protected_tests not loaded: %s" % problem)
     write(repo / "test_money.py", body + "\n    def test_b(self):\n        pass\n")
     git_commit(repo, "WO-7: add a test", "test_money.py")
@@ -865,28 +959,6 @@ def protected_report_224(tmp):
 
 
 @test
-def sdd_which_off_224(tmp):
-    """2.2.4-ds.4 B6: with SDD off, --which prints one line 「SDD 關閉，不檢查 CLI」 and no lookup / 寫入 hint."""
-    fake = write(tmp / "which224" / "fake_openspec.py", FAKE_OPENSPEC)
-    off = write(tmp / "which224" / "off.json", json.dumps({"sdd": {"require_spec_for_strict": False,
-                                                                  "require_spec_for_standard": False,
-                                                                  "openspec_bin": None}}))
-    half = write(tmp / "which224" / "half.json", json.dumps({"sdd": {"require_spec_for_standard": False}}))
-    for env in ({"OPENSPEC_BIN": str(fake)}, {"OPENSPEC_BIN": None}):
-        proc = run_tool("sdd_gate", "--which", "--config", off, env=env)
-        lines = [line for line in text_of(proc).splitlines() if line.strip()]
-        require(proc.returncode == 0 and len(lines) == 1 and "SDD 關閉，不檢查 CLI" in lines[0]
-                and "openspec_bin\": \"" not in lines[0], "SDD off did not give the one line: " + tail(text_of(proc)))
-    proc = run_tool("sdd_gate", "--which", "--config", half, env={"OPENSPEC_BIN": str(fake)})
-    require("SDD 關閉" not in text_of(proc) and "level 1 OPENSPEC_BIN" in text_of(proc),
-            "SDD half on was treated as off: " + tail(text_of(proc)))
-    doctor = load_tool("dsh_doctor")
-    status, detail = doctor.check_openspec(TOOLS, off)
-    require(status == "OK" and "SDD 關閉，不檢查 CLI" in detail, "dsh_doctor with SDD off: %s %s" % (status, detail))
-    return "SDD off: one line, exit 0, with or without a CLI; half on still looks up; doctor OK"
-
-
-@test
 def checks_paths_224(tmp):
     """2.2.4-ds.4 B3: a CHECKS line with a backslash path is refused at --order, naming the line and forward slashes."""
     gate = load_tool("gate_check")
@@ -904,7 +976,7 @@ def checks_paths_224(tmp):
     require(any(p.startswith("CHECKS line 7 (AC-3)") and "control character" in p for p in problems),
             "\\t / \\n turned into control characters were not caught: %s" % problems)
     require(len(problems) == 2, "unexpected problems: %s" % problems)
-    order = sdd_order("NONE", "NONE", governance="Direct").replace(
+    order = wo_text("NONE", governance="Direct").replace(
         "- DELIVERABLES", "```text\nCHECKS:\n" + lines[5] + "\n```\n\n- DELIVERABLES")
     order_path = write(tmp / "checks224" / "orders" / "WO-7.md", order)
     proc = run_tool("gate_check", "--order", order_path, "--repo", tmp / "checks224")
@@ -1313,205 +1385,27 @@ def status_long_path_224(tmp):
         len(str(d)), len(STATUS_LONG_MUTATIONS))
 
 @test
-def sdd_real_openspec(tmp):
-    sdd = load_tool("sdd_gate")
-    command, how = sdd.find_cli(dict(sdd.DEFAULTS))
-    if command is None or how.endswith("stand-in)"):
-        raise Skip("no real openspec CLI (%s); set OPENSPEC_BIN or put openspec on PATH" % how)
-    repo = tmp / "sdd_real"
-    change = repo / "openspec" / "changes" / "add-subtract"
-    write(repo / "openspec" / "config.yaml", "schema: spec-driven\n")
-    write(change / ".openspec.yaml", "schema: spec-driven\n")
-    write(change / "proposal.md", "## Why\nNeed subtraction.\n\n## What Changes\n- Add subtract.\n")
-    spec = "## ADDED Requirements\n\n### Requirement: Subtract\nThe calculator SHALL subtract b from a.\n\n"
-    write(change / "specs" / "calc" / "spec.md", spec + "#### Scenario: basic\n- **WHEN** subtract(5, 3)\n- **THEN** 2\n")
-    write(change / "tasks.md", "## 1. Code\n\n- [ ] 1.1 Add subtract\n")
-    write(repo / "test_calc.py", SDD_TEST)
-    lock = "test_calc.py sha256=" + hashlib.sha256((repo / "test_calc.py").read_bytes()).hexdigest()
-    proc, text = sdd_run(repo, sdd_order("openspec/changes/add-subtract", lock), None)
-    require(proc.returncode == 0, "a valid change failed the real openspec validate: " + tail(text))
-    write(change / "specs" / "calc" / "spec.md", spec)  # no scenario: --strict must refuse it
-    bad, btext = sdd_run(repo, sdd_order("openspec/changes/add-subtract", lock), None)
-    require(bad.returncode == 1 and "--strict --json` failed" in btext, "a requirement without a scenario passed: " + tail(btext))
-    return "real CLI (%s): valid change OK, scenario-less change FAIL" % how
-
-
-# 2.2.3-ds.3 OpenSpec CLI lookup (WO-DS-005 B1): OPENSPEC_BIN > sdd.openspec_bin > the user tools folder
-# (%LOCALAPPDATA%/dw-ds-tools/openspec-<v>/node_modules/.bin/openspec(.cmd), newest) > PATH. Every case runs
-# sdd_gate.py --which in a child process with fake folders, OPENSPEC_BIN removed and PATH replaced.
-WINDOWS = os.name == "nt"
-TOOLS_VAR = "LOCALAPPDATA" if WINDOWS else "XDG_DATA_HOME"
-
-
-def fake_launcher(folder, name, version):
-    """An openspec launcher that only answers --version (a .cmd on Windows, a shell script elsewhere)."""
-    folder.mkdir(parents=True, exist_ok=True)
-    if WINDOWS:
-        return write(folder / (name + ".cmd"), "@echo off\r\necho %s\r\n" % version)
-    path = write(folder / name, "#!/bin/sh\necho %s\n" % version)
-    path.chmod(0o755)
-    return path
-
-
-def cli_world(tmp, name, versions=("1.9.2", "1.16.0"), on_path=True):
-    """(env, tools root, path dir): a fake user tools folder holding the given versions (plus a 2.0.0 folder without
-    a launcher, which must be skipped) and a PATH folder with its own openspec."""
-    base = tmp / name
-    root = base / "local" / "dw-ds-tools"
-    for version in versions:
-        fake_launcher(root / ("openspec-" + version) / "node_modules" / ".bin", "openspec", version + "-tools")
-    (root / "openspec-2.0.0" / "node_modules").mkdir(parents=True, exist_ok=True)
-    (root / "openspec-latest").mkdir(parents=True, exist_ok=True)
-    path_dir = base / "bin"
-    path_dir.mkdir(parents=True, exist_ok=True)
-    if on_path:
-        fake_launcher(path_dir, "openspec", "9.9.9-path")
-    env = {"OPENSPEC_BIN": None, TOOLS_VAR: str(base / "local"), "PATH": str(path_dir)}
-    return env, root, path_dir
-
-
-def which(env, config=None):
-    args = ["--which"] + (["--config", config] if config else [])
-    proc = run_tool("sdd_gate", *args, env=env)
-    return proc, text_of(proc)
-
-
-@test
-def sdd_cli_lookup(tmp):
-    env, root, path_dir = cli_world(tmp, "lookup")
-    stand_in = write(tmp / "lookup_fake_openspec.py", FAKE_OPENSPEC)
-    other = write(tmp / "lookup_other_openspec.py", FAKE_OPENSPEC.replace("0.0.0-selftest-stand-in", "0.0.1-config"))
-    var = "%DWDS_SELFTEST_CLI%" if WINDOWS else "$DWDS_SELFTEST_CLI"
-    config = write(tmp / "lookup_cfg" / "director_work.json",
-                   json.dumps({"sdd": {"openspec_bin": var + "/lookup_other_openspec.py"}}))
-    null = write(tmp / "lookup_null" / "director_work.json", json.dumps({"sdd": {"openspec_bin": None}}))
-    level1 = dict(env, OPENSPEC_BIN=str(stand_in), DWDS_SELFTEST_CLI=str(tmp))
-    proc, text = which(level1, config)
-    require(proc.returncode == 0 and "(level 1 OPENSPEC_BIN" in text and "0.0.0-selftest-stand-in" in text,
-            "OPENSPEC_BIN did not win over sdd.openspec_bin, the tools folder and PATH: " + tail(text))
-    proc, text = which(dict(env, DWDS_SELFTEST_CLI=str(tmp)), config)
-    require(proc.returncode == 0 and "(level 2 sdd.openspec_bin" in text and "0.0.1-config" in text,
-            "sdd.openspec_bin (with %s expanded) did not win over the tools folder and PATH: " % var + tail(text))
-    proc, text = which(env, null)
-    want = ("%LOCALAPPDATA%" if WINDOWS else "$XDG_DATA_HOME") + "/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec"
-    require(proc.returncode == 0 and "(level 3 " in text and "openspec-1.16.0, newest of 2" in text
-            and "version=1.16.0-tools" in text, "the tools folder scan did not pick 1.16.0 over 1.9.2: " + tail(text))
-    require("sdd.openspec_bin is null" in text and want in text and str(root) not in text.split("# sdd")[-1],
-            "no hint with the value to write (in variable form, no user path) for a null setting: " + tail(text))
-    proc, text = which(dict(env, **{TOOLS_VAR: str(tmp / "lookup" / "empty")}), null)
-    require(proc.returncode == 0 and "(level 4 PATH)" in text and "9.9.9-path" in text,
-            "PATH was not used when the tools folder is empty: " + tail(text))
-    nothing = dict(env, **{TOOLS_VAR: str(tmp / "lookup" / "empty"), "PATH": str(tmp / "lookup" / "nopath")})
-    proc, text = which(nothing, null)
-    require(proc.returncode == 1 and "OPENSPEC: NOT_FOUND" in text and "安裝 openspec" in text,
-            "no CLI anywhere did not say NOT_FOUND with the PO_PENDING install hint: " + tail(text))
-    broken = write(tmp / "lookup_broken" / "director_work.json",
-                   json.dumps({"sdd": {"openspec_bin": str(tmp / "no-such" / "openspec.cmd")}}))
-    proc, text = which(env, broken)
-    require(proc.returncode == 1 and "level 2 sdd.openspec_bin=" in text and "does not exist" in text,
-            "a wrong sdd.openspec_bin was silently replaced by a later level: " + tail(text))
-    sdd = load_tool("sdd_gate")
-    exe, folder, count = sdd.scan_user_tools(root)
-    require(folder == "openspec-1.16.0" and count == 2, "scan_user_tools: %s %s" % (folder, count))
-    require(sdd.scan_user_tools(tmp / "lookup" / "no-such-root") == (None, None, 0), "a missing root was not empty")
-    return "level 1 > 2 (%s expanded) > 3 (1.16.0 newest of 2, 2.0.0 without launcher skipped) > 4 > NOT_FOUND; a " \
-           "wrong explicit path fails; null hint in variable form" % var
-
-
-@test
-def sdd_cli_setup(tmp):
-    env, root, path_dir = cli_world(tmp, "setupcli", versions=("1.16.0",), on_path=False)
-    folder = shadow_fixture(tmp / "setupcli" / "DIRECTOR")
-    proc = run_tool("dsh_setup_check", folder, env=env)
-    text = text_of(proc)
-    require(proc.returncode == 0 and "~ openspec: " in text and "(level 3 " in text and "version=1.16.0-tools" in text,
-            "setup_check did not report the CLI, its level and version: " + tail(text))
-    require("~ shadow: openspec: found but sdd.openspec_bin is null" in text and "openspec-1.16.0/node_modules" in text,
-            "setup_check did not hint the value to write for a null sdd.openspec_bin: " + tail(text))
-    hard = run_tool("dsh_setup_check", "--strict", folder, env=env)
-    require(hard.returncode == 1 and "  - openspec: found but sdd.openspec_bin is null" in text_of(hard),
-            "--strict did not fail the null setting: " + tail(text_of(hard)))
-    data = json.loads((folder / "director_work.json").read_text(encoding="utf-8"))
-    data["sdd"] = {"openspec_bin": "%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec.cmd"
-                   if WINDOWS else "$XDG_DATA_HOME/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec"}
-    write(folder / "director_work.json", json.dumps(data, indent=1) + "\n")
-    proc = run_tool("dsh_setup_check", "--strict", folder, env=env)
-    require(proc.returncode == 0 and "(level 2 sdd.openspec_bin)" in text_of(proc) and "shadow:" not in text_of(proc),
-            "the written value did not satisfy setup_check --strict: " + tail(text_of(proc)))
-    data["sdd"]["require_spec_for_standard"] = False
-    write(folder / "director_work.json", json.dumps(data, indent=1) + "\n")
-    proc = run_tool("dsh_setup_check", folder, env=env)
-    require("may not turn spec-first off" in text_of(proc), "require_spec off with a CLI found was not flagged: "
-            + tail(text_of(proc)))
-    pending = folder / "PO_PENDING.md"
-    write(pending, pending.read_text(encoding="utf-8") + "\nID: OD-009\nCREATED: 2026-11-14 10:00\nSTATUS: answered\n"
-          "QUESTION: May the lead set require_spec_for_standard to false?\nOPTIONS: a) yes b) no\nRECOMMENDED: b\n"
-          "SOURCE: DIRECTOR\nANSWER: a) yes, this project only\n")
-    proc = run_tool("dsh_setup_check", folder, env=env)
-    require("may not turn spec-first off" not in text_of(proc) and "the PO answered it" in text_of(proc),
-            "the PO's answer did not clear the require_spec line: " + tail(text_of(proc)))
-    gone = shadow_fixture(tmp / "setupcli-none" / "DIRECTOR")
-    none_env = dict(env, **{TOOLS_VAR: str(tmp / "setupcli" / "empty")})
-    proc = run_tool("dsh_setup_check", gone, env=none_env)
-    require("~ shadow: openspec: CLI not found" in text_of(proc) and "安裝 openspec" in text_of(proc),
-            "no CLI did not ask for a PO_PENDING 「安裝 openspec」 entry: " + tail(text_of(proc)))
-    pending = gone / "PO_PENDING.md"
-    write(pending, pending.read_text(encoding="utf-8").replace("QUESTION: Which database?",
-                                                                "QUESTION: 安裝 openspec 1.16.0 (MIT, free)?"))
-    proc = run_tool("dsh_setup_check", "--strict", gone, env=none_env)
-    require(proc.returncode == 0 and "PO_PENDING.md asks to install it" in text_of(proc),
-            "an open 「安裝 openspec」 entry did not clear the line: " + tail(text_of(proc)))
-    return "level / version note; null hint shadow then --strict FAIL; written value clean; require_spec off " \
-           "flagged until the PO answers; no CLI asks for 「安裝 openspec」"
-
-
-@test
-def sdd_spec_off_gate(tmp):
-    repo, lock, env = sdd_fixture(tmp, "sdd_off")
-    director = tmp / "sdd_off_dir" / "DIRECTOR"
-    config = write(director / "director_work.json", json.dumps({"schema_version": 1, "sdd": {
-        "require_spec_for_standard": False}}))
-    proc, text = sdd_run(repo, sdd_order("NONE", lock), env, "--config", config)
-    require(proc.returncode == 1 and "may not turn spec-first off" in text,
-            "gate_check --order let require_spec_for_standard=false pass with a CLI found: " + tail(text))
-    write(director / "PO_PENDING.md", "ID: OD-1\nSTATUS: open\nQUESTION: turn require_spec_for_standard off?\n"
-          "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER:\n")
-    proc, text = sdd_run(repo, sdd_order("NONE", lock), env, "--config", config)
-    require(proc.returncode == 1 and "still open: wait for the PO" in text, "an open PO entry let it pass: " + tail(text))
-    write(director / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: turn require_spec_for_standard off?\n"
-          "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER: a) yes\n")
-    proc, text = sdd_run(repo, sdd_order("NONE", lock), env, "--config", config)
-    require(proc.returncode == 0 and "the PO answered it" in text, "the PO's answer did not allow it: " + tail(text))
-    write(director / "PO_PENDING.md", "")
-    nocli = {"OPENSPEC_BIN": None, TOOLS_VAR: str(tmp / "sdd_off_empty"), "PATH": str(tmp / "sdd_off_empty")}
-    proc, text = sdd_run(repo, sdd_order("NONE", lock), nocli, "--config", config)
-    require(proc.returncode == 0 and "安裝 openspec" in text,
-            "without a CLI, require_spec off should pass with a 「安裝 openspec」 note: " + tail(text))
-    return "CLI found: off FAILs, open PO entry FAILs, answered passes; no CLI: passes with an install note"
-
-
-@test
 def revision_sync(tmp):
     """2.2.3-ds.3 (WO-DS-005 B5): gate_check --order on REVISION 2 notes the files to sync and marks a WORK_DIR
     tasks.md written before the order with `shadow: REVISION_SYNC`; the exit code does not change."""
-    repo, lock, env = sdd_fixture(tmp, "revsync")
+    repo, lock = wo_fixture(tmp, "revsync")
     work = tmp / "revsync_work"
     tasks = write(work / "tasks.md", "- [ ] 1.1 expect 9\n")
     resume = write(work / "RESUME_STATE.md", "PROGRESS: x\n")
-    text1 = sdd_order("openspec/changes/good-change", lock).replace(
-        "SPEC_CHANGE    =", "WORK_DIR       = %s\nSPEC_CHANGE    =" % work)
+    text1 = wo_text(lock).replace(
+        "BASE_REF       =", "WORK_DIR       = %s\nBASE_REF       =" % work)
     order = write(repo / "orders" / "WO-7.md", text1.replace("REVISION       = 1", "REVISION       = 2")
                   + "\n## H. 變更紀錄\n| 版次 | 日期 | 變更 | 原因 |\n|---|---|---|---|\n| 2 | 2026-11-14 | 9 -> 11 | fix |\n")
     old = order.stat().st_mtime - 600
     os.utime(tasks, (old, old))
     os.utime(resume, (old + 1200, old + 1200))
-    proc = run_tool("gate_check", "--order", order, "--repo", repo, env=env)
+    proc = run_tool("gate_check", "--order", order, "--repo", repo)
     text = text_of(proc)
     require(proc.returncode == 0 and "REVISION 2: sync BRIEF.md" in text and "shadow: REVISION_SYNC" in text
             and "tasks.md was last written before REVISION 2" in text and "RESUME_STATE.md was last" not in text,
             "REVISION 2 did not mark only the older tasks.md: " + tail(text))
     write(order, text1)
-    proc = run_tool("gate_check", "--order", order, "--repo", repo, env=env)
+    proc = run_tool("gate_check", "--order", order, "--repo", repo)
     require(proc.returncode == 0 and "REVISION_SYNC" not in text_of(proc) and "REVISION 1" not in text_of(proc),
             "REVISION 1 printed sync notes: " + tail(text_of(proc)))
     return "REVISION 2: sync note, older tasks.md marked, newer RESUME_STATE not, exit 0; REVISION 1 silent"
@@ -1519,49 +1413,175 @@ def revision_sync(tmp):
 
 @test
 def bootstrap_repo(tmp):
-    """2.2.3-ds.3 (WO-DS-005 B1 / B6): bootstrap_repo.py excludes .memsearch/ once, writes the found CLI into a null
-    sdd.openspec_bin (variable form) and changes nothing on a rerun; without a CLI it names the PO_PENDING item."""
+    """2.2.3-ds.3 (WO-DS-005 B1): bootstrap_repo.py excludes .memsearch/ once and changes nothing on a rerun.
+    2.2.5-ds.5 (WO-DS-009 B1 / B3, L-061): the spec-first steps are gone. With the shipped example nothing is said
+    about them; a ds.4 config that still has the sdd block (openspec_bin null, or a path that does not exist), with a
+    stand-in CLI on OPENSPEC_BIN, prints only the B1 WARN lines (one for the ignored OpenSpec keys, one 「請搬到
+    safety」 for the switches it still reads), looks up no CLI (the stand-in leaves a mark when run), writes nothing
+    into the config, runs no init, prints no install TODO, and exits 0."""
     if shutil.which("git") is None:
         raise Skip("git is not on PATH")
-    env, root, path_dir = cli_world(tmp, "boot", versions=("1.16.0",), on_path=False)
     repo = tmp / "boot" / "demo"
     repo.mkdir(parents=True)
     proc = run_prog(["git", "init", "-q", "-b", "main"], cwd=repo)
     require(proc.returncode == 0, "git init failed: " + tail(text_of(proc)))
-    write(repo / "openspec" / "config.yaml", "schema: spec-driven\n")  # init is the smoke check's job (B2)
     exclude = repo / ".git" / "info" / "exclude"
     write(exclude, "# git's own comment\n*.log")  # no newline at the end
-    example = json.loads((TOOLS.parent / "director_work.example.json").read_text(encoding="utf-8"))
-    config = write(tmp / "boot" / "DIRECTOR" / "director_work.json", json.dumps(example, ensure_ascii=False, indent=2))
-    before = config.read_text(encoding="utf-8")
-    check = run_tool("bootstrap_repo", "--repo", repo, "--config", config, "--check", env=env)
-    require(check.returncode == 1 and "TODO  exclude" in text_of(check) and "TODO  openspec" in text_of(check)
-            and config.read_text(encoding="utf-8") == before and ".memsearch" not in exclude.read_text(encoding="utf-8"),
+    example = (TOOLS.parent / "director_work.example.json").read_text(encoding="utf-8")
+    require('"sdd"' not in example, "the example still has the sdd block")
+    config = write(tmp / "boot" / "DIRECTOR" / "director_work.json", example)
+    warn = "OpenSpec 已在 2.2.5-ds.5 移除，此鍵被忽略"
+    check = run_tool("bootstrap_repo", "--repo", repo, "--config", config, "--check")
+    require(check.returncode == 1 and "TODO  exclude" in text_of(check) and warn not in text_of(check)
+            and ".memsearch" not in exclude.read_text(encoding="utf-8"),
             "--check changed something or did not list the work: " + tail(text_of(check)))
-    proc = run_tool("bootstrap_repo", "--repo", repo, "--config", config, env=env)
+    proc = run_tool("bootstrap_repo", "--repo", repo, "--config", config)
     text = text_of(proc)
     lines = exclude.read_text(encoding="utf-8").splitlines()
-    require(proc.returncode == 0 and "BOOTSTRAP_REPO: DONE" in text and "*.log" in lines and ".memsearch/" in lines,
+    require(proc.returncode == 0 and "BOOTSTRAP_REPO: DONE" in text and "*.log" in lines and ".memsearch/" in lines
+            and config.read_text(encoding="utf-8") == example,
             "the exclude line was not added after the last line: %s %s" % (lines, tail(text)))
-    value = json.loads(config.read_text(encoding="utf-8"))["sdd"]["openspec_bin"]
-    want = ("%LOCALAPPDATA%" if WINDOWS else "$XDG_DATA_HOME") + "/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec"
-    require(value.startswith(want) and str(root) not in value, "sdd.openspec_bin was not written in variable form: %r"
-            % value)
-    changed = [a for a, b in zip(before.splitlines(), config.read_text(encoding="utf-8").splitlines()) if a != b]
-    require(len(changed) == 1 and '"openspec_bin": null' in changed[0], "more than the one value changed: %s" % changed)
-    again = run_tool("bootstrap_repo", "--repo", repo, "--config", config, "--check", env=env)
+    again = run_tool("bootstrap_repo", "--repo", repo, "--config", config, "--check")
     require(again.returncode == 0 and "TODO" not in text_of(again)
             and exclude.read_text(encoding="utf-8").count(".memsearch/") == 1,
             "a rerun was not clean or added the line twice: " + tail(text_of(again)))
-    which = run_tool("sdd_gate", "--which", "--config", config, env=env)
-    require("(level 2 sdd.openspec_bin)" in text_of(which), "the written value is not found again: " + tail(text_of(which)))
-    none_env = dict(env, **{TOOLS_VAR: str(tmp / "boot" / "empty")})
-    bare = write(tmp / "boot" / "DIRECTOR2" / "director_work.json", json.dumps({"schema_version": 1}))
-    proc = run_tool("bootstrap_repo", "--repo", repo, "--config", bare, "--skip", "init", env=none_env)
-    require(proc.returncode == 1 and "安裝 openspec" in text_of(proc) and "openspec_bin" not in bare.read_text(
-        encoding="utf-8"), "without a CLI it should name the PO_PENDING item and write nothing: " + tail(text_of(proc)))
-    return ".memsearch/ excluded once (file without final newline kept), null openspec_bin -> variable form, only " \
-           "that value changed, rerun clean, no CLI -> 「安裝 openspec」"
+    mark = tmp / "boot" / "cli_was_run.txt"
+    stand_in = write(tmp / "boot" / "stand_in_cli.py", "import pathlib, sys\npathlib.Path(%r).write_text(' '.join("
+                     "sys.argv[1:]))\nprint('1.16.0')\n" % str(mark))
+    old = {"require_spec_for_strict": True, "require_spec_for_standard": True, "spec_review_for_standard": True,
+           "tests_first": True, "plan_gate": True, "stop_after_rounds": 1, "prefer_auto": True}
+    for case, value in (("bin null", None), ("bin missing", str(tmp / "boot" / "no" / "openspec.cmd"))):
+        legacy = json.loads(example)
+        legacy.pop("safety"), legacy.pop("_comment_safety")  # a ds.4 config has no "safety" block
+        legacy["sdd"] = dict(old, openspec_bin=value)
+        path = write(tmp / "boot" / ("L061_" + case.replace(" ", "_")) / "director_work.json",
+                     json.dumps(legacy, ensure_ascii=False, indent=2))
+        before = path.read_bytes()
+        proc = run_tool("bootstrap_repo", "--repo", repo, "--config", path, env={"OPENSPEC_BIN": str(stand_in)})
+        text = text_of(proc)
+        warns = [line for line in text.splitlines() if line.startswith("WARN")]
+        require(proc.returncode == 0 and text.count(warn) == 1 and "BOOTSTRAP_REPO: DONE" in text
+                and len(warns) == 2 and "請搬到 safety" in warns[1] and "sdd.openspec_bin" in warns[0]
+                and path.read_bytes() == before and not mark.exists() and not (repo / "openspec").exists()
+                and "TODO" not in text and "PO_PENDING" not in text
+                and all(warn in line for line in text.splitlines() if "openspec" in line.lower()),
+                "L-061 %s: %s" % (case, tail(text)))
+    return ".memsearch/ excluded once (file without final newline kept), rerun clean, example silent; L-061: old sdd " \
+           "block (bin null / bin missing) -> B1 WARNs only, no lookup, no write, no init, no TODO, exit 0"
+
+
+
+
+WORKTREE_MUTATIONS = [
+    ("main reads as isolated", [("    if norm(top) == norm(main):", "    if norm(top) != norm(main):")]),
+    ("worktree inside the repo", [('target = (pathlib.Path(root) if root else repo.parent / "wt") / order_id',
+                                   'target = (pathlib.Path(root) if root else repo / "wt") / order_id')]),
+]
+
+
+@test
+def worker_worktree_225(tmp):
+    """2.2.5-ds.5 B4: dsh_session.py --worker-worktree REPO --order WO opens <REPO>/../wt/<WO> on its own branch; the
+    WORKTREE line (--worktree-status, and gate_check --report-skeleton) comes from git worktree list: the main checkout
+    is 「共用 checkout」, a linked one 「隔離 worktree」; an existing folder or a bad id is refused."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    repo = tmp / "wt225" / "ws" / "proj"
+    write(repo / "a.py", "x = 1\n")
+    rgit(repo, "init", "-q", "-b", "main")
+    rgit(repo, "config", "user.email", "selftest@example.invalid")
+    rgit(repo, "config", "user.name", "Selftest")
+    rgit(repo, "add", "-A")
+    rgit(repo, "commit", "-q", "-m", "base")
+    proc = run_tool("dsh_session", "--worktree-status", repo)
+    require(proc.returncode == 0 and "WORKTREE: 共用 checkout" in text_of(proc), "main checkout: " + tail(text_of(proc)))
+    proc = run_tool("dsh_session", "--worker-worktree", repo, "--order", "WO-01", "--branch", "wo-01-x")
+    target = tmp / "wt225" / "ws" / "wt" / "WO-01"
+    require(proc.returncode == 0 and "WORKTREE: 隔離 worktree" in text_of(proc) and (target / "a.py").is_file()
+            and rgit(target, "rev-parse", "--abbrev-ref", "HEAD") == "wo-01-x", "worker worktree: " + tail(text_of(proc)))
+    proc = run_tool("dsh_session", "--worktree-status", target)
+    require(proc.returncode == 0 and "WORKTREE: 隔離 worktree" in text_of(proc) and "main checkout" in text_of(proc),
+            "linked worktree status: " + tail(text_of(proc)))
+    again = run_tool("dsh_session", "--worker-worktree", repo, "--order", "WO-01")
+    require(again.returncode == 1 and "exists" in text_of(again), "an existing worktree folder was reused")
+    bad = run_tool("dsh_session", "--worker-worktree", repo, "--order", "../x")
+    require(bad.returncode == 2, "a bad order id was accepted: " + tail(text_of(bad)))
+    session = load_tool("dsh_session")
+    require(session.worktree_kind(repo)[0] == "shared" and session.worktree_kind(target)[0] == "isolated",
+            "worktree_kind is wrong")
+    gate = load_tool("gate_check")
+    require("WORKTREE: 隔離 worktree" in gate.worktree_line(target) and "WORKTREE: 共用 checkout" in gate.worktree_line(repo),
+            "the report skeleton's WORKTREE line is not the tool's")
+    survived = []
+    for number, (name, swaps) in enumerate(WORKTREE_MUTATIONS, 2):
+        module = mutated("dsh_session", swaps)
+        kinds = (module.worktree_kind(repo)[0], module.worktree_kind(target)[0])
+        code, _ = module.worker_worktree(repo, "WO-0%d" % number)
+        if kinds == ("shared", "isolated") and code == 0 and (target.parent / ("WO-0%d" % number)).is_dir():
+            survived.append(name)
+    require(not survived, "these worktree mutations get nothing wrong: %s" % survived)
+    return "main = 共用 checkout, --worker-worktree = 隔離 worktree on its branch, existing folder / bad id refused, " \
+           "skeleton line from the tool; %d mutations killed" % len(WORKTREE_MUTATIONS)
+
+
+USAGE_MUTATIONS = [
+    ("missing usage not warned", [('return [f"  ~ WARN USAGE: {usage_path} not found',
+                                   'return [f"  ok USAGE: {usage_path} not found')]),
+    ("NO_DATA taken as data", [('    if status == "NO_DATA":', '    if status == "NO_DATA_NEVER":')]),
+    ("a WARN fails the final mode", [("    lines += usage_lines(director, usage)\n",
+                                      "    lines += usage_lines(director, usage)\n"
+                                      "    failed += any(\"WARN\" in line for line in lines)\n")]),
+]
+
+
+@test
+def usage_final_225(tmp):
+    """2.2.5-ds.5 B2: gate_check --final DIRECTOR looks for DIRECTOR/usage.json (or --usage FILE), the file the lead's
+    last step writes with dsh_usage.py --out. Missing, unreadable or NO_DATA: `~ WARN USAGE`, exit 0; a usage file:
+    `ok USAGE`."""
+    director = tmp / "final225" / "DIRECTOR"
+    director.mkdir(parents=True)
+    cases = []
+
+    def final(*extra):
+        proc = run_tool("gate_check", "--final", director, *extra)
+        return proc.returncode, text_of(proc)
+
+    code, out = final()
+    cases.append(("missing", code == 0 and "~ WARN USAGE" in out and "not found" in out and "FINAL: OK" in out, out))
+    write(director / "usage.json", "{not json")
+    code, out = final()
+    cases.append(("unreadable", code == 0 and "~ WARN USAGE" in out and "unreadable" in out, out))
+    write(director / "usage.json", json.dumps({"status": "NO_DATA", "reason": "no sessions"}))
+    code, out = final()
+    cases.append(("NO_DATA", code == 0 and "~ WARN USAGE" in out and "NO_DATA" in out, out))
+    other = write(tmp / "final225" / "elsewhere.json", json.dumps({"status": "OK", "sessions": []}))
+    code, out = final("--usage", other)
+    cases.append(("--usage", code == 0 and "ok USAGE" in out and "WARN" not in out, out))
+    bad = [name + ": " + tail(out) for name, ok, out in cases if not ok]
+    require(not bad, "gate_check --final: %s" % bad)
+    proc = run_tool("gate_check", "--final", director, "--order", director / "x.md")
+    require(proc.returncode == 2, "--final with another check was accepted: " + tail(text_of(proc)))
+    (director / "usage.json").unlink()
+
+    def wrong_with(module):
+        got = []
+        lines, failed = module.final_check(str(director))
+        if failed or not any("~ WARN USAGE" in line for line in lines):
+            got.append("missing")
+        write(director / "usage.json", json.dumps({"status": "NO_DATA", "reason": "x"}))
+        lines, failed = module.final_check(str(director))
+        if failed or not any("~ WARN USAGE" in line for line in lines):
+            got.append("NO_DATA")
+        (director / "usage.json").unlink()
+        return got
+
+    wrong = wrong_with(load_tool("gate_check"))
+    require(not wrong, "final_check() is wrong at %s" % wrong)
+    survived = [name for name, swaps in USAGE_MUTATIONS if not wrong_with(mutated("gate_check", swaps))]
+    require(not survived, "these usage mutations get nothing wrong: %s" % survived)
+    return "missing / unreadable / NO_DATA -> ~ WARN USAGE exit 0, --usage file -> ok, --final alone; " \
+           "%d mutations killed" % len(USAGE_MUTATIONS)
 
 
 def synthetic_audit(tmp, audit):
@@ -2002,12 +2022,6 @@ SHADOW_CASES = [
 
 @test
 def setup_shadow(tmp):
-    # 2.2.3-ds.3: dsh_setup_check also reports the openspec CLI; a stand-in named by OPENSPEC_BIN (level 1, no
-    # "write sdd.openspec_bin" hint) keeps these cases the same on every machine. sdd_cli_setup tests the CLI lines.
-    fake = {"OPENSPEC_BIN": str(write(tmp / "shadow_fake_openspec.py", FAKE_OPENSPEC))}
-
-    def run_tool(name, *args):
-        return globals()["run_tool"](name, *args, env=fake)
     clean = shadow_fixture(tmp / "shadow-clean" / "DIRECTOR")
     proc = run_tool("dsh_setup_check", "--strict", clean)
     require(proc.returncode == 0 and "DSH_SETUP_CHECK: PASS" in text_of(proc) and "shadow:" not in text_of(proc),
@@ -2033,8 +2047,9 @@ def setup_shadow(tmp):
           .replace("CREATED: 2026-11-13 10:00\n", "") + "\nID: CH-003\nSTATUS: open\n")
     proc = run_tool("dsh_setup_check", "--strict", notes)
     text = text_of(proc)
-    require("keys no tool reads: colour (a typo?)" in text and "sdd" not in text.split("keys no tool reads: ")[-1],
-            "sdd is a key the DSH tools read: " + tail(text))
+    warn = "\"sdd\" 區塊是空的"
+    require("keys no tool reads: colour (a typo?)" in text and "sdd" not in text.split("keys no tool reads: ")[-1]
+            and text.count(warn) == 1, "an empty sdd block: not one WARN, or called a typo: " + tail(text))
     for said in ("Claude-only keys the DSH edition does not read: window", "keys no tool reads: colour",
                  "resume keys no tool reads: keep_days", "base_ref key no tool reads: strct",
                  "ACT-002 (line", "no CREATED line", "`ID: CH-003` is not OD-xx / ACT-xx"):
@@ -2240,17 +2255,17 @@ def base_ref_fresh(tmp):
     rgit(base, "init", "-q", "--bare", "-b", "main", "origin.git")
     rgit(base / "origin.git", "config", "core.longpaths", "true")  # 2.2.4: a local remote ignores GIT_CONFIG_COUNT
     proj = release_clone(base / "origin.git", base / "proj")
-    repo, lock, env = sdd_fixture(base, "proj")
+    repo, lock = wo_fixture(base, "proj")
     rgit(proj, "add", "-A")
     rgit(proj, "commit", "-q", "-m", "base")
     rgit(proj, "push", "-q", "origin", "HEAD:refs/heads/main")
     sha = rgit(proj, "rev-parse", "--short=7", "HEAD")
 
     def order(ref):
-        return sdd_order("openspec/changes/good-change", lock).replace("BASE_REF       = main @ abc1234",
+        return wo_text(lock).replace("BASE_REF       = main @ abc1234",
                                                                         "BASE_REF       = " + ref)
 
-    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    proc, text = wo_run(repo, order("origin/main @ " + sha))
     require(proc.returncode == 0 and "BASE_REF %s = origin/main (fetched now)" % sha in text,
             "an up-to-date BASE_REF was not confirmed after a fetch: " + tail(text))
     other = release_clone(base / "origin.git", base / "other")
@@ -2258,25 +2273,25 @@ def base_ref_fresh(tmp):
     rgit(other, "add", "later.txt")
     rgit(other, "commit", "-q", "-m", "later")
     rgit(other, "push", "-q", "origin", "HEAD:refs/heads/main")
-    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    proc, text = wo_run(repo, order("origin/main @ " + sha))
     require(proc.returncode == 0 and "~ WARN BASE_REF: %s is 1 commit(s) behind origin/main" % sha in text,
             "a BASE_REF behind origin/main was not a WARN note: " + tail(text))
-    proc, text = sdd_run(repo, order("origin/main @ " + sha), env, "--strict-base")
+    proc, text = wo_run(repo, order("origin/main @ " + sha), "--strict-base")
     require(proc.returncode == 1 and "  - BASE_REF: %s is 1 commit(s) behind" % sha in text,
             "--strict-base did not fail a stale BASE_REF: " + tail(text))
     write(repo / "director_work.json", '{"base_ref": {"strict": "yes"}}')
-    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    proc, text = wo_run(repo, order("origin/main @ " + sha))
     require(proc.returncode == 0 and "base_ref.strict: true or false, got 'yes'; false used" in text
             and "WARN BASE_REF" in text, "a base_ref switch of the wrong type was not a note: " + tail(text))
     (repo / "director_work.json").unlink()
-    proc, text = sdd_run(repo, order("origin/main @ deadbee"), env)
+    proc, text = wo_run(repo, order("origin/main @ deadbee"))
     require(proc.returncode == 0 and "WARN BASE_REF: commit deadbee does not exist" in text,
             "a BASE_REF commit that does not exist was not noted: " + tail(text))
     rgit(proj, "remote", "set-url", "origin", str(base / "gone.git"))
-    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    proc, text = wo_run(repo, order("origin/main @ " + sha))
     require(proc.returncode == 0 and "WARN BASE_REF: not compared with the remote: git fetch origin failed" in text,
             "a failed fetch was not said out loud: " + tail(text))
-    proc, text = sdd_run(repo, order("origin/main @ " + sha), env, "--strict-base")
+    proc, text = wo_run(repo, order("origin/main @ " + sha), "--strict-base")
     require(proc.returncode == 1 and "  - BASE_REF: not compared with the remote" in text,
             "--strict-base did not fail when the fetch failed: " + tail(text))
     return "fresh = origin/main, 1 behind WARN / --strict-base FAIL, missing commit, fetch failure WARN / FAIL"
@@ -2347,13 +2362,12 @@ def report_skeleton(tmp):
         "| AC-2 | REVIEW | the code reads well | 總監看 diff | 好讀 |", "",
         "```text", "CHECKS:", "- AC-1: " + json.dumps(check), "```", "",
         "- DELIVERABLES: one commit", "- STOP_RULES: 同一根因 1 輪沒進展就停", ""]))
-    # this test is about the report, not SDD: the order's folder config turns the spec and locked-test rules off,
-    # which 2.2.3-ds.3 allows only with the PO's answer in PO_PENDING.md when an openspec CLI is found
+    # this test is about the report, not the safety gates: the order's folder config turns tests_first off, which
+    # 2.2.5-ds.5 allows only with the PO's answer in PO_PENDING.md (safety_switch_off_225)
     write(root / "DIRECTOR" / "director_work.json",
-          json.dumps({"schema_version": 1, "sdd": {"require_spec_for_standard": False, "tests_first": False}}) + "\n")
-    write(root / "DIRECTOR" / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: turn require_spec_for_standard "
-          "off for the report selftest?\nOPTIONS: a) yes b) no\nRECOMMENDED: a\nSOURCE: selftest\nANSWER: a) yes\n")
-    # 2.2.4-ds.4 (B4): a Standard order is reviewed before dispatch; without --dispatch-log the DIRECTOR_LOG is read
+          json.dumps({"schema_version": 1, "safety": {"tests_first": False}}) + "\n")
+    write(root / "DIRECTOR" / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: turn tests_first off for the "
+          "report selftest?\nOPTIONS: a) yes b) no\nRECOMMENDED: a\nSOURCE: selftest\nANSWER: a) yes\n")
     write(root / "DIRECTOR" / "DIRECTOR_LOG.md", "2026-11-14 09:05 | SPEC_REVIEW WO-8 tokens=UNKNOWN issues=0/0/0 "
           "adopted=0\n")
     write(repo / "calc.py", "def add(a, b):\n    return a + b\n")

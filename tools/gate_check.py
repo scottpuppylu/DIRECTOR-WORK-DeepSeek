@@ -119,15 +119,16 @@ evidence and the product is still the Director's job (docs/02, docs/07).
   A verdict may carry `ORDER_SHA256:` and `REPORT_SHA256:` (gate_check.py --hash of each file); with --match a
              mismatch is `~ VERDICT_RECORD`.
 
-ds.2 SDD (switches in director_work.json "sdd", all on by default; the checks live in sdd_gate.py next to this file):
-  --order / --match on a Standard or Strict order: `SPEC_CHANGE = openspec/changes/<name>` (not NONE) must exist under
-             --repo (default: the current folder) and pass `openspec validate <name> --strict --json`; an openspec CLI
-             that cannot be found or run FAILS, never passes quietly. `TESTS_LOCKED:` lists the acceptance tests written
-             before dispatch with their sha256; a changed one fails. STOP_RULES may not allow more rounds than
-             sdd.stop_after_rounds (1).
-  --match with --dispatch-log on a Standard or Strict order: whole lines `SPEC_REVIEW <WO-ID> ...` and
-             `PLAN_APPROVED <WO-ID> sha=<64 hex>` must be in the log, and tasks.md may differ from the approved plan only
-             by ticked boxes. --config FILE: director_work.json (default: the order's folder/../director_work.json).
+Safety gates (ds.2 SDD; 2.2.5-ds.5 WO-DS-009 B1: OpenSpec removed, the gates kept; switches in director_work.json
+"safety", all on by default; the checks live in safety_gate.py next to this file, docs/13):
+  --order / --match on a Standard or Strict order: `TESTS_LOCKED:` lists the acceptance tests written before
+             dispatch with their sha256; a changed one fails. STOP_RULES may not allow more rounds than
+             safety.stop_after_rounds (1). A safety switch turned off needs the PO's answer in PO_PENDING.md.
+  --match on a Standard or Strict order: the SPEC_REVIEW of the order (--dispatch-log, else DIRECTOR_LOG.md or
+             reviews/); with --dispatch-log also `PLAN_APPROVED <WO-ID> sha=<64 hex>`, and <WORK_DIR>/<WO>/PLAN.md
+             may differ from the approved plan only by ticked boxes, all ticked.
+  An old "sdd" block is read without error; its WARN lines are notes. --config FILE: director_work.json (default:
+             the order's folder/../director_work.json).
 
 The hash only detects a changed order after the fact; it cannot stop anyone from editing it. An evidence record shows
 a command ran and passed, not that it tests the right thing.
@@ -142,6 +143,12 @@ Lines starting with `~` are notes for the newer format (v0.10): they never fail 
              is the verdict's `ORDER:` file, looked up in --orders, the verdict's folder and ../orders; without it every
              non-document file counts. A candidate that cannot be resolved, or a HEAD that does not contain it, says it
              did not compare (NOT_CHECKED, never a silent pass). Only reads (git rev-parse / rev-list / diff).
+
+2.2.5-ds.5 final mode (WO-DS-009 B2; the end-to-end check itself comes from upstream 2.2.5):
+  --final DIRECTOR [--usage FILE]
+             the usage file: --usage FILE, else DIRECTOR/usage.json, written by `dsh_usage.py --out` as the lead's last
+             step (BOOTSTRAP 「收尾」). Missing, unreadable or NO_DATA prints `~ WARN USAGE` and the exit code stays
+             the same; a readable file prints `ok USAGE`. Last line `FINAL: OK|FAIL problems=n`. Only reads.
 
 Bringing in a project that already has files in another format:
   --warn          print WARN instead of FAIL and exit 0, so old files do not block work
@@ -1307,11 +1314,39 @@ def base_ref_problems(order_text, repo, config, notes, fetched):
     return []
 
 
-def sdd_module():
-    """sdd_gate.py next to this file (ds.2: SPEC_CHANGE, locked tests, spec review and plan approval)."""
+def usage_lines(director, usage=None):
+    """2.2.5-ds.5 (WO-DS-009 B2): the lines about DIRECTOR/usage.json (or usage) for the final mode. Never a failure:
+    a missing, unreadable or NO_DATA file is `~ WARN USAGE` (the trial's token total was UNKNOWN because the lead never
+    ran `dsh_usage.py --out`)."""
+    usage_path = pathlib.Path(usage) if usage else pathlib.Path(director) / "usage.json"
+    try:
+        data = json.loads(usage_path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return [f"  ~ WARN USAGE: {usage_path} not found: run `dsh_usage.py --project-dir <WS> --out {usage_path}` as "
+                "the last step (BOOTSTRAP 「收尾」)"]
+    except (OSError, ValueError) as error:
+        return [f"  ~ WARN USAGE: {usage_path} unreadable: {error}"]
+    status = data.get("status") if isinstance(data, dict) else None
+    if status == "NO_DATA":
+        return [f"  ~ WARN USAGE: {usage_path} says NO_DATA ({data.get('reason', '')}); the usage cannot be compared"]
+    if not isinstance(data, dict):
+        return [f"  ~ WARN USAGE: {usage_path} is not a dsh_usage.py --out file"]
+    return [f"  ok USAGE: {usage_path}"]
+
+
+def final_check(director, usage=None):
+    """2.2.5-ds.5: the final mode. Returns (lines, failed)."""
+    lines, failed = [f"FINAL {director}"], 0
+    lines += usage_lines(director, usage)
+    lines.append(f"FINAL: {'FAIL' if failed else 'OK'} problems={failed}")
+    return lines, failed
+
+
+def safety_module():
+    """safety_gate.py next to this file (safety gates, order_limits, protected_tests of director_work.json)."""
     import importlib.util
-    path = pathlib.Path(__file__).resolve().parent / "sdd_gate.py"
-    spec = importlib.util.spec_from_file_location("sdd_gate", path)
+    path = pathlib.Path(__file__).resolve().parent / "safety_gate.py"
+    spec = importlib.util.spec_from_file_location("safety_gate", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -1841,6 +1876,20 @@ def shell_quote(part):
     return part if re.fullmatch(r"[\w./:=@+,-]+", part) else '"' + part.replace('"', '\\"') + '"'
 
 
+def worktree_line(root):
+    """2.2.5-ds.5 (WO-DS-009 B4): the report's WORKTREE line from dsh_session.worktree_kind (git worktree list), so
+    「隔離 worktree」 / 「共用 checkout」 is never typed by hand."""
+    import importlib.util
+    path = pathlib.Path(__file__).resolve().parent / "dsh_session.py"
+    try:
+        spec = importlib.util.spec_from_file_location("dsh_session_for_gate", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.worktree_kind(root)[1] + " （工具產生，不要改寫）"
+    except (OSError, ImportError, AttributeError) as error:
+        return f"WORKTREE: <跑 dsh_session.py --worktree-status <checkout> 貼上；{error}>"
+
+
 def report_skeleton(order_path, repo=None, evidence_dir=None):
     """(skeleton, commands) for `--report-skeleton` (2.2.2-ds.3): a TASK REPORT with everything the order already
     fixes filled in (TASK_ID, MODEL, BASE, ORDER line, ORDER_SHA256, one ACCEPTANCE row per AC with its allowed
@@ -1880,6 +1929,7 @@ def report_skeleton(order_path, repo=None, evidence_dir=None):
         f"{base} / {head} / {clean}",
         f"ORDER: {path.name} REVISION {order_revision(text)}",
         f"ORDER_SHA256: {digest}",
+        worktree_line(root),
         "SESSION_ID: <DSH session id，沒有就刪這行>",
         "RESULT: <PASS | PARTIAL | BLOCKED | FAIL>",
         "  ENGINEERING: <改了什麼、commit、檔數>",
@@ -1957,9 +2007,9 @@ def main():
     ap.add_argument("--preflight", nargs=2, action="append", default=[], metavar=("REPORT", "ORDER"),
                     help="list what an older review lacks for a Strict review now (LACKS lines)")
     ap.add_argument("--repo", metavar="DIR", help="with --preflight: a trusted checkout to resolve a short HEAD in; "
-                    "with --order / --match: the project checkout holding openspec/ and the locked tests (default: .)")
-    ap.add_argument("--config", metavar="FILE", help="director_work.json with the \"sdd\" and \"base_ref\" switches "
-                    "(default: next to the order's folder; all rules on when there is none); with --resume: "
+                    "with --order / --match: the project checkout (BASE_REF, locked and protected tests; default: .)")
+    ap.add_argument("--config", metavar="FILE", help="director_work.json with the \"safety\", \"base_ref\", "
+                    "\"order_limits\" and \"protected_tests\" blocks (default: next to the order's folder; all gates on when there is none); with --resume: "
                     "resume.max_bytes / resume.max_line_bytes (default: director_work.json beside the RESUME_STATE, "
                     "else 20480 / 4096)")
     ap.add_argument("--strict", action="store_true", help="2.2.2-ds.3: with --resume, RESUME_SIZE fails instead of a "
@@ -1979,6 +2029,10 @@ def main():
     ap.add_argument("--after-verdict", nargs="+", default=[], metavar="VERDICT", help="2.2.4: with --repo, WARN for "
                     "commits after the last verdict's candidate that change files outside its order's SCOPE (shadow)")
     ap.add_argument("--orders", metavar="DIR", help="2.2.4: with --after-verdict, the folder the verdict's ORDER file is in")
+    ap.add_argument("--final", metavar="DIRECTOR", help="2.2.5-ds.5: final mode of the DIRECTOR folder: "
+                    "usage.json from dsh_usage.py --out (WARN without it)")
+    ap.add_argument("--usage", metavar="FILE", help="2.2.5-ds.5: with --final, the dsh_usage.py --out file "
+                    "(default DIRECTOR/usage.json)")
     ap.add_argument("--warn", action="store_true", help="report problems as WARN and exit 0")
     ap.add_argument("--since", metavar="YYYY-MM-DD", help="skip files dated before this day")
     a = ap.parse_args()
@@ -2046,8 +2100,18 @@ def main():
         lines, late, late_missing = after_verdict(a.after_verdict, a.repo, a.orders, a.strict)
         print("\n".join(lines))
         late_failed = len(late_missing) + (late if a.strict else 0)
-    if not jobs and (a.hash or a.brief or a.after_verdict) and not a.preflight:
-        return 1 if missing or brief_failed or late_failed else 0
+    final_failed = 0
+    if a.usage and not a.final:
+        ap.error("--usage works with --final")
+    if a.final:
+        if jobs or a.preflight or a.after_verdict:
+            ap.error("--final runs on its own (with --usage)")
+        if not pathlib.Path(a.final).is_dir():
+            ap.error(f"--final: folder not found: {a.final}")
+        lines, final_failed = final_check(a.final, a.usage)
+        print("\n".join(lines))
+    if not jobs and (a.hash or a.brief or a.after_verdict or a.final) and not a.preflight:
+        return 1 if missing or brief_failed or late_failed or final_failed else 0
     if not jobs and not a.preflight:
         ap.error("give at least one of --resume / --order / --report / --verdict / --test-request / --po-acceptance / "
                  "--match / --preflight / --hash / --brief / --after-verdict")
@@ -2142,23 +2206,24 @@ def main():
                     problems.append(size)
                 elif size:
                     notes.append(f"shadow: {size}")
-        if text is not None and kind in ("order", "match"):  # ds.2 SDD rules (sdd_gate.py)
-            sdd = sdd_module()
+        if text is not None and kind in ("order", "match"):
+            safety = safety_module()
             order_path = files[-1]
             order_text = text if kind == "order" else order_path.read_text(encoding="utf-8-sig")
-            config, problem = sdd.load_config(order_path, a.config)
+            config, problem = safety.load_config(order_path, a.config)
             if problem:
                 problems.append(problem)
+            notes += safety.legacy_notes(config)
             repo = pathlib.Path(a.repo or ".")
-            problems += sdd.order_problems(order_text, order_path, repo, config, notes)
+            problems += safety.order_problems(order_text, order_path, repo, config, notes)
             if kind == "order":
                 revision_sync_notes(order_text, order_path, notes)
                 base = base_config(order_path, a.config, notes)
                 base["strict"] = base["strict"] or a.strict_base
                 problems += base_ref_problems(order_text, repo, base, notes, fetched)
             if kind == "match":
-                problems += sdd.match_problems(order_text, order_ids(order_text, order_path), log_text, repo, config, notes,
-                                              order_path)
+                problems += safety.match_problems(order_text, order_ids(order_text, order_path), log_text, repo, config,
+                                                  notes, order_path)
                 problems += protected_report_problems(text, order_text, order_path, repo, config, candidate, notes)
                 if log_text is not None:
                     effort_notes(order_text, order_ids(order_text, order_path), log_text, notes)

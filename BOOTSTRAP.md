@@ -57,7 +57,7 @@
    沒有 git 程式時，PO 可以從 GitHub 下載 ZIP 解開放到 `<RULES>`，版本的 commit 記 `NONE (ZIP)`；這樣只能讀規則、跑不需要 git 的工具，完整導入和派工要 git（第 0 步第 1 點）。
    PO 給了連結，就算同意下載這一個專案。跑工具前先讀過它的程式碼；第一輪會跑 `dsh_setup_check.py`、`dsh_doctor.py`、`dsh_usage.py`、`memory_size_check.py`、`gate_check.py`，其他的等要用時再讀。**每支只讀一次**：讀過的工具之後不再重讀原始碼、不跑 `--help`，用法和參數查 `tools/DSH-TOOLS.md`，報告格式用 `gate_check.py --report-skeleton`（2.2.3-ds.3：WO-DS-004 的 lead 把 `dsh_setup_check.py` 讀了 4 次、`gate_check.py` 3 次，還跑了 `--help`，多花約 76 萬 token）。
    記下規則包的版本（`<RULES>/VERSION` 加上 `git -C <RULES> rev-parse --short HEAD`），第 3 步寫進 `DIRECTOR_OPERATING_RULES.md`。
-2. 讀 `README.md`、`PURPOSE.md`、本檔、`docs/01` 到 `docs/10`（含 `06b`）、`docs/11_dsh_operations.md`、`docs/12` 和 `docs/13`（規格先行，派第一張 Standard 工單前讀完；小白快速路徑先讀 `docs/01、03、06、08、11、12`，其餘最晚在派第一張工單前讀完）。
+2. 讀 `README.md`、`PURPOSE.md`、本檔、`docs/01` 到 `docs/10`（含 `06b`）、`docs/11_dsh_operations.md` 和 `docs/12`（小白快速路徑先讀 `docs/01、03、06、08、11、12`，其餘最晚在派第一張工單前讀完）。
 3. 之後每輪只讀 README 標「每輪必讀」的檔。
 
 ## 2. 盤點專案（唯讀，結論寫檔）
@@ -72,7 +72,7 @@
 
 ## 3. 建立 DIRECTOR/ 資料夾
 
-位置：所有子代理共享同一個 checkout，狀態要讓全部工作線都看得到，所以**預設放在 repo 外**，例如 repo 的上一層 `<WS>/DIRECTOR/`。PO 希望一起版控時可以放 repo 內（共用 checkout 下要避免和 worker 同檔互改）。位置由總監決定（登記 DD），寫進第一份回報，不用開待決題。
+位置：每個 worker 有自己的 git worktree（2.2.5-ds.5，`docs/11`「開 worker 的流程」），狀態要讓全部工作線都看得到，所以**預設放在 repo 外**，例如 repo 的上一層 `<WS>/DIRECTOR/`。PO 希望一起版控時可以放 repo 內（要避免和 worker 同檔互改）。位置由總監決定（登記 DD），寫進第一份回報，不用開待決題。
 
 ```text
 DIRECTOR/
@@ -147,19 +147,15 @@ DSH 沒有 `MEMORY.md` 記憶索引。會被每次載入的是 `AGENTS.md`（專
 2. 使用者層的指示檔是 PO 的，不由總監改；要整理先開待決題。
 3. 記憶的長期紀錄放 `DIRECTOR/` 的決策登記、風險登記和工單，不放進 AGENTS.md。
 
-## 10.5 規格先行工具（OpenSpec，ds.2）
+## 10.5 專案 repo 的機械步驟
 
-Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只準備好工具，不寫規格。**先找本機已裝的，不要先假設不能裝**（2.2.3-ds.3，WO-DS-004 試驗：本機明明有 CLI，lead 卻以「不能裝」把規格層關掉）：
-1. 跑 `python -I -X utf8 <WS>/DIRECTOR/tools/bootstrap_repo.py --repo <REPO> --config <WS>/DIRECTOR/director_work.json`。它依序找 openspec CLI（`OPENSPEC_BIN` → `sdd.openspec_bin` → `%LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd`，多版取最新 → PATH），找到就把路徑寫進 `sdd.openspec_bin`（用 `%LOCALAPPDATA%/...` 的寫法，不寫死使用者路徑）；專案沒有 `openspec/` 就跑 `openspec init --tools agents --language zh-TW --no-animation`；順便把 `.memsearch/`（DSH 的記憶索引，工具產物）加進 `<REPO>/.git/info/exclude`。已做過的步驟會跳過，可以重跑；`--check` 只報告不寫。
-2. 印 `BOOTSTRAP_REPO: DONE` 才算好。再跑 `python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`，要印出 `OPENSPEC: … (level N …) version=…`。`openspec init` 新增的 `openspec/` 和 `.agents/skills/` 屬 repo 改動，照專案規則 commit 或交給第一張工單；再把 `<RULES>/templates/openspec_config.yaml` 的 `rules:` 併進 `openspec/config.yaml`。
-3. **找得到 CLI 時，lead 不得關 `require_spec_for_standard`／`require_spec_for_strict`**。真的要關，先寫 PO_PENDING 一項（寫明 require_spec 和理由）並等 PO 回答；沒有 PO 的答覆，`gate_check.py --order` 會判不過（`docs/13`「誰能關」）。PO 說「不要問我」的自動跑也一樣：有 CLI 就用。
-4. 找不到 CLI（印 `TODO openspec`）：安裝是下載第三方套件，先確認 Node 22.12 以上（`node --version`；沒有就列成待決題，裝 Node 是使用者層的事），再把套件名、版本（`@fission-ai/openspec@1.16.0`，MIT，免費）、安裝位置（`%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0`，不改 PATH，工具自己找得到）寫成 PO_PENDING「安裝 openspec」一項，列進第 13 步的第一份回報；PO 同意後照 `docs/13`「安裝」一節做，再跑一次第 1 步。**不能自己宣稱「不能裝」**。
-5. 等 PO 答覆期間、或 PO 不同意裝：保留 tests-first（`tests_first`、`spec_review_for_standard`、`plan_gate` 不關），只有這時才可以把 `require_spec_for_standard`、`require_spec_for_strict` 設成 `false`，登記 DD 寫明「沒有規格層，PO_PENDING 已列安裝」，Standard 以上的工單照 ds.1 的方式派（`gate_check.py` 不會假裝通過，關掉才不擋）。
-6. 派給 DSH worker 前讀 `docs/13`「省 token（ds.3）」：worker 開工先跑 `gate_check.py --report-skeleton`，一個階段一個 `run_code`。要驗證一次 DSH 試跑（PO 只送一段 prompt 的那種），用 `python -I -X utf8 <WS>/DIRECTOR/tools/verify_dsh_run.py --config <設定>`，設定格式見 `<RULES>/templates/VERIFY_DSH_RUN.json`。
+2.2.5-ds.5 起本版拿掉 OpenSpec（理由見 CHANGELOG 2.2.5-ds.5），不找、不裝、不 init 任何 CLI；安全閘門（鎖定測試、計畫核准、規格審查、1 輪停止、不得自行關閉）照留，寫在 `director_work.json` 的 `"safety"`（`docs/13`）。這一步只做兩件事：
+1. 跑 `python -I -X utf8 <WS>/DIRECTOR/tools/bootstrap_repo.py --repo <REPO> --config <WS>/DIRECTOR/director_work.json`：把 `.memsearch/`（DSH 的記憶索引，工具產物）加進 `<REPO>/.git/info/exclude`。已做過會跳過，可以重跑；`--check` 只報告不寫。印 `BOOTSTRAP_REPO: DONE` 才算好。預期輸出只有 `DONE  exclude: …` 或 `OK    exclude: …` 一行和 `BOOTSTRAP_REPO: DONE`；設定檔還留著舊的 `sdd` 區塊時，多印 WARN：OpenSpec 的鍵（`openspec_bin`、`require_spec_*`）印「OpenSpec 已在 2.2.5-ds.5 移除，此鍵被忽略」，安全開關照讀並印「請搬到 safety」。照樣 exit 0，不寫設定、不找也不裝任何 CLI（L-061）。要清掉 WARN，就把安全開關搬到 `"safety"`、刪掉 `sdd` 區塊（`order_limits` 留著）。
+2. 派給 DSH worker 前讀 `docs/11`「省 token」：worker 開工先跑 `gate_check.py --report-skeleton`，一個階段一個 `run_code`。要驗證一次 DSH 試跑（PO 只送一段 prompt 的那種），用 `python -I -X utf8 <WS>/DIRECTOR/tools/verify_dsh_run.py --config <設定>`，設定格式見 `<RULES>/templates/VERIFY_DSH_RUN.json`。
 
 ## 11. 機制清單（給續航用）
 
-把建好的每個機制寫成一張表：擁有者、中斷會怎樣、怎麼檢查、重建指令。放在 `DIRECTOR/GUARDS.md`（`templates/DIRECTOR_FILES.md`）。DeepSeek 版的機制是：模型/effort 預設、子代理上限與深度、沙箱模式與核准政策、待決帳（`ask_user_question`＋`PO_PENDING.md`）、用量檢查（`dsh_usage.py`）、動作紀錄（`dsh_audit.py`）、規格層（OpenSpec CLI，`sdd_gate.py --which`）、排程喚醒（只有 PO 明確要求才建）。檢查腳本用 `dsh_doctor.py` 和 `dsh_setup_check.py`，有排程再加 `schedule_list`。沒有寫進表的機制，不算建好。
+把建好的每個機制寫成一張表：擁有者、中斷會怎樣、怎麼檢查、重建指令。放在 `DIRECTOR/GUARDS.md`（`templates/DIRECTOR_FILES.md`）。DeepSeek 版的機制是：模型/effort 預設、子代理上限與深度、沙箱模式與核准政策、待決帳（`ask_user_question`＋`PO_PENDING.md`）、用量檢查（`dsh_usage.py`）、動作紀錄（`dsh_audit.py`）、每個 worker 的 worktree（`dsh_session.py --worktree-status`）、排程喚醒（只有 PO 明確要求才建）。檢查腳本用 `dsh_doctor.py` 和 `dsh_setup_check.py`，有排程再加 `schedule_list`。沒有寫進表的機制，不算建好。
 
 ## 12. 工作線編制草案（問 PO）
 
@@ -195,6 +191,15 @@ Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只�
 
    舊專案還沒有 `DECISION_REGISTER.md` 才只給 `BRIEF.md` 一個。只有 B 開頭的列算待做項目；DD、PO、OD 列出現在「沒有工單的需求」不代表缺工單（`docs/12` 第三節）。
 5. 卡沒鎖定前不派工單。
+
+## 收尾（每一批工作的最後一份報告之前；2.2.5-ds.5）
+
+總監（lead）和 worker 都照這個順序收尾：
+1. **時間不得手填**。報告、裁決、`DIRECTOR_LOG` 裡的時間一律由工具產生：`DIRECTOR_LOG` 的時間從 `date`（PowerShell `Get-Date -Format "yyyy-MM-dd HH:mm"`）讀，`RAN:` 行照實際指令逐字抄、時間取指令結束時讀到的時間；DW 2.2.5 的時間戳工具移植進來後，RAN 行和時間改由它產生（`docs/02`）。WO-DS-008 r2：8 份驗收報告寫 01:32，實際是 01:17。
+2. 報告裡的 `WORKTREE:` 行不自己寫，用 `gate_check.py --report-skeleton` 產生的那行，或跑 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --worktree-status <checkout>` 貼上（依 `git worktree list` 判斷「隔離 worktree」或「共用 checkout」）。
+3. **最後一步跑用量**：`python -I -X utf8 <WS>/DIRECTOR/tools/dsh_usage.py --project-dir <WS> --out <WS>/DIRECTOR/usage.json`（worker 寫到自己的 `<WORK_DIR>/usage.json`）。沒跑的話這一批的 token 只能記 UNKNOWN（WO-DS-008 r2 的 sdd 組就是這樣）。
+4. 總監交最後一份報告前跑 `python -I -X utf8 <WS>/DIRECTOR/tools/gate_check.py --final <WS>/DIRECTOR`（另一個位置的用量檔加 `--usage <檔>`）：找不到或讀不到 `usage.json`、或內容是 `NO_DATA`，印 `~ WARN USAGE`（不改 exit code）。最終端到端驗收的檢查由 DW 2.2.5 移植進來後併在同一個 `--final`。
+
 
 ## 一定要先問 PO 的事
 

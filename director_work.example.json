@@ -6,18 +6,15 @@
   "po_pending_files": ["PO_PENDING.md"],
   "po_item_pattern": "^\\s*ID\\s*:\\s*(OD|ACT|CH)-\\w+",
   "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b",
-  "_comment_sdd": "ds.2 spec-first (docs/13): every switch defaults to on when missing. Set one to false (a limit to 0) only with a reason in DIRECTOR_LOG. openspec_bin: path to openspec(.cmd), %VAR% expanded. Lookup (2.2.3-ds.3, sdd_gate.py --which): OPENSPEC_BIN, then this, then %LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd (newest), then openspec on PATH. BOOTSTRAP writes the found path here. When the CLI is found, the lead may not turn require_spec_* off without a PO_PENDING answer from the PO.",
-  "sdd": {
-    "require_spec_for_strict": true,
-    "require_spec_for_standard": true,
-    "spec_review_for_standard": true,
+  "_comment_safety": "2.2.5-ds.5 (docs/13): the safety gates of Standard/Strict orders, read by gate_check.py --order / --match (tools/safety_gate.py); every switch is on when missing. tests_first: TESTS_LOCKED with sha256; plan_gate: <WORK_DIR>/<WO>/PLAN.md approved by PLAN_APPROVED before code; spec_review_for_standard: SPEC_REVIEW for Standard too; stop_after_rounds: STOP_RULES at most this many rounds; prefer_auto: a note without an AUTO criterion. The lead may not turn one off: false (or 0) fails gate_check --order until a PO_PENDING entry naming the switch is answered by the PO. An old \"sdd\" block (ds.2-ds.4) is still read: its switches count with WARN 請搬到 safety, its OpenSpec keys are ignored with a WARN.",
+  "safety": {
     "tests_first": true,
     "plan_gate": true,
+    "spec_review_for_standard": true,
     "stop_after_rounds": 1,
-    "prefer_auto": true,
-    "openspec_bin": null
+    "prefer_auto": true
   },
-  "_comment_order_limits": "2.2.4-ds.4 (docs/13): the size of one Standard/Strict order, read by scope_check.py whether SDD is on or off. Test files (test_*.py, *_test.py, under tests/) count as files but their lines go to max_test_lines_per_order, not max_lines_per_order. 0 turns a limit off. An old sdd.max_files_per_order / sdd.max_lines_per_order is still read with a shadow WARN (move it here).",
+  "_comment_order_limits": "2.2.4-ds.4: the size of one Standard/Strict order, read by scope_check.py (tools/safety_gate.py). Test files (test_*.py, *_test.py, under tests/) count as files but their lines go to max_test_lines_per_order, not max_lines_per_order. 0 turns a limit off. An old sdd.max_files_per_order / sdd.max_lines_per_order is still read with a shadow WARN (move it here).",
   "order_limits": {
     "max_files_per_order": 3,
     "max_lines_per_order": 200,

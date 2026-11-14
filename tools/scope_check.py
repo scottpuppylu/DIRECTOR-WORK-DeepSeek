@@ -22,16 +22,16 @@ files as they are now (tracked files that differ from the merge base, untracked 
 or, with `--candidate SHA`, the candidate commit's tree against its merge base with BASE_REF (use it on the commit you
 hand in). A `REQUIRED_BASIS:` line says which. A file staged and then put back as it was is MISSING.
 
-ds.2 (SDD size limit): a Standard or Strict order may change at most sdd.max_files_per_order files (3) and
-sdd.max_lines_per_order lines (200, added + deleted, `git diff --numstat`; binary files count 0) in the final result
-(the --candidate tree, else the working files and untracked files, against the merge base). Files under openspec/
-(the spec, written before the code) are not counted. Over a limit prints `OVERSIZE files=n/3 lines=n/200` and is a
-VIOLATION: split the order. The limits come from the "sdd" object of director_work.json (--config, default: the
-order's folder/../director_work.json); 0 turns a limit off. OpenSpec has no size limit for a change, hence this.
-2.2.4-ds.4 (B1): the limits moved to the top-level "order_limits" block (max_files_per_order 3, max_lines_per_order 200,
-max_test_lines_per_order 400); an old sdd.* key is still read and prints `NOTE: SHADOW WARN ... 請搬到 order_limits`.
-Test files (test_*.py, *_test.py, anything under tests/) count as files, but their lines go to the test-line limit:
-`SIZE: files=n lines=n test_lines=n limit=3/200/400`, `OVERSIZE files=n/3 lines=n/200 test_lines=n/400`.
+Size limit (ds.2; 2.2.4-ds.4 B1; 2.2.5-ds.5): a Standard or Strict order may change at most
+order_limits.max_files_per_order files (3), max_lines_per_order non-test lines (200, added + deleted, `git diff
+--numstat`; binary files count 0) and max_test_lines_per_order lines in test files (400) in the final result (the
+--candidate tree, else the working files and untracked files, against the merge base). Test files (test_*.py,
+*_test.py, anything under tests/) count as files, but their lines go to the test-line limit:
+`SIZE: files=n lines=n test_lines=n limit=3/200/400`, `OVERSIZE files=n/3 lines=n/200 test_lines=n/400` is a VIOLATION:
+split the order. The limits come from the top-level "order_limits" block of director_work.json (--config, default: the
+order's folder/../director_work.json; safety_gate.py); 0 turns a limit off. An old sdd.max_*_per_order is still read
+with `NOTE: SHADOW WARN ... 請搬到 order_limits` (2.2.4-ds.4); the other WARN lines of an old "sdd" block
+(2.2.5-ds.5, safety_gate.legacy_notes) are printed as NOTEs.
 
 2.2.4-ds.4 (B2, shared checkout): DSH workers share one checkout, so the four states above hold the other workers'
 files too. With --shared, or when the order's WORKTREE line says 共用 / shared, only this order's work is counted: the
@@ -134,11 +134,11 @@ def hidden_changes(root):
     return marked, changed
 
 
-def sdd_module():
-    """sdd_gate.py next to this file (ds.2: the "sdd" switches of director_work.json)."""
+def limits_module():
+    """safety_gate.py next to this file (the order_limits / protected_tests blocks of director_work.json)."""
     import importlib.util
-    path = pathlib.Path(__file__).resolve().parent / "sdd_gate.py"
-    spec = importlib.util.spec_from_file_location("sdd_gate", path)
+    path = pathlib.Path(__file__).resolve().parent / "safety_gate.py"
+    spec = importlib.util.spec_from_file_location("safety_gate", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -168,15 +168,15 @@ def is_test_default(path):
 
 
 def size_of(per_file, is_test=None):
-    """(files, non-test lines, test lines) of {path: lines}; openspec/ is left out. 2.2.4-ds.4 (B1): test files
-    (test_*.py, *_test.py, under tests/) still count as files, but their lines go to the test-line limit."""
+    """(files, non-test lines, test lines) of {path: lines}. 2.2.4-ds.4 (B1): test files (test_*.py, *_test.py,
+    under tests/) still count as files, but their lines go to the test-line limit."""
     is_test = is_test or is_test_default
-    paths = [path for path in per_file if not path.startswith("openspec/")]
+    paths = list(per_file)
     return (len(paths), sum(per_file[p] for p in paths if not is_test(p)), sum(per_file[p] for p in paths if is_test(p)))
 
 
 def diff_size(root, base, candidate=None, is_test=None):
-    """(files, lines, test lines) the work changes in its final result, openspec/ left out: the candidate's tree,
+    """(files, lines, test lines) the work changes in its final result: the candidate's tree,
     else the working files plus untracked files, against the merge base with base. Lines are added + deleted."""
     if candidate:
         commit = git(root, "rev-parse", "--verify", candidate + "^{commit}").strip()
@@ -253,7 +253,7 @@ def check_protected(root, since, candidate, candidates, locked, globs):
     changed paths `candidates`. Protected = the order's TESTS_LOCKED paths and the director_work.json
     "protected_tests" globs. Such a file may be added, or grow at its end (new tests appended); changing or removing
     content that was there at the merge base, or deleting the file, breaks the rule. Line endings and trailing blank
-    lines are ignored. (Under SDD the TESTS_LOCKED hash in gate_check is stricter: a locked file may not change.)"""
+    lines are ignored."""
     rx = [glob_regex(glob) for glob in globs]
     lock = {glob_regex(path) for path in locked}
     changed, broken = [], []
@@ -352,10 +352,11 @@ def main():
     notes = []
 
     try:
-        sdd = sdd_module()
-        config, problem = sdd.load_config(order, a.config)
+        limits_mod = limits_module()
+        config, problem = limits_mod.load_config(order, a.config)
         if problem:
             return cannot(problem)
+        notes += limits_mod.legacy_notes(config)
         root = git(a.repo, "rev-parse", "--show-toplevel").strip()
         merge_base = git(root, "merge-base", base, "HEAD").strip()
         names = ("diff", "--name-only", "--no-renames", "--ignore-submodules=none", "-z")
@@ -413,11 +414,11 @@ def main():
             final = {path for path in (final or "").split("\0") if path} | (hidden if basis == "worktree-final" else set())
             per_file = None
         size = None
-        if re.search(r"^\s*GOVERNANCE\s*=\s*(Standard|Strict)\b", text, re.M):  # ds.2 SDD size limit
-            limits = sdd.order_limits(config, notes)
+        if re.search(r"^\s*GOVERNANCE\s*=\s*(Standard|Strict)\b", text, re.M):  # order_limits
+            limits = limits_mod.order_limits(config, notes)
             if any(limits):
-                counted = size_of(per_file, sdd.is_test_file) if shared else diff_size(root, base, a.candidate,
-                                                                                         sdd.is_test_file)
+                counted = size_of(per_file, limits_mod.is_test_file) if shared else diff_size(
+                    root, base, a.candidate, limits_mod.is_test_file)
                 size = counted + limits
         protected = config.get("_protected_tests") or []
         locked = locked_paths(text)
@@ -462,7 +463,7 @@ def main():
         print(f"REQUIRED_BASIS: {basis} final={len(final)}")
     if size:
         print(f"SIZE: files={size[0]} lines={size[1]} test_lines={size[2]} limit={size[3] or '-'}/{size[4] or '-'}/"
-              f"{size[5] or '-'} (openspec/ not counted; test files: test_*.py, *_test.py, tests/)")
+              f"{size[5] or '-'} (test files: test_*.py, *_test.py, tests/)")
     if protected or locked:
         print("PROTECTED_CHANGED: " + (", ".join(guarded) if guarded else "NONE"))
     print(f"SCOPE_CHECK: {'VIOLATION' if hits else 'PASS'} base={merge_base[:10]} changed={len(changed)} "

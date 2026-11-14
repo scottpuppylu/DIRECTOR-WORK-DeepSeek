@@ -36,15 +36,12 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     protect_headings a list of non-empty strings (an unknown resume key such as keep_days is only a note: recent
     means by count); base_ref an object, check / fetch / strict true or false (gate_check --order); release an
     object, remote / branch / title / tag_message / selftest non-empty strings, gh_repo owner/name or null
-    (release.py refuses an unknown release key, so it is a problem here too); sdd is known (sdd_gate.py checks it)
+    (release.py refuses an unknown release key, so it is a problem here too)
   - 2.2.4-ds.4: order_limits an object of whole numbers (max_files_per_order / max_lines_per_order /
-    max_test_lines_per_order, 0 = off); an old sdd.max_*_per_order is a shadow line 「請搬到 order_limits」;
-    protected_tests a list of globs
-
-2.2.3-ds.3, shadow too: the openspec CLI (sdd_gate.find_cli: OPENSPEC_BIN, sdd.openspec_bin,
-%LOCALAPPDATA%/dw-ds-tools/openspec-*/, PATH). A note gives the command, level and version; a shadow line when it is
-found but sdd.openspec_bin is null (with the value to write), when it is not found and PO_PENDING.md has no entry
-asking to install it, and when it is found but require_spec_for_* is false without the PO's answer.
+    max_test_lines_per_order, 0 = off); protected_tests a list of globs
+  - 2.2.5-ds.5 (WO-DS-009 B1): safety an object of the switches of safety_gate.py (true / false, stop_after_rounds a
+    whole number); an old "sdd" block is read without error and leaves its WARN lines as notes
+    (safety_gate.legacy_notes); no CLI is looked up and no install entry is asked for
 
 Prints OK / FAIL per DIRECTOR with one "  - problem" line each, "  ~ shadow: ..." and "  ~ note" lines, then
   DSH_SETUP_CHECK: PASS|FAIL dirs=n problems=n
@@ -73,8 +70,9 @@ ANY_ID = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*(.*)$")
 CONFIG_VERSION = 1
 CONFIG_MODES = ("general", "beginner")
 CONFIG_PATTERNS = ("trace_id_pattern", "po_item_pattern", "po_open_pattern")
-CONFIG_KEYS = ("schema_version", "mode", "po_pending_files", "sdd", "resume", "base_ref", "release", "order_limits",
-               "protected_tests") + CONFIG_PATTERNS
+CONFIG_KEYS = ("schema_version", "mode", "po_pending_files", "resume", "base_ref", "release", "order_limits",
+               "protected_tests", "safety") + CONFIG_PATTERNS
+LEGACY_KEYS = ("sdd",)  # renamed "safety" in 2.2.5-ds.5: read without error, WARN notes (safety_gate.legacy_notes)
 ORDER_LIMIT_KEYS = ("max_files_per_order", "max_lines_per_order", "max_test_lines_per_order")  # 2.2.4-ds.4
 RESUME_CONFIG_KEYS = ("max_bytes", "max_line_bytes", "keep_recent", "protect_headings")  # 2.2.2-ds.3
 BASE_REF_KEYS = ("check", "fetch", "strict")  # 2.2.2-ds.3: gate_check --order BASE_REF freshness
@@ -302,10 +300,24 @@ def config_blocks(data, notes):
                     notes.append(f"director_work.json: order_limits key no tool reads: {key} (a typo?)")
                 elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
                     say(f"order_limits.{key}: a whole number, 0 = off, got {value!r}")
-    if isinstance(data.get("sdd"), dict):
-        old = [key for key in ("max_files_per_order", "max_lines_per_order") if key in data["sdd"]]
-        if old:
-            say(f"sdd.{' / sdd.'.join(old)}: 請搬到 order_limits (2.2.4-ds.4; still read, with a shadow WARN)")
+    safety_mod = neighbour("safety_gate")
+    if "safety" in data:  # 2.2.5-ds.5 (B1): safety_gate.py reads it
+        block = data["safety"]
+        if not isinstance(block, dict):
+            say(f"safety: an object with {' / '.join(safety_mod.SWITCHES)}, got {block!r}")
+        else:
+            for key, value in block.items():
+                if key.startswith("_"):
+                    continue
+                if key not in safety_mod.SWITCHES:
+                    notes.append(f"director_work.json: safety key no tool reads: {key} (a typo?)")
+                elif key == "stop_after_rounds" and (isinstance(value, bool) or not isinstance(value, int)
+                                                     or value < 0):
+                    say(f"safety.{key}: a whole number, 0 = off, got {value!r}")
+                elif key != "stop_after_rounds" and not isinstance(value, bool):
+                    say(f"safety.{key}: true or false, got {value!r}")
+    if any(key in data for key in LEGACY_KEYS):
+        notes += safety_mod.legacy_notes(safety_mod.from_data(data))
     if "protected_tests" in data and not (isinstance(data["protected_tests"], list) and all(
             isinstance(item, str) and item.strip() for item in data["protected_tests"])):
         say(f"protected_tests: a list of globs, got {data['protected_tests']!r}")
@@ -373,43 +385,11 @@ def shadow_config(text, notes):
     skipped = sorted(key for key in data if key in CLAUDE_ONLY_KEYS)
     if skipped:
         notes.append(f"director_work.json: Claude-only keys the DSH edition does not read: {', '.join(skipped)}")
-    unknown = sorted(key for key in data if key not in CONFIG_KEYS + CLAUDE_ONLY_KEYS and not key.startswith("_"))
+    unknown = sorted(key for key in data if key not in CONFIG_KEYS + CLAUDE_ONLY_KEYS + LEGACY_KEYS
+                     and not key.startswith("_"))
     if unknown:
         notes.append(f"director_work.json: keys no tool reads: {', '.join(unknown)} (a typo?)")
     return problems
-
-
-def shadow_openspec(folder, notes):
-    """2.2.3-ds.3: the openspec CLI status (sdd_gate.find_cli, the same four levels gate_check uses). Found: a note with
-    the command, level and version, plus a shadow line with the value to write when sdd.openspec_bin is null. Not
-    found: a shadow line unless PO_PENDING.md already asks to install it. Found while require_spec_* is false and the
-    PO has not answered: a shadow line (gate_check --order fails it)."""
-    sdd = neighbour("sdd_gate")
-    path = folder / "director_work.json"
-    config, problem = sdd.load_config(None, path if path.is_file() else None)
-    if problem:
-        return []  # check_config already reports an unreadable file
-    config.setdefault("_dir", str(folder.resolve()))
-    command, how = sdd.find_cli(config)
-    found = []
-    if command is None:
-        if sdd.po_decided(config["_dir"], "openspec") is None:
-            found.append(f"openspec: CLI {how}; write a PO_PENDING entry 「安裝 openspec」 (docs/13 「安裝」); "
-                         "keep tests-first meanwhile")
-        else:
-            notes.append(f"openspec: CLI {how}; PO_PENDING.md asks to install it")
-        return found
-    notes.append(f"openspec: {' '.join(command)} ({how}) version={sdd.cli_version(command)}")
-    suggest = sdd.suggested_bin(command, how)
-    if suggest and not config.get("openspec_bin") and sdd.sdd_off(config):  # 2.2.4-ds.4 (B6): no 寫入 hint
-        notes.append("openspec: SDD 關閉，不檢查 CLI (sdd.openspec_bin stays null)")
-    elif suggest and not config.get("openspec_bin"):
-        found.append(f'openspec: found but sdd.openspec_bin is null; write "sdd": {{"openspec_bin": "{suggest}"}} into '
-                     "director_work.json (BOOTSTRAP 「規格層」)")
-    for gov in sdd.GOVERNED:
-        if not config.get(f"require_spec_for_{gov.lower()}", True):
-            found += [f"openspec: {line}" for line in sdd.spec_off_problems(config, gov, notes)]
-    return found
 
 
 SHADOW = (("PO_PENDING.md", shadow_po_pending), ("RESUME_STATE.md", shadow_resume),
@@ -447,11 +427,6 @@ def check_director(folder, strict=False):
                 problems += found
             else:
                 notes += [f"shadow: {problem}" for problem in found]
-    found = shadow_openspec(folder, notes)
-    if strict:
-        problems += found
-    else:
-        notes += [f"shadow: {problem}" for problem in found]
     return problems, notes
 
 

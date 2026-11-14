@@ -59,16 +59,16 @@ effort 的意思：`off` 關閉思考，只適合純機械工作；`low` 例行�
 - **派工前估時間**：每條線估一個時間寫進規劃；兩條線同時在跑的時間不到較長那條的一半，就合併成一條或重切。
 - 同一棵樹最多 8 個作用中子代理（可在 DSH「設定 → 子代理」調整上限）、委派深度 1（worker 不能再開子代理）；開線前確認名額。
 
-### 規格先行時怎麼分 effort（ds.2）
+### 安全閘門下怎麼分 effort（ds.2；2.2.5-ds.5 拿掉 OpenSpec）
 
 `deepseek-flash` 判斷力較弱，所以判斷集中在派工前（`docs/13`）：
 
 | 工作 | 誰做 | 建議 effort | 說明 |
 |---|---|---|---|
-| 寫 OpenSpec 變更（proposal、specs）與驗收測試 | 總監，或總監開的規格子代理 | high；核心邏輯、資料格式用 max | 這一步錯了，後面全部照錯的做；不省 |
+| 寫工單 ACCEPTANCE 與驗收測試 | 總監，或總監開的測試子代理 | high；核心邏輯、資料格式用 max | 這一步錯了，後面全部照錯的做；不省 |
 | 規格審查（`templates/SPEC_REVIEW.md`） | 審查子代理 | high | Standard 也做 |
-| 寫 tasks.md（計畫閘門） | worker | 與實作同一個 effort | worker 開完不能改 effort，計畫和實作是同一條線 |
-| 照 tasks.md 實作一張小工單（≤3 檔、約 200 行） | worker | high；純機械改動 low | 工單夠小、測試先寫，就不需要 max |
+| 寫 PLAN.md（計畫閘門） | worker | 與實作同一個 effort | worker 開完不能改 effort，計畫和實作是同一條線 |
+| 照 PLAN.md 實作一張小工單（≤3 檔、約 200 行） | worker | high；純機械改動 low | 工單夠小、測試先寫，就不需要 max |
 | 1 輪沒進展後的接班人 | 新 worker | 比原本高一級 | 交接靠 `RESUME_STATE.md`，不讓原 worker 重試同一招 |
 
 ### 不要為省用量犧牲品質的界線
@@ -82,5 +82,4 @@ effort 的意思：`off` 關閉思考，只適合純機械工作；`low` 例行�
 - DeepSeek Harness 只有一個模型，所以 effort 是唯一的成本旋鈕；但 effort 的效果因任務而異，要用 `tools/dsh_usage.py` 的實際用量和返工次數驗證，不要憑感覺。
 - 子代理的 effort 在開工時固定，不能像 Claude 版那樣中途用工具調。與其假裝能調，不如把「為什麼選這個 effort」寫進派工紀錄，要變就開接班人（交接靠 `RESUME_STATE.md`）。
 - 盲審和裁決是品質的最後一道防線，省在這裡會讓整條線的努力白費。
-- 弱模型最怕「方向錯了還一直做」：把規格和測試交給 effort 高的那一端先寫死，worker 的工作變小、變機械，effort 就不必一路開到 max（`docs/13`）。
 - 總監自己做實作，上下文變長、平行變排隊，也沒有中立的驗收（`docs/10` L-057）。

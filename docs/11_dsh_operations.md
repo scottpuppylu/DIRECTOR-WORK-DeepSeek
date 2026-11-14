@@ -33,19 +33,20 @@
 | 限制 reviewer 工具 | 子代理預設拿到完整工具集，沒有 per-child 工具限制工具 | 用指示「只准讀」＋總監事後用 `tools/dsh_audit.py` 核對它有沒有寫檔；真的要限制只能改 DSH preset（使用者層，需要 PO 同意）。 |
 | 專案指示 | `AGENTS.md`（DSH 也載入 `CLAUDE.md`；本版統一 `AGENTS.md`）＋ `AGENTS.local.md` 疊加；使用者層 `~/.dsh/AGENTS.md`、`~/.agents/AGENTS.md` | 子代理 session 會自動載入（已實測）。改指示後要讓相關 session 重新讀到：下一次成功讀寫到那個目錄，或重開 session。 |
 | 檔案沙箱與核准 | 每個 session 有 `read-only / workspace-write / danger-full-access`；核准政策是 session 設定 | **沒有** PreToolUse hooks，hook_guard 不移植。`docs/08` 的「會擋」改成「規則＋PO 核准＋事後 audit」；不要宣稱自動擋。 |
-| 規格先行（OpenSpec，ds.2） | 專案根目錄 `openspec init --tools agents --language zh-TW --no-animation`；`openspec new change <名稱>`、`openspec validate <名稱> --strict`、`openspec archive <名稱> --yes`；工單閘門用 `gate_check.py --order <工單> --repo <專案>` | OpenSpec 的 6 個 skill 寫進 `<專案>/.agents/skills/openspec-*`，DSH 的 filesystem skill provider 從這裡載入（rank 200；`.dsh/skills` 是 rank 100，`openspec init --tools dsh` 寫那裡，也能用）。CLI 位置與安裝見 `docs/13`。 |
+| 每個 worker 的 worktree（2.2.5-ds.5） | 開 worker 前 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --worker-worktree <REPO> --order <WO> --branch <工單 NEW_BRANCH> --base <BASE_REF 的 commit>`：在 `<REPO>/../wt/<WO>` 開一個 git worktree、一條分支；`subagent` 的 `cwd` 指到它。報告的 `WORKTREE:` 行用 `--worktree-status <checkout>` 或 `gate_check.py --report-skeleton` 產生 | DSH 自己沒有 per-worker worktree，這是用 git 開的。WO-DS-008 r2：sdd 組自稱「隔離 worktree」，實際是共用 checkout；所以這一行由工具依 `git worktree list` 判斷，不自己寫。資料夾已存在就拒絕（不刪任何東西）。 |
 | 共用 checkout 的範圍檢查（2.2.4-ds.4） | 工單 `WORKTREE = 共用 checkout` 時 `scope_check.py` 自動切到共用模式（也可加 `--shared`）：只算 commit 訊息寫了本工單編號的 commit，加上 SCOPE 內還沒 commit 的檔；別的工人的檔印 `OTHER`，不算越界 | commit 訊息一定要寫工單編號（例 `WO-12: …`），否則那個 commit 不算本工單的；本工單 commit 動到 SCOPE 外的檔照樣判越界。SCOPE 外還沒 commit 的檔看不到，所以交件前先 commit。 |
 | 暫存資料夾（2.2.4-ds.4） | 開工先跑 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --temp-env <WORK_DIR>`，照印出的那行設 `TEMP`／`TMP`／`TMPDIR`（PowerShell 每個指令前加 `$env:TEMP=…;`，或在啟動 DSH 的 shell 先設好） | DSH 每個 shell 指令是新的行程，環境變數不會留到下一個指令；在啟動 DSH 前設最省事。 |
 | 動作紀錄 | `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_audit.py build --session <agent> --out <WS>/DIRECTOR/research/audit-<日期>.jsonl`（`--project-dir <WS>` 抓整個工作區） | 事後從 session 紀錄重建，不是即時 hook；給 `report_vs_audit.py` 和 gate 審查用。子代理 session 記在總監 session 的啟動資料夾下，所以 `--project-dir <REPO>` 抓不到 worker。input 經 secret_mask 後最多記 500 字，長指令尾端會截斷。 |
 
 ## 開 worker 的流程
 
-1. 先在待決帳列好要開的線：名稱（`w1`…）、工單路徑、effort、cwd（工作副本；DSH 沒有 per-worker worktree）、範圍。放進 `ACTIVE_WORKSTREAMS.md` 的草案。
+1. 先在待決帳列好要開的線：名稱（`w1`…）、工單路徑、effort、cwd（每條線自己的 git worktree，下一步開）、範圍。放進 `ACTIVE_WORKSTREAMS.md` 的草案。
 2. 請 PO 同意（第一批可以併進初衷卡確認那一句）。沒有同意不開。
-3. 同一輪把要開的都開完：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO），再加一句「開工時把 TEMP、TMP（及 TMPDIR）設成 WORK_DIR/tmp」（2.2.4-ds.4，`docs/02`）。
-4. 開完用 `list_agents()` 確認名字和數量；把實際名稱寫進 `ACTIVE_WORKSTREAMS.md` 和 `DIRECTOR_LOG.md` 的 DISPATCH 行。
-5. 之後只靠 `send_message` 和檔案交接；不要為了問進度發訊息（`docs/03`）。
-6. Standard／Strict 工單（ds.2，`docs/13`）：開 worker 前，規格（`SPEC_CHANGE`）、鎖定的測試（`TESTS_LOCKED`）和 `SPEC_REVIEW` 都要先完成；prompt 加一句「第一步只寫 tasks.md 交給總監，等 `PLAN_APPROVED` 的通知才寫程式；同一根因 1 輪沒進展就停」。worker 交 tasks.md 時，總監在同一輪看完、核准並 `send_message` 回覆，不讓 worker 空等。
+3. 每條線開自己的 worktree（2.2.5-ds.5）：`python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --worker-worktree <REPO> --order <WO> --branch <工單 NEW_BRANCH> --base <BASE_REF 的 commit>`；印出 `WORKTREE: 隔離 worktree …` 才算好。只有工單明寫共用時才讓 worker 用主 checkout（那時 `scope_check.py` 用共用模式）。
+4. 同一輪把要開的都開完（`cwd` 是上一步開的 worktree）：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO），再加一句「開工時把 TEMP、TMP（及 TMPDIR）設成 WORK_DIR/tmp」（2.2.4-ds.4，`docs/02`）。
+5. 開完用 `list_agents()` 確認名字和數量；把實際名稱寫進 `ACTIVE_WORKSTREAMS.md` 和 `DIRECTOR_LOG.md` 的 DISPATCH 行。
+6. 之後只靠 `send_message` 和檔案交接；不要為了問進度發訊息（`docs/03`）。
+7. Standard／Strict 工單（`docs/13`）：開 worker 前規格審查（`SPEC_REVIEW`）要先完成；prompt 寫明「第一步只寫 `<WORK_DIR>/<WO>/PLAN.md`，交給總監、等 `PLAN_APPROVED` 才寫程式」「不改 TESTS_LOCKED 的測試」「同一根因 1 輪沒進展就停」。
 
 ## 常見用法
 
@@ -54,8 +55,48 @@
 - **核對動作**：worker 交件後 `dsh_audit.py build`，再把 `RAN:` 的聲明用 `report_vs_audit.py` 對一次。
 - **待決問題**：一次最多三題，每題給選項和建議；PO 在 GUI 回答，總監把原文寫進 `PO_PENDING.md` 再處理。
 - **排程喚醒**：只有 PO 明確要求才建；建完用 `schedule_list` 記進 `GUARDS.md`。
-- **確認 OpenSpec skill 有載入**：開一個小探測子代理（cwd 指到專案），請它列出看得到的 `openspec-*` skill；看得到 6 個才算生效。看不到時確認 `.agents/skills/` 在專案根目錄，或改用 `openspec init --tools dsh`。
-- **確認 openspec 指令找得到**：`python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`（2.2.3-ds.3 會自己找 `%LOCALAPPDATA%/dw-ds-tools/openspec-*`，印出第幾層和版本）；設定是 null 就跑 `tools/bootstrap_repo.py` 寫進去；印 `NOT_FOUND` 時寫 PO_PENDING「安裝 openspec」，PO 同意後照 `docs/13` 安裝。
+
+## DSH 實機注意（2026-11-14 試跑踩到的；2.2.5-ds.5 從 docs/13 搬來）
+
+- **子代理的模型路由**：開子代理時 `provider` 要寫 lead 自己在用的那個。這台是 `deepseek-account`，所以寫 `subagent({name, prompt, provider: "deepseek-account", model: "deepseek-flash", reasoning_effort: "high"})`。
+  - 寫成 `provider: "deepseek"`（也就是 `deepseek/deepseek-flash`）會被 DSH 拒絕。
+  - 不確定時先跑 `list_subagent_models({provider: "deepseek-account"})` 看可用的組合。
+  - 用 API 金鑰登入的機器，provider 是 `deepseek-official`，同樣先用 `list_subagent_models` 確認。
+- **GATE_VERDICT 的 ORDER 行**：要以工單編號開頭，只寫工單檔名，例如 `ORDER: WO-101-clamp.md REVISION 1`。
+  - 寫完整路徑或工單標題，`gate_check.py --verdict --match` 認不出是哪張工單，也就不會核對裁決和工單的 REVISION：Strict 工單判不過，Standard 只印 `~ ORDER: the verdict names no order` 提示。實測：完整路徑和「加入 clamp WO-101」兩種寫法都認不出來。
+  - 工單完整路徑另起一行寫，不要放在 ORDER 行。
+- **GATE_VERDICT 的 F 節（停止狀態）必填**：空白或缺節，`gate_check.py --verdict` 會判不過。最少寫 `NO MERGE / NO PUSH / NO FINAL ACCEPTANCE`。
+
+## 省 token（ds.3；2.2.5-ds.5 從 docs/13 搬來）
+
+WO-101 實機一次用了約 829 萬 token（lead 430 萬／49 步、worker 373 萬／48 步、規格審查 26 萬／5 步）。量測方法和每一項的數字在 ds.3 的 `TOKEN_ANALYSIS.md`（工作資料夾，不進 repo），重點：
+
+- DSH **每一步都把整段對話重送一次**。固定部分（系統提示、`run_code` 說明、卡片說明）約 46K token／步，佔全部的一半以上；所以**步數**是最大的成本，其次是早期讀進來、之後每步都重送的大段輸出。
+- worker 約 12 步在讀 `gate_check.py`／`report_vs_audit.py` 原始碼學報告格式；lead 約 13 步在試 provider、讀 `--help`、讀裁決的解析程式。這些都能用下面的規則省掉。
+
+規則（lead 和 worker 都照做）：
+
+1. **一個階段一個 `run_code`**：探索（工單、測試、git 狀態一次讀完）、commit＋錄證據＋scope_check、驗收（scope_check＋`--match`＋`verify --rerun`＋讀報告＋看 diff）各寫成一個 `run_code`，不要一個指令一步。
+2. **不讀工具原始碼、不跑 `--help`**：要用的指令都在下表；報告格式用 `gate_check.py --report-skeleton` 產生，不要從原始碼反推。
+3. **只印需要的**：長輸出只留最後幾行（例：`... | Select-Object -Last 20`）；讀檔只讀要的段落。
+4. **最後一個 commit 之後才錄證據**：先錄證據再改檔會讓工作樹變髒，得 amend、重錄證據、重寫報告（WO-101 多花 5 步）。
+5. **子代理一次開對**：`provider` 照上一節直接寫，不要先試。
+6. **RUN_SUMMARY 不寫 token 數**：用量由總監事後用 `dsh_usage.py`／`verify_dsh_run.py` 從紀錄算；lead 不用自己查。
+7. worker 不必自己跑 `dsh_audit.py`／`report_vs_audit.py`：`RAN` 行照實際指令逐字抄（不要縮寫），對紀錄是總監的事。
+8. **讀過的檔不整份重讀**（2.2.3-ds.3）：工單、RESUME_STATE、工具原始碼在同一個 session 讀過一次就好。確認自己寫的內容看寫入工具的回傳或 `git diff`；工單改版只讀 H 節變更紀錄和改到的段落。WO-DS-004 的 lead 把工單讀了 7 次、RESUME_STATE 7 次、`dsh_setup_check.py` 4 次，重讀合計約 54 萬 token（每次讀進來的內容之後每一步都會重送）。
+
+| 誰 | 什麼時候 | 指令（`PY` = `python -I -X utf8`，`T` = DW-DS 的 `tools/`） |
+|---|---|---|
+| 總監 | 寫完工單 | `PY T/gate_check.py --order <工單> --repo <專案>` |
+| 總監 | 派工 | `PY T/gate_check.py --hash <工單>`（印出的 `DISPATCH` 行寫進 DIRECTOR_LOG） |
+| worker | 開工 | `PY T/gate_check.py --report-skeleton <工單> --repo <專案> --out <報告路徑>`：寫好報告骨架，並印出錄證據、scope_check、`--match` 的完整指令，照順序跑 |
+| 總監 | 驗收 | `PY T/scope_check.py --order <工單> --repo <專案> --candidate <commit>`；`PY T/gate_check.py --match <報告> <工單> --evidence-dir <證據> --dispatch-log <DIRECTOR_LOG> --repo <專案>`；每條 AC `PY T/evidence_record.py verify --rerun --order <工單> --dispatch-log <DIRECTOR_LOG> --repo <專案> --candidate <commit> <紀錄檔>` |
+| 總監 | 裁決 | `PY T/gate_check.py --verdict <裁決> --match <報告> <工單> --candidate <commit> --repo <專案>` |
+| 總監 | 事後驗證 | `PY T/verify_dsh_run.py --config <設定>`（設定格式見 `templates/VERIFY_DSH_RUN.json`） |
+
+預估（同一個 clamp 任務，方法見 `TOKEN_ANALYSIS.md`）：照規則 1～7 做，約 340 萬 token（−59%；S 取 42K～49K、推理內容算不算重送，結果都在 −58%～−60%）。這是用 WO-101 的實際各步大小推算的，**還沒有實機重跑驗證**。
+
+PO 選做：系統提示裡約 61K 字元是卡片元件說明（`## 可用组件`、`## 卡片的 JSON Schema`、`## Schema Snippets` 等段，約 19.5K token／步）。DIRECTOR-WORK 的流程不用卡片；如果 DSH 能在設定裡關掉這組卡片說明，再省約 1 成（預估 −70%）。DW-DS 不改 `~/.dsh`，要不要關由 PO 決定。
 
 ## 已知限制（不要假裝有）
 

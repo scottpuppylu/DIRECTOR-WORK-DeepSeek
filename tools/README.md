@@ -16,16 +16,16 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 | `dsh_doctor.py` | 12 項環境檢查：Python、Node、DSH home、session log、投影快取、profile 模型/effort、沙箱/核准、git、工具/文件/範本齊不齊 | 不寫 |
 | `dsh_setup_check.py` | 建置完成的檢查：BOOTSTRAP 產出的 DIRECTOR 資料夾（必要檔案、PENDING_METHOD、PO_PENDING、RESUME_STATE 標頭、director_work.json）；2.2.1-ds.1 起另有 shadow 檢查（ID 重複、RESUME 標頭有值與 UPDATED 日期、director_work.json 欄位型別與 regex），印 `~ shadow:`，`--strict` 才算失敗；2.2.2-ds.3 加 RESUME_STATE 大小（RESUME_SIZE）和 `resume`／`base_ref`／`release` 區塊的型別檢查 | 不寫 |
 | `dsh_guard.py` | 動手前的自律檢查：force push、push、刪除、送出/發布、付款、改設定、秘密、永遠禁止的 git/程序模式、PAUSE 旗標；預設只提醒 | 不寫 |
-| `sdd_gate.py` | ds.2 規格先行的膠水（OpenSpec 沒有的部分）：`gate_check.py`／`scope_check.py` 載入它來查 `SPEC_CHANGE`＋`openspec validate --strict --json`、`TESTS_LOCKED` 雜湊、`SPEC_REVIEW`／`PLAN_APPROVED` 紀錄、工單大小、STOP_RULES 輪數；CLI：`--lock-tests`、`--plan-hash`、`--which`（`docs/13`）。2.2.3-ds.3：openspec CLI 依序找 `OPENSPEC_BIN` → `sdd.openspec_bin` → `%LOCALAPPDATA%/dw-ds-tools/openspec-*`（取最新）→ PATH，`--which` 印層級與版本；找得到 CLI 時 `require_spec_*` 關掉要有 PO 的答覆 | 不寫 |
-| `bootstrap_repo.py` | 2.2.3-ds.3 BOOTSTRAP 10.5 的機械步驟：把 `.memsearch/` 加進 `<REPO>/.git/info/exclude`、找到 openspec CLI 就寫進 null 的 `sdd.openspec_bin`（`%LOCALAPPDATA%` 寫法）、專案沒有 `openspec/` 就跑 `openspec init --tools agents --language zh-TW --no-animation`；找不到 CLI 就印 PO_PENDING「安裝 openspec」要寫什麼。做過的跳過，`--check` 只報告 | 只寫 exclude、director_work.json、`openspec init` 產物；不 commit |
+| `safety_gate.py` | 安全閘門（ds.2 `sdd_gate.py` 改名，2.2.5-ds.5 拿掉 OpenSpec，docs/13）：`--lock-tests` 印工單的 `TESTS_LOCKED:`、`--plan-hash` 印 `PLAN_APPROVED` 行；`gate_check.py` 用它查鎖定測試、PLAN.md、SPEC_REVIEW、輪數、安全開關不得自行關閉；也讀 `order_limits`／`protected_tests` 給 `scope_check.py`。舊的 `sdd` 區塊照讀：安全開關印「請搬到 safety」，OpenSpec 的鍵印「此鍵被忽略」 | 不寫 |
+| `bootstrap_repo.py` | 2.2.3-ds.3 BOOTSTRAP 10.5 的機械步驟：把 `.memsearch/` 加進 `<REPO>/.git/info/exclude`。做過的跳過，`--check` 只報告。2.2.5-ds.5：`--config` 只讀，舊設定的 `sdd` 區塊只印 WARN，不找、不裝、不寫任何 CLI（L-061） | 只寫 exclude |
 | `release.py` | 2.2.2-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ 工作樹有沒 commit 的 tracked 檔就停 → VERSION 與 CHANGELOG（都從 HEAD 讀）最上段一致、tag 排序高於遠端所有 tag（2.2.3-ds.3 起比「(上游版本, ds 序號)」整組，ds 序號不單獨比） → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create`，每步用 ls-remote／`gh release view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
-| `verify_dsh_run.py` | 2.2.2-ds.3 DSH 試跑驗證器（由 ds.2 的 WO-101 `verify_run.py` 通用化）：R01–R21 看 repo（候選 commit、各階段改了哪些檔、鎖定測試雜湊、總監重跑測試與隱藏 oracle、openspec validate、gate_check、evidence 重跑、DIRECTOR_LOG），D01–D14 看 DSH session 紀錄（模型、寫入範圍、禁止動作、偷看隱藏測試、計畫閘門、測試先寫、report_vs_audit）。工單專屬的檔名、代理名、oracle 寫在設定檔（`templates/VERIFY_DSH_RUN.json`）；單元測試 `test_verify_dsh_run.py` | 只寫 `--out` 資料夾 |
-| `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對、SDD gate 正反案例） | 只寫暫存資料夾 |
+| `verify_dsh_run.py` | 2.2.2-ds.3 DSH 試跑驗證器（由 ds.2 的 WO-101 `verify_run.py` 通用化）：R01–R21 看 repo（候選 commit、各階段改了哪些檔、鎖定測試雜湊、總監重跑測試與隱藏 oracle、gate_check、evidence 重跑、DIRECTOR_LOG），D01–D14 看 DSH session 紀錄（模型、寫入範圍、禁止動作、偷看隱藏測試、閘門、測試先寫、report_vs_audit）。工單專屬的檔名、代理名、oracle 寫在設定檔（`templates/VERIFY_DSH_RUN.json`）；單元測試 `test_verify_dsh_run.py` | 只寫 `--out` 資料夾 |
+| `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對、worktree、--final 用量檢查） | 只寫暫存資料夾 |
 
 ## 上游保留（跨平台，已適配 DSH）
 
-- `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。ds.2：Standard／Strict 工單另查 SDD 規則（`--repo <專案>`、`--config director_work.json`）。2.2.2-ds.3：`--order` 先 `git fetch` 再比 BASE_REF 與遠端分支，落後或不存在印 `~ WARN BASE_REF`，`--strict-base` 判不過，fetch 失敗會明說沒比對；`base_ref` 開關型別錯會印 note 並用預設（同上游 2.2.2）。`--resume` 檔案超過 `resume.max_bytes`／`resume.max_line_bytes`（預設 20480／4096）印 `~ shadow: RESUME_SIZE`，`--strict` 判不過。`--report-skeleton 工單 [--repo] [--out]` 印出照工單填好欄位、雜湊和每條 AC 一列的 TASK REPORT 骨架，以及錄證據、scope_check、`--match` 的完整指令（DSH worker 不用讀原始碼學格式；docs/13「省 token」）。2.2.4-ds.4：`--order` 的 CHECKS 反斜線路徑指出第幾行並建議改正斜線；`--match` 的 Standard／Strict 沒有 SPEC_REVIEW 一律判不過（沒給 `--dispatch-log` 就找 DIRECTOR_LOG.md 和 `reviews/`），報告 `PROTECTED_CHANGED` 對 diff，`--dispatch-log` 的 `EFFORT_ACTUAL` 和工單 effort 不同印 shadow WARN；骨架對有 WORK_DIR 的工單印 TEMP 設定行。2.2.4-ds.4（上游 2.2.4）：`--after-verdict <裁決.md>... --repo <專案> [--orders <工單資料夾>] [--strict]` 解出每份裁決的 `CANDIDATE_HEAD:`，取其他候選都在它之前的那份當最後一份；從它到 HEAD 的 commit 改到該工單 SCOPE 外、又不是文件（`DIRECTOR/` 底下、`.md`／`.rst`／`.txt`）的檔，印 `~ WARN LATE_COMMIT <sha> <標題>: <檔案>`（shadow，exit 不變），`--strict` 判 FAIL；工單依序在 `--orders`、裁決所在資料夾、`../orders` 找，找不到就把每個非文件的檔都算進去；候選解不出或 HEAD 不含候選印 `NOT_CHECKED`，不當作通過。只讀 git。
-- `scope_check.py`：比對實際改動與工單 SCOPE／FORBIDDEN。ds.2：Standard／Strict 工單另查大小上限（`OVERSIZE`）。2.2.4-ds.4：上限讀頂層 `order_limits`（舊 `sdd.*` 照讀並印 shadow WARN），測試檔行數另算 `max_test_lines_per_order`；共用 checkout（`--shared` 或工單 WORKTREE 寫「共用」）只算 commit 訊息有工單編號的 commit 和 SCOPE 內未 commit 的檔，別人的檔印 `OTHER`；受保護的測試（TESTS_LOCKED、`protected_tests`）只准新增或在檔尾加，改到原有內容印 `PROTECTED`，並印 `PROTECTED_CHANGED:` 給報告照抄。
+- `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。ds.2 起 Standard／Strict 工單另查安全閘門（`safety_gate.py`；`--repo <專案>`、`--config director_work.json`）。2.2.5-ds.5：拿掉 OpenSpec 檢查；`--final <DIRECTOR>` 找不到 `usage.json` 印 `~ WARN USAGE`；`--report-skeleton` 的 `WORKTREE:` 行由 `git worktree list` 產生。2.2.2-ds.3：`--order` 先 `git fetch` 再比 BASE_REF 與遠端分支，落後或不存在印 `~ WARN BASE_REF`，`--strict-base` 判不過，fetch 失敗會明說沒比對；`base_ref` 開關型別錯會印 note 並用預設（同上游 2.2.2）。`--resume` 檔案超過 `resume.max_bytes`／`resume.max_line_bytes`（預設 20480／4096）印 `~ shadow: RESUME_SIZE`，`--strict` 判不過。`--report-skeleton 工單 [--repo] [--out]` 印出照工單填好欄位、雜湊和每條 AC 一列的 TASK REPORT 骨架，以及錄證據、scope_check、`--match` 的完整指令（DSH worker 不用讀原始碼學格式；docs/13「省 token」）。2.2.4-ds.4：`--order` 的 CHECKS 反斜線路徑指出第幾行並建議改正斜線；`--match` 的 Standard／Strict 沒有 SPEC_REVIEW 一律判不過（沒給 `--dispatch-log` 就找 DIRECTOR_LOG.md 和 `reviews/`），報告 `PROTECTED_CHANGED` 對 diff，`--dispatch-log` 的 `EFFORT_ACTUAL` 和工單 effort 不同印 shadow WARN；骨架對有 WORK_DIR 的工單印 TEMP 設定行。2.2.4-ds.4（上游 2.2.4）：`--after-verdict <裁決.md>... --repo <專案> [--orders <工單資料夾>] [--strict]` 解出每份裁決的 `CANDIDATE_HEAD:`，取其他候選都在它之前的那份當最後一份；從它到 HEAD 的 commit 改到該工單 SCOPE 外、又不是文件（`DIRECTOR/` 底下、`.md`／`.rst`／`.txt`）的檔，印 `~ WARN LATE_COMMIT <sha> <標題>: <檔案>`（shadow，exit 不變），`--strict` 判 FAIL；工單依序在 `--orders`、裁決所在資料夾、`../orders` 找，找不到就把每個非文件的檔都算進去；候選解不出或 HEAD 不含候選印 `NOT_CHECKED`，不當作通過。只讀 git。
+- `scope_check.py`：比對實際改動與工單 SCOPE／FORBIDDEN。ds.2：Standard／Strict 工單另查大小上限（`OVERSIZE`）。2.2.4-ds.4：上限讀頂層 `order_limits`（舊 `sdd.max_*` 照讀並印 shadow WARN「請搬到 order_limits」），測試檔行數另算 `max_test_lines_per_order`；共用 checkout（`--shared` 或工單 WORKTREE 寫「共用」）只算 commit 訊息有工單編號的 commit 和 SCOPE 內未 commit 的檔，別人的檔印 `OTHER`；受保護的測試（TESTS_LOCKED、`protected_tests`）只准新增或在檔尾加，改到原有內容印 `PROTECTED`，並印 `PROTECTED_CHANGED:` 給報告照抄。
 - `evidence_record.py`：跑驗收指令，留下 exit code、輸出尾段、產物 SHA-256；`verify --rerun` 可重跑。2.2.3-ds.3（上游 2.2.3，原樣搬）：`CHECKS:` 的程式只寫 `git` 也可以，但只限唯讀子指令（diff、show、log、status、rev-parse、ls-files、cat-file），子指令前的選項、其他子指令、會寫檔或執行程式的選項（`--output`、`--ext-diff`、`--textconv`、`--filters`、`--no-index`，縮寫也算）一律 `NOT_RUN`、exit 2；git 檢查在 `--repo` 頂層跑，關掉 replace 物件、fsmonitor、pager、optional locks、外部 diff 和 textconv，跑完照樣重讀 repo（docs/02「AC 用 git」）。
 - `report_vs_audit.py`：拿 RAN 與 TESTS／EVIDENCE／DONE 的指令對動作紀錄（DSH 包殼指令會先剝殼再比；比對不到就 FAIL，不會亂放行）。2.2.1：被截在 500 字的行會照 JSON 字串解回引號與反斜線，長的 Windows 路徑指令也對得上；單字比對至少要 2 個不是 `...`／`<名稱>` 的字；讀到 `kind=rebuild` 的紀錄會印一行 note。2.2.3-ds.3（上游 2.2.3）：換行、`;`、`&&`、`||` 切段，多段主張對得到多行腳本（順序要一樣），`RAN:` 下面用 ``` 包的一段算一個主張；`at=13:17（備註）` 只取時間、主張裡的全形（備註）不比；`AC-1/AC-2`、`AC-1/2`、`AC-1..AC-3` 每個編號都要有一筆，缺的會點名；有省略的主張（`...`、`427fcef...`、「同上」）可跳過紀錄裡的選項、對到開頭相同的詞，`wo-003` 對到以它開頭再接 `-`／`_`／`.` 的檔名；被截的紀錄行，3 個詞一路對到行尾也算；比到幾筆時顯示最接近 `at=` 的那筆；exit 對不上但那筆後面還跑了別的指令，印「not checkable」算 OK。兩種 shadow WARN（exit code 不變）：`RAN:` 有一行沒有 `` `指令` ``；報告寫 `SCOPE_CHECK: PASS`，但做事的 agent 最後一次 commit 之後沒有再成功跑過 `scope_check.py`。WO-DS-004 的 DSH 報告：舊版 FAIL 6 條、新版 PASS 11/11。2.2.4-ds.4（上游 2.2.4，原樣搬）：變數會展開（`$X`、`${X}`、`$env:X`、`%X%`、PowerShell 的 `a + b`、here-string；同一 agent 前面設的延用到後面的呼叫）；`git -C DIR x` 當成 `cd DIR` 再 `git x`；字中的 `...`／`…` 代表任意字；短 hex 對長 sha 的開頭；主張的絕對路徑對紀錄的相對路徑；`at=HH:MM:SS` 和 `at=HH:MM–HH:MM` 區間；`AC-1 .. AC-6`；選項順序不同也對得上（完整主張要列齊每個選項）；全形 `；` 斷句、CJK 字之間的詞當備註；多段主張分在幾次呼叫跑也算（順序要一樣）；``` 從 RAN: 外開的區塊在那裡就結束；主張在任何呼叫都找不到、但可能在另一條主張對到的截斷呼叫被截掉的那段時，印 `UNVERIFIED`（in log cut part）：獨立狀態，不算 OK、也不算 FAIL，最後一行另計 `unverified=n`（放在最後），exit code 不變，審查的人要自己看這幾條；在截斷呼叫留下來的那段就對得到的主張仍是 OK；PowerShell 這類從不回報 error 的工具，exit 對不上印 not checkable。沒人跑過的指令照樣 FAIL。WO-DS-006 三組報告：FAIL 64 → 0（其中 18 條 UNVERIFIED）。
 - `trace_report.py`：產生需求 → 工單 → AC → 證據 → 裁決的追溯表。
@@ -64,14 +64,23 @@ python -I -X utf8 tools/dsh_usage.py --session w1 --json
 # worker／總監：動手前自律檢查
 python -I -X utf8 tools/dsh_guard.py --command "git push origin main" --profile worker
 
-# 總監：規格先行（ds.2，docs/13）
-python -I -X utf8 tools/sdd_gate.py --which --config DIRECTOR/director_work.json
-python -I -X utf8 tools/sdd_gate.py --lock-tests tests/test_parser.py --repo <專案>
+# 總監：安全閘門（docs/13）
+python -I -X utf8 tools/safety_gate.py --lock-tests tests/test_x.py --repo <專案>
+python -I -X utf8 tools/safety_gate.py --plan-hash <WORK_DIR>/WO-002/PLAN.md --order DIRECTOR/orders/WO-002.md
+
+# 總監：工單閘門
 python -I -X utf8 tools/gate_check.py --order DIRECTOR/orders/WO-002.md --repo <專案>
 python -I -X utf8 tools/gate_check.py --after-verdict DIRECTOR/gates/WO-002-GATE.md --repo <專案>   # 2.2.4：裁決之後的未審 commit
-python -I -X utf8 tools/sdd_gate.py --plan-hash <專案>/openspec/changes/<名稱>/tasks.md --order DIRECTOR/orders/WO-002.md
 
-# 全組冒煙測試（OPENSPEC_BIN 指到真的 openspec 時，sdd_real_openspec 才會跑，不然 SKIP）
+# 總監：每個 worker 一個 worktree（2.2.5-ds.5）
+python -I -X utf8 tools/dsh_session.py --worker-worktree <專案> --order WO-002 --branch wo-002 --base <BASE_REF 的 commit>
+python -I -X utf8 tools/dsh_session.py --worktree-status <checkout>
+
+# 收尾（2.2.5-ds.5）：最後一步寫用量，再跑 --final
+python -I -X utf8 tools/dsh_usage.py --project-dir <WS> --out DIRECTOR/usage.json
+python -I -X utf8 tools/gate_check.py --final DIRECTOR
+
+# 全組冒煙測試
 python -I -X utf8 tools/selftest_ds.py
 ```
 

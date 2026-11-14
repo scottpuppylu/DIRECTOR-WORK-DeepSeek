@@ -9,16 +9,17 @@
 - **Strict**：核心邏輯、資料格式、存檔、對外介面、跨分支整合、發布。
 - 流程：`Baseline → Plan → Isolated Change → Build/Test → 成品檢查 → Evidence → Gate → Checkpoint`。
 
-### 規格先行（SDD，ds.2；Standard／Strict）
+### 安全閘門（ds.2 起；2.2.5-ds.5 拿掉 OpenSpec；Standard／Strict）
 
-完整流程、開關和安裝見 `docs/13_sdd_openspec.md`。下面每條都是 `director_work.json` 的 `"sdd"` 開關，預設全開；關掉要在 `DIRECTOR_LOG` 寫理由。
+完整流程和開關見 `docs/13_safety_gates.md`。下面每條都是 `director_work.json` 的 `"safety"` 開關，預設全開。
 
-- **規格**：工單寫 `SPEC_CHANGE = openspec/changes/<名稱>`，派工前由總監用 OpenSpec 寫好 proposal 與 specs 並通過 `openspec validate --strict`。`gate_check.py --order --repo <專案>` 會實際跑驗證；找不到 openspec 指令判不過。Direct 工單寫 `NONE`。**找得到 openspec CLI 時，lead 不得關 `require_spec_*`**：要關先寫 PO_PENDING 等 PO 回答，否則 `--order` 判不過；找不到時保留 tests-first，並寫 PO_PENDING「安裝 openspec」（2.2.3-ds.3，`docs/13`「誰能關」）。
-- **規格審查**：Standard 也必做（原本只有 Strict）；`--match --dispatch-log` 查 `SPEC_REVIEW <WO>` 那一行。
-- **測試先寫**：驗收測試在派工前寫好、commit 到 BASE_REF，用 `tools/sdd_gate.py --lock-tests` 把雜湊寫進工單的 `TESTS_LOCKED:`，跑法寫進 `CHECKS:`。worker 不得改測試；改了 gate 判不過。
-- **工單大小**：一張工單最後結果 ≤3 個檔、約 200 行（新增＋刪除，`openspec/` 不算）；超過就拆。`scope_check.py` 印 `OVERSIZE` 並判越界。
-- **計畫閘門**：worker 第一步只交 `tasks.md`（OpenSpec 格式），總監核准後在 `DIRECTOR_LOG` 寫 `PLAN_APPROVED <WO> sha=<64>`（`sdd_gate.py --plan-hash` 印）才可以寫程式；交件時 tasks.md 只准比核准版多打勾，而且要全部勾完。
-- **停止規則**：同一根因 **1 輪**沒進展就停並回報（原 2 輪）。
+- **OpenSpec 已移除（2.2.5-ds.5）**：`SPEC_CHANGE`、`openspec validate`、`openspec_bin`、`require_spec_*` 不再使用。理由：WO-DS-008 r2 的隱藏測試，開 SDD 85/107、關 SDD 101/107，OpenSpec 本身沒有量到正確性效益。需求改寫在工單 ACCEPTANCE 和 `templates/WORK_ORDER.md` E 節的邊界與壓力清單。舊設定檔的 `"sdd"` 區塊照讀，安全開關印「請搬到 safety」，OpenSpec 的鍵印「此鍵被忽略」。
+- **規格審查**：Standard 也必做（Claude 版只有 Strict）；`--match` 查 `SPEC_REVIEW <WO>` 那一行（`spec_review_for_standard`）。
+- **測試先寫**：驗收測試在派工前寫好、commit 到 BASE_REF，用 `tools/safety_gate.py --lock-tests` 把雜湊寫進工單的 `TESTS_LOCKED:`，跑法寫進 `CHECKS:`。worker 不得改測試，改了 gate 判不過（`tests_first`）。
+- **工單大小**：一張工單最後結果最多 3 個檔、約 200 行（新增＋刪除）；超過就拆。`scope_check.py` 印 `OVERSIZE` 並判越界（頂層 `order_limits`）。
+- **計畫閘門**：worker 第一步只交 `<WORK_DIR>/<WO>/PLAN.md`（`- [ ] 1.1 …`），總監核准後在 `DIRECTOR_LOG` 寫 `PLAN_APPROVED <WO> sha=<64>`（`safety_gate.py --plan-hash` 印），worker 才可以寫程式；交件時 PLAN.md 只准比核准版多打勾，而且要全部勾完（`plan_gate`）。
+- **停止規則**：同一根因 **1 輪**沒進展就停並回報（`stop_after_rounds`；Claude 版 2 輪）。
+- **不得自行關閉**：lead 要對 Standard／Strict 關掉上面任一開關，先在 PO_PENDING 寫一項等 PO 回答；沒有 PO 的答覆，`gate_check.py --order` 判不過（`docs/13`「誰能關」）。
 - **驗收**：優先寫可自動判定的 AUTO 條件；REVIEW／PO 只留給真的要人看的。
 
 ### 工單
@@ -44,13 +45,13 @@
 - 總監改工單時 `REVISION` 加 1，在 H 節記一列（誰改、原因、影響的 AC），**同一步同步 `BRIEF.md`、`WORK_DIR/tasks.md`、`WORK_DIR/RESUME_STATE.md`**（WO-DS-004：工單改到 rev2，tasks.md 還留著舊的期望值）；`gate_check.py --order` 對 REVISION ≥2 的工單提示要同步，WORK_DIR 裡比工單舊的 tasks.md／RESUME_STATE.md 印 `~ shadow: REVISION_SYNC`（2.2.3-ds.3，不影響結果）。派工時用 `gate_check.py --hash` 印出工單雜湊，把它印的 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 那行原樣寫進 `DIRECTOR_LOG`（同一工單以最新一行為準）；worker 在報告填 `ORDER_SHA256`。審查時 `--match ... --dispatch-log DIRECTOR_LOG.md` 拿派工紀錄比對：工單被改過再重算雜湊也會被查出；DISPATCH 必須獨占一行，引用、縮排或圍欄裡的不算；沒有紀錄時各模式都失敗。這是事後查出，不是事前防止：誰都還是改得動工單。
 - 發工單前想清楚需求、現有結構、相依、邊界條件、測試方法，一次給完整。
 - 製作類工單的第一步固定是「既有資產盤點」：未合併的分支（`git log --all -- <路徑>`）、需求方提供過的檔案、舊報告。盤點結果寫進 gate 報告。
-- 規格審查：Strict 和 Standard 工單派工前必做（ds.2 起 Standard 也要，開關 `sdd.spec_review_for_standard`；在 DSH 上的做法見 `docs/11_dsh_operations.md`），Direct 不做。審查範圍包含工單和它的 OpenSpec 變更（proposal、specs）。總監開一個短上下文的子代理（`subagent`，新 context；depth 1 可以），照 `templates/SPEC_REVIEW.md` 審工單；reviewer 只准讀，限制靠指示＋總監事後檢查（`docs/07`）。結果只給總監參考，不增加 PO 的工作。每次在 `DIRECTOR_LOG` 記下花費（用 `tools/dsh_usage.py` 看該子代理 session 的 token，分不出來或讀不到就記 UNKNOWN）和抓到的問題；花費高過它省下的返工，就由總監提議、PO 同意後關掉 Standard 的開關。
+- 規格審查：Strict 和 Standard 工單派工前必做（ds.2 起 Standard 也要，開關 `safety.spec_review_for_standard`；在 DSH 上的做法見 `docs/11_dsh_operations.md`），Direct 不做。總監開一個短上下文的子代理（`subagent`，新 context；depth 1 可以），照 `templates/SPEC_REVIEW.md` 審工單；reviewer 只准讀，限制靠指示＋總監事後檢查（`docs/07`）。結果只給總監參考，不增加 PO 的工作。每次在 `DIRECTOR_LOG` 記下花費（用 `tools/dsh_usage.py` 看該子代理 session 的 token，分不出來或讀不到就記 UNKNOWN）和抓到的問題，用數字決定要不要繼續做。
 
 ### Gate 與回報
 
 - Worker 在 gate 完成、卡住、需要裁決、要偏離工單時回報（用 `send_message` 通知總監），一個 gate 只送**一則完整**的 TASK REPORT（`templates/TASK_REPORT.md`）。
 - 暫存檔位置（2.2.3，L-053）：harness 給的 scratchpad 和系統暫存資料夾（`%TEMP%`、`/tmp`）算工作區外：不在工單範圍內，總監看不到也重跑不到，session 結束可能就沒了。自寫的腳本、暫存輸出一律放工單的 `WORK_DIR`，RAN 寫的也是 WORK_DIR 裡的路徑。2.2.4-ds.4：開工第一步就把 `TEMP`／`TMP`／`TMPDIR` 設成 `WORK_DIR/tmp`（`python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --temp-env <WORK_DIR>` 建好資料夾並印出 PowerShell 與 bash 的設定行），工具和測試自己開的暫存檔也就留在 WORK_DIR；`gate_check.py --report-skeleton` 對有 WORK_DIR 的工單也印同一行。
-- 工單大小與測試檔（2.2.4-ds.4）：Standard／Strict 的上限寫在 director_work.json 頂層 `order_limits`（`max_files_per_order` 3、`max_lines_per_order` 200、`max_test_lines_per_order` 400；舊的 `sdd.*` 照讀但印 shadow WARN「請搬到 order_limits」）。測試檔（`test_*.py`、`*_test.py`、`tests/` 下）算檔數，行數另算，不吃掉 200 行（docs/13）。
+- 工單大小與測試檔（2.2.4-ds.4）：Standard／Strict 的上限寫在 director_work.json 頂層 `order_limits`（`max_files_per_order` 3、`max_lines_per_order` 200、`max_test_lines_per_order` 400）。測試檔（`test_*.py`、`*_test.py`、`tests/` 下）算檔數，行數另算，不吃掉 200 行。
 - 受保護的測試（2.2.4-ds.4）：TESTS_LOCKED 的檔和 `protected_tests` 列的檔只准新增或在檔尾加測試，`scope_check.py` 對到改動原有內容就判 `PROTECTED`。報告的 `PROTECTED_CHANGED:` 逐檔列出改到的受保護檔，沒有寫 NONE；`gate_check.py --match --repo` 拿它對 diff，寫「無」卻有改就判不過（WO-DS-006：PO 報告寫「兩支原測試沒改一行」，實際有改）。
 - effort 一致（2.2.4-ds.4）：工單 `MODEL / EFFORT` 寫的 effort 就是派工時 `subagent` 的 `reasoning_effort`。派工後跑 `dsh_usage.py --effort-check <工單> --project-dir <WS>`，把印出的 `EFFORT_ACTUAL <WO> agent=… effort=… order=…` 行原樣寫進 DIRECTOR_LOG；不一致印 shadow WARN，`gate_check.py --match --dispatch-log` 也會提示（WO-DS-006：工單寫 high，session 全是 max）。
 - 交件前 worker 跑三支工具，把結論行貼進 TASK REPORT：`tools/scope_check.py`（改動有沒有超出工單）、`tools/gate_check.py`（欄位和用詞）、`tools/evidence_record.py`（驗收指令留下重跑指令和產物雜湊）。AUTO 條件在最後一次 commit 之後記錄，ACCEPTANCE 表的證據欄寫紀錄的 `.json` 檔名；總監用 `gate_check.py --match 報告 工單 --evidence-dir 證據資料夾` 核對紀錄真的 exit 0、HEAD 相同。2.2.2-ds.3 起 worker 開工先跑 `gate_check.py --report-skeleton 工單 --repo <專案> --out <報告路徑>`：報告骨架照工單先填好，並印出這三支工具的完整指令，不用讀工具原始碼或 `--help`（省 token 的其他規則見 docs/13「省 token」）。
@@ -66,6 +67,7 @@
 - 狀態分開寫：工程、功能、成品、效能、穩定性、整合、PO 驗收，不用一個 PASS 蓋過其他。
 - 跳過的測試不算 PASS；既有失敗維持原樣寫 `NO_NEW_REGRESSION`，不是 ALL PASS。
 - 交接時用 `RESUME_STATE.md`（`docs/06`）；原 worker 先停在安全狀態，接手者先核對 repo 和交接資料一致，不重做已通過的工作。
+- 時間不得手填（2.2.5-ds.5）：報告、裁決、`DIRECTOR_LOG` 的時間一律由工具產生（`date`／`Get-Date` 讀到的值；DW 2.2.5 的時間戳工具移植後，`RAN:` 行和時間由它產生）。WO-DS-008 r2：8 份驗收報告寫 01:32，實際是 01:17。報告的 `WORKTREE:` 行也由工具產生（`gate_check.py --report-skeleton` 或 `dsh_session.py --worktree-status`）。
 - TASK REPORT 可以加 `AGENT_NAME:` 和 `RAN:`（一行一個實際跑過的指令，寫 exit 和時間）。總監用 `tools/report_vs_audit.py --report 報告 --log <動作紀錄>` 核對：報告說跑過的 selftest、Unity、Blender、雜湊檢查，動作紀錄裡有沒有、結果和時間對不對得上。動作紀錄由 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_audit.py build --session <agent> --out <WS>/DIRECTOR/research/audit-<日期>.jsonl` 從 session 紀錄事後重建，不是 hook 即時寫的（`--session` 換 `--project-dir <WS>` 可抓整個工作區；<WS>＝工作區根＝總監 session 啟動資料夾，子代理 session 記在這裡，不在 worker 的 repo）。沒有紀錄時記 UNKNOWN，不當成通過或失敗。它只核對有沒有跑，不代表跑的內容對。`RAN` 要能和動作紀錄對上：dsh_audit 的 input 經 secret_mask 後最多記 500 字，長指令尾端會被截斷，照抄整條長指令會對不上；在被截斷處用 `...` 表示（實際跑的是完整指令，完整內容另寫在 TESTS）。
 - 要看「哪個需求做到哪裡」時，用 `tools/trace_report.py` 從工單、報告和裁決產生追溯表（需求 → 工單 → AC → 證據 → 裁決），不另外人工維護。
   - 加 `--brief BRIEF.md` 時，每條 B 多一列三欄：有人負責／這版有驗證紀錄／你看過這個成品嗎。
@@ -118,7 +120,7 @@
 - v0.10 以前，工單的驗收表同時放結果欄：worker 要填結果就得改工單，規格有沒有被動也就查不出來。所以規格留在工單，結果放報告，再用 `--match` 逐條對照。
 - 原專案一段展示影片的工程數字全部正確，角色卻朝反方向動作：審查只看了被問到的部位，看的角度也由作者自己挑。所以要用眼睛看的條件，開工前就寫明誰看、怎麼看，實作者不能自己判過。
 - 規格審查會花用量，Claude 版只在 Strict 必做。DSH 版的 worker 判斷力較弱，派工前多看一眼比事後返工便宜，所以 ds.2 起 Standard 也做；照樣記下花費和抓到的問題，用數字決定要不要繼續做。
-- 規格、測試、計畫先寫死再實作（`docs/13`）：弱模型的錯會變成程式查得到的失敗，而不是「看起來做完了」。
+- 測試、計畫先寫死再實作（`docs/13`）：弱模型的錯會變成程式查得到的失敗，而不是「看起來做完了」。
 - 狀態分開寫，是因為一個面向 PASS 常被拿來蓋過其他面向沒驗。
 - 規則只寫在文件裡，靠模型自律就會漏；能在交件時用程式檢查的就用程式檢查（`scope_check.py`、`gate_check.py`、`dsh_audit.py`），DSH 沒有 hook 在動手前幫你擋。報告裡的「沒超出範圍」「測試通過」是自述，要能重跑、能對上動作紀錄才算證據。
 - GO 用檔案發：DSH 樹內 `send_message` 沒有原專案那種「使用者兩次發言之間約 10 則就被暫停」的限制，但每則訊息都會叫醒對方一輪（成本），而且訊息在壓縮後可能消失；看板檔沒有這些問題，背景等待也不花 token。原專案曾因看板寫短名、監看等全名，獨佔時段空轉近半小時。

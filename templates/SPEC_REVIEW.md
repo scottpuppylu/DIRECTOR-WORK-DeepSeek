@@ -1,10 +1,9 @@
 # 規格審查（派工前，subagent 用）
 
-Strict 和 Standard 工單必做（ds.2 起 Standard 也要，開關 `sdd.spec_review_for_standard`），Direct 不做（`docs/02`、`docs/13`）。總監用 `subagent` 開一個新 context 的子代理（不要用 `subagent_fork`，它會繼承整段對話）；DSH 子代理預設拿到完整工具集，也不能只給 Read / Glob / Grep，所以限制靠下面的提示寫明「只讀不寫」，總監事後用 `dsh_audit.py` 核對（`docs/07`）。effort 照 `docs/05` 選，機械性審查用 `low`／`high`。把下面的提示填好貼給它。結果只給總監參考，怎麼改工單由總監決定。時機：工單寫好、派工之前，在同一輪跑完（DSH 上的限制見 `docs/11_dsh_operations.md`「開 worker 的限制」）；審完工單又改版，就重審。
+Strict 和 Standard 工單必做（ds.2 起 Standard 也要，開關 `safety.spec_review_for_standard`），Direct 不做（`docs/02`、`docs/13`）。總監用 `subagent` 開一個新 context 的子代理（不要用 `subagent_fork`，它會繼承整段對話）；DSH 子代理預設拿到完整工具集，也不能只給 Read / Glob / Grep，所以限制靠下面的提示寫明「只讀不寫」，總監事後用 `dsh_audit.py` 核對（`docs/07`）。effort 照 `docs/05` 選，機械性審查用 `low`／`high`。把下面的提示填好貼給它。結果只給總監參考，怎麼改工單由總監決定。時機：工單寫好、派工之前，在同一輪跑完（DSH 上的限制見 `docs/11_dsh_operations.md`「開 worker 的限制」）；審完工單又改版，就重審。
 
 ```text
 你是規格審查員，只讀不寫。審這張工單能不能直接開工：<工單路徑>
-也審它的 OpenSpec 變更：<專案>/openspec/changes/<名稱>/（proposal.md、specs/**、design.md；tasks.md 這時還沒寫）
 需要時可以讀：<既有決定的檔案，例如 DIRECTOR/DECISION_REGISTER.md>、<凍結基準或規格的路徑>
 不要讀程式碼全文，不要提出實作方法，不要用任何寫檔工具（Write / Edit）。
 
@@ -18,16 +17,14 @@ Strict 和 Standard 工單必做（ds.2 起 Standard 也要，開關 `sdd.spec_r
 7. 邊界與壓力：AC 或測試有沒有涵蓋遞迴／巢狀深度、輸入長度、重複的一元運算子或符號、極大數字／溢位、
    非字串型別、Unicode／全形字元，以及錯誤訊息不漏出程式語言的原生或英文訊息？
    需求寫「不當掉／不崩潰」卻沒有一條極端輸入的 AC，算 P1。
-   OpenSpec 變更也照這張清單看：用得到的邊界各要有一個 `#### Scenario:`（WHEN 極端輸入，THEN 預期的結果或錯誤訊息），
-   需求寫「不當掉」卻沒有一個極端輸入的 Scenario，同樣算 P1。
-   巢狀深度（含 JSON）：深層巢狀的 JSON 或括號有沒有一條 AC／Scenario，錯誤不透出 RecursionError？
+   巢狀深度（含 JSON）：深層巢狀的 JSON 或括號有沒有一條 AC，錯誤不透出 RecursionError？
    預設輸出要列出哪幾筆有問題：批次輸入有錯時，不加參數的輸出有沒有列出第幾筆或哪個鍵？問題物件用 dict 或中文名稱，不要用 `XxxError` 類別名當使用者看到的字（2.2.4-ds.4）。
-8. 規格（specs 的每個 Scenario）和工單驗收條件對得上嗎？有沒有 Scenario 沒有測試、或驗收條件在規格裡找不到？
-9. TESTS_LOCKED 的測試真的測到 Scenario 說的行為嗎（讀測試檔，只看它斷言了什麼）？
+8. 工單驗收條件和要鎖定的測試對得上嗎？有沒有 Scenario 沒有測試、或驗收條件在規格裡找不到？
+9. TESTS_LOCKED 的測試真的測到 AC 說的行為嗎（讀測試檔，只看它斷言了什麼）？
 10. 這張工單夠小嗎：預計 ≤3 個檔、約 200 行？太大就建議怎麼拆。
 11. 要鎖定的測試：把測試裡每個字面期望值自己重算一次（手算，不看被測的程式），每個值一行：
     測試名｜期望值｜怎麼算的｜相符 / 不符 / 算不出。
-    Scenario 和 AC 裡寫死的期望值（算式結果、數量、字串、錯誤訊息）也照樣重算，測試名那格寫 Scenario 名稱或 AC-x。
+    AC 裡寫死的期望值（算式結果、數量、字串、錯誤訊息）也照樣重算，測試名那格寫 AC-x。
     「不符」是 P0（WO-DS-004：`2 + 3 * (4 - 1)` 被寫成 9，審查沒抓到，正確是 11）。
 12. B 節的「不做」有沒有寫（可以是「無」，留空算 P1）；交付物是函式庫或工具時，「可呼叫的入口」有沒有寫一個
     測試可直接呼叫的公開函式（輸入路徑或資料 → 輸出結果），只能從命令列用算 P1（2.2.4-ds.4，上游 2.2.4）。

@@ -212,9 +212,10 @@
 
 ## 11. ds.2 起 DeepSeek 版自己加嚴的規則（上游沒有）
 
-- 規格先行（SDD）：Standard／Strict 工單要有 OpenSpec 變更、鎖定的驗收測試、Standard 也做規格審查、計畫閘門、≤3 檔約 200 行、停止規則 1 輪（`docs/13`）。
-- 理由：上游的品質靠 Opus 的判斷力與 Claude Desktop 機制；DSH 版的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以把判斷前移到派工前。
-- 跟上游同步時，`docs/02` 的「規格先行」一節、`templates/WORK_ORDER.md` 的 `SPEC_CHANGE`／`TESTS_LOCKED`／計畫閘門、`tools/sdd_gate.py` 和 `gate_check.py`／`scope_check.py` 的 ds.2 呼叫點以本版為準；上游改到同一段時手動合併。
+- 規格先行的 OpenSpec 部分（ds.2～ds.4）：**2.2.5-ds.5 已移除**（PO 2026-11-15「把sdd拿掉」，03:19 更正「該有的安全保護要有」）。理由：WO-DS-008 r2 實測，開 SDD 的隱藏測試 85/107，關 SDD 101/107，OpenSpec 本身沒有量到正確性效益。ds.4 的程式在 tag `v2.2.4-ds.4`。
+- 安全閘門（ds.2 起，2.2.5-ds.5 改名，`docs/13_safety_gates.md`、`tools/safety_gate.py`、`director_work.json` 的 `"safety"`）：測試先寫並鎖定（`TESTS_LOCKED`）、計畫閘門（`<WORK_DIR>/<WO>/PLAN.md` + `PLAN_APPROVED`）、Standard 也做規格審查、停止規則 1 輪、AUTO 驗收優先、安全開關不得自行關閉（沒有 PO 答覆 `gate_check --order` 判不過）。同一次試驗量到它們有用（派工段 31 對 29、計畫關 3 對 1、審查關 3 對 2）。
+- 其他本版規則：工單大小上限（`order_limits`，`tools/safety_gate.py`）、受保護的測試（`TESTS_LOCKED`、`protected_tests`）、每個 worker 開自己的 git worktree（`dsh_session.py --worker-worktree`，2.2.5-ds.5）、收尾最後一步 `dsh_usage.py --out`（2.2.5-ds.5）。
+- 理由：DSH 版的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以工單小、測試鎖住、事後由工具查。跟上游同步時，這幾項以本版為準。
 
 ## 12. 上游 2.2.2 移植（2.2.2-ds.3）：逐檔比較
 
@@ -225,12 +226,12 @@
 | `tools/resume_archive.py` | 原樣搬（逐 byte 相同） | 無差異。它只讀寫 RESUME_STATE 和同資料夾的歷史檔，跟平台無關。 |
 | `tools/memory_size_check.py` | 上游 2.2.2 全檔，改 1 處 | 不帶 `--file`／`--glob`／`--workstreams` 時，預設找最近的 `AGENTS.md`；上游找 `~/.claude/projects/.../MEMORY.md`。理由：DSH 每次呼叫載入的是 `AGENTS.md`，這是 2.2.0-ds.1 起本版就有的適配，2.2.2 照留。多檔模式、`--kind resume`、`resume.*` 設定和上游相同。 |
 | `tools/gate_check.py` | 搬入上游的 `size_tool`、`resume_size`、`resume_limits_for`（逐字相同）、`--strict`；`base_config` 換成上游版 | `base_ref_problems` 的主體和上游相同，只差說明字串。另有 3 點差異： |
-| | | (1) `--repo` 的預設：本版是目前資料夾，上游是工單所在資料夾。理由：本版的 `--repo` 也是 ds.2 SDD 規則找 `openspec/` 和鎖定測試的專案資料夾，兩種用途要指向同一個 checkout。 |
-| | | (2) `--config` 同時是 SDD（`sdd`）、`base_ref` 和 `--resume` 的設定檔；上游只用於後兩者。理由：本版從 ds.2 起就有 `--config`。 |
+| | | (1) `--repo` 的預設：本版是目前資料夾，上游是工單所在資料夾。理由：本版的 `--repo` 也是找受保護測試的專案資料夾（ds.2～ds.4 另外用來找規格資料夾），兩種用途要指向同一個 checkout。 |
+| | | (2) `--config` 同時是 `order_limits`／`protected_tests`、`base_ref` 和 `--resume` 的設定檔；上游只用於後兩者。理由：本版從 ds.2 起就有 `--config`。 |
 | | | (3) 有兩處改成和上游一樣，舊行為因此改變：BASE_REF 沒寫 commit 時，從印 note 改成不印（上游的理由：舊工單的輸出不變）；`base_ref` 開關不是 true／false 時，從靜默忽略改成印 note 並用預設值。舊做法的毛病：字串 `"false"` 會被當成真值。設定檔也從只找工單上一層，改成先找工單資料夾、再找上一層。 |
 | `tools/release.py` | 本版 ds.3 是來源，上游 2.2.2 是移植版 | 兩邊的規則一致：版本從 HEAD 讀、工作樹有沒 commit 的改動就停（演練也停）、`-<label>.N` 只能往上加。這次從上游搬回 3 點：`main(argv=None)`（測試可在同一個程序裡跑）、BOM 寫成 `"﻿"`、公開掃描多擋 `CLAUDE.local.md`／`.claude/settings.local.json`／Claude session 紀錄（本 repo 也會被 Claude Code session 編輯）。留著不同、而且有理由的：預設 title／tag_message／selftest 指令（`tools/selftest_ds.py`）；私人路徑多擋 `_work/`、`AGENTS.local.md`、DSH session 檔；工作樹檢查用 `git diff --name-only HEAD`（上游用 `git status --porcelain`），兩者對 modified／staged 的判定相同；停下時的說明文字不同：本版在 VERSION 也沒 commit 時印 HEAD 的版本，上游印工作樹和 HEAD 兩邊的版本。 |
 | `tools/dsh_setup_check.py` | 對應上游 `setup_check.py`，本版自己的檢查檔 | 搬入上游 2.2.2 新增的 3 項：RESUME_STATE 大小（shadow）、`resume`／`base_ref`／`release` 區塊型別、未知鍵只印 note（例如 `keep_days`）。另外把 `sdd`、`resume`、`base_ref`、`release` 加進已知鍵；以前這幾個會被誤報成「keys no tool reads」。 |
-| `director_work.example.json` | 加 `resume` 區塊（值和上游相同） | 本版用 `_comment_*` 分段說明，不像上游寫成一個 `_comment`。另有本版自己的 `sdd` 區塊；`release` 的 title／selftest 是本版的值。 |
+| `director_work.example.json` | 加 `resume` 區塊（值和上游相同） | 本版用 `_comment_*` 分段說明，不像上游寫成一個 `_comment`。另有本版自己的 `order_limits`／`protected_tests` 區塊（2.2.5-ds.5 拿掉 `sdd`）；`release` 的 title／selftest 是本版的值。 |
 | `docs/06_resume_lossless.md` | 只搬上游改的那一句 | gate_check 那一行加「和大小（超過照 docs/06b 把舊紀錄原文搬走，近期不動）」；恢復段刪「（包括 PO 手動停止後再繼續）」（目標行已含 PO 手動停止）。每輪必讀 10,947 → 10,964 bytes（上限 11,000），比上游多 17 bytes，因為本版的「機制」那一行內容不同，沒法照上游縮。 |
 | `docs/06b_on_demand_procedures.md` | 加巡查第 4 步和「RESUME_STATE 瘦身」一節 | 內容同上游。DSH 用語：巡查叫工作線瘦身用 `send_message`；多寫一句「DSH 每一步都重送整段對話」說明為什麼大小很重要，並註明 `dsh_setup_check.py` 也會印。 |
 | `docs/02_work_orders_gates.md` | 加「發版」一節（上游 2.2.2 新增） | 多寫 `-ds.N` 規則（指向第 10 節），以及掃描會擋 `_work/`。BASE_REF 那一行 ds.3 已經有了，和上游同義。 |

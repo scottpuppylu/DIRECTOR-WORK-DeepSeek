@@ -649,15 +649,76 @@ def temp_env_lines(env):
             "export " + " ".join(f"{name}='{posix}'" for name in env)]
 
 
+def _git(cwd, *args):
+    import subprocess
+    proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, encoding="utf-8", errors="replace")
+    return proc.returncode, (proc.stdout or proc.stderr).strip()
+
+
+def worktree_kind(path):
+    """2.2.5-ds.5 (WO-DS-009 B4): ("isolated" | "shared" | None, line) for the checkout holding path, from
+    `git worktree list --porcelain`: the first entry is the main checkout; any other entry is a linked worktree. The
+    line is what a report's WORKTREE field says, so a worker never writes 「隔離 worktree」 by hand."""
+    code, top = _git(path, "rev-parse", "--show-toplevel")
+    if code != 0:
+        return None, f"WORKTREE: NOT_A_CHECKOUT {path} ({top})"
+    code, listing = _git(path, "worktree", "list", "--porcelain")
+    entries = [line[len("worktree "):] for line in listing.splitlines() if line.startswith("worktree ")]
+    norm = lambda p: os.path.normcase(os.path.abspath(p))
+    main = entries[0] if entries else top
+    _, branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD")
+    if norm(top) == norm(main):
+        return "shared", (f"WORKTREE: 共用 checkout {top} (the main checkout; {max(len(entries) - 1, 0)} linked "
+                          f"worktree(s); branch {branch})")
+    return "isolated", f"WORKTREE: 隔離 worktree {top} (branch {branch}; main checkout {main})"
+
+
+def worker_worktree(repo, order_id, branch=None, base="HEAD", root=None):
+    """2.2.5-ds.5 (B4): `git worktree add -b <branch> <root>/<order_id> <base>` for one worker. root defaults to
+    <repo>/../wt (inside the workspace, next to the project repo). Refuses an existing folder or branch."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", order_id or ""):
+        return 2, f"WORKER_WORKTREE: FAIL order id {order_id!r}: letters, digits, . _ - only"
+    repo = pathlib.Path(repo).resolve()
+    target = (pathlib.Path(root) if root else repo.parent / "wt") / order_id
+    branch = branch or f"wt/{order_id.lower()}"
+    if target.exists():
+        return 1, f"WORKER_WORKTREE: FAIL {target} exists; one worktree per worker, nothing removed"
+    code, out = _git(repo, "worktree", "add", "-q", "-b", branch, str(target), base)
+    if code != 0:
+        return 1, f"WORKER_WORKTREE: FAIL git worktree add: {out}"
+    kind, line = worktree_kind(target)
+    return (0 if kind == "isolated" else 1), f"WORKER_WORKTREE: {target} branch={branch} base={base}\n{line}"
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(description="dsh_session.py is the DSH session library (see the module text). Its "
-                                 "one command: --temp-env WORK_DIR prints the lines that point TEMP / TMP / TMPDIR at "
-                                 "WORK_DIR/tmp (2.2.4-ds.4 B10; BOOTSTRAP 「DSH 啟動」).")
-    ap.add_argument("--temp-env", metavar="WORK_DIR", required=True,
-                    help="create WORK_DIR/tmp and print the PowerShell and bash lines that set TEMP / TMP / TMPDIR to it")
+                                 "commands: --temp-env WORK_DIR prints the lines that point TEMP / TMP / TMPDIR at "
+                                 "WORK_DIR/tmp (2.2.4-ds.4 B10; BOOTSTRAP 「DSH 啟動」); --worker-worktree REPO --order WO "
+                                 "opens one git worktree per worker; --worktree-status DIR prints the WORKTREE line of a "
+                                 "report (2.2.5-ds.5 B4, docs/11 「開 worker 的流程」).")
+    one = ap.add_mutually_exclusive_group(required=True)
+    one.add_argument("--temp-env", metavar="WORK_DIR",
+                     help="create WORK_DIR/tmp and print the PowerShell and bash lines that set TEMP / TMP / TMPDIR to it")
+    one.add_argument("--worker-worktree", metavar="REPO", help="git worktree add -b <branch> <root>/<WO> <base> in REPO")
+    one.add_argument("--worktree-status", metavar="DIR", help="print 「隔離 worktree」 or 「共用 checkout」 for DIR, from "
+                     "git worktree list")
+    ap.add_argument("--order", metavar="WO", help="with --worker-worktree: the order id, the worktree folder's name")
+    ap.add_argument("--branch", help="with --worker-worktree: the new branch (default wt/<wo>; use the order's NEW_BRANCH)")
+    ap.add_argument("--base", default="HEAD", help="with --worker-worktree: the start commit (the order's BASE_REF)")
+    ap.add_argument("--root", help="with --worker-worktree: the folder that holds the worktrees (default <REPO>/../wt)")
     a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
+    if a.worker_worktree:
+        if not a.order:
+            ap.error("--worker-worktree needs --order WO")
+        code, text = worker_worktree(a.worker_worktree, a.order, a.branch, a.base, a.root)
+        print(text)
+        return code
+    if a.worktree_status:
+        kind, line = worktree_kind(a.worktree_status)
+        print(line)
+        return 0 if kind else 2
     env = temp_env(a.temp_env)
     powershell, bash = temp_env_lines(env)
     print(f"TEMP_ENV: {env['TEMP']}")

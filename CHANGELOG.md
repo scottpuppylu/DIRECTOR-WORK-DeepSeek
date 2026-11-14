@@ -3,6 +3,77 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
+## 2.2.5-ds.5（2026-11-15）
+
+WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 110、DSH 開 SDD 97.5、DSH 關 SDD 95）裡歸 DW-DS 的項目。上游 DW 2.2.5 的移植（B7）等 DW commit 後另補，見最後「還沒做」。
+
+### 拿掉 OpenSpec，安全閘門保留（B1）
+- 原因：OpenSpec 本身沒有量到正確性效益。r2 的 `openspec validate` 全過，隱藏測試卻是開 SDD 85/107、關 SDD 101/107。
+  - 失分在兩處：拆成 8 個 change 後沒做整合驗收；規格裡自訂的限制擋掉真實資料，Traceback 外漏。這兩項改由最終端到端驗收（B7）和規格審查清單處理。
+  - sdd 組的額度是 UNKNOWN，OpenSpec 的成本也無法證明划算。
+  - 總監依評分判斷，PO 授權；PO 03:19 更正「不要全部拿掉sdd，該有的安全保護要有」。
+  - ds.4 的程式在 tag `v2.2.4-ds.4`；日後重測若證明 OpenSpec 有用，從那裡拿回來。
+- 拿掉：
+  - openspec CLI 的尋找、安裝、`init`、`openspec_bin`、telemetry 設定。
+  - `openspec validate`／`archive`、工單 `SPEC_CHANGE` 欄位、`openspec/changes/`、`skip_specs`、`require_spec_for_*`。
+  - OD-00「安裝 openspec」提示、`templates/openspec_config.yaml`、`sdd_gate.py --which`。
+  - `verify_dsh_run` 的 R14／R15。
+- 保留，改名「安全閘門」：`tools/sdd_gate.py` 改名 `tools/safety_gate.py`（`git mv`），`docs/13_sdd_openspec.md` 改名 `docs/13_safety_gates.md` 並重寫。設定在 `director_work.json` 新的頂層 `"safety"`。
+  - `tests_first`：Standard／Strict 要有 `TESTS_LOCKED`，雜湊不符判不過。
+  - `plan_gate`：計畫檔改放 `<WORK_DIR>/<WO>/PLAN.md`，交件時要和 `PLAN_APPROVED` 的雜湊對得上、全部打勾；找不到 PLAN.md 判不過（原本只印 note）。
+  - `spec_review_for_standard`、`stop_after_rounds`（1）、`prefer_auto`：照舊。`order_limits`、`protected_tests` 也照舊。
+- 不得自行關閉：上面任一開關對 Standard／Strict 設成 false（或 0），要有 PO_PENDING 裡寫明該開關、已答覆的項目，否則 `gate_check --order` 判不過。這是 2.2.3-ds.3 對 `require_spec` 的規則，改套到安全開關。
+- 舊設定檔的 `"sdd"` 區塊照讀，不報錯：
+  - 安全開關照讀，印「請搬到 safety」；`"safety"` 也有同一個鍵時以 `"safety"` 為準，印「被忽略」。
+  - `openspec_bin`、`require_spec_*` 和其他鍵忽略，印「OpenSpec 已在 2.2.5-ds.5 移除，此鍵被忽略」。
+  - 舊 `sdd.max_*_per_order` 照 2.2.4-ds.4 讀，印「請搬到 order_limits」。
+  - 工單還有 `SPEC_CHANGE` 只印 note。
+- 需求寫法：寫在工單 ACCEPTANCE 和 `templates/WORK_ORDER.md` E 節的邊界與壓力清單（「不當掉」至少一個極端輸入）。
+- 文件：BOOTSTRAP 10.5、README、DEEPSEEK-PORT §11／§12、`docs/02`、`05`、`11`、`13`、範本、`tools/README.md`、`DSH-TOOLS.md` 同步。逐項處理（刪／留）見 WORK_DIR 的 `SDD_REMOVAL.md`。
+
+### L-061（B3）
+- `bootstrap_repo.py` 只做 `.memsearch/` exclude；`--config` 只讀。
+- 舊 `sdd` 區塊（`openspec_bin` 為 null 或路徑不存在），即使 `OPENSPEC_BIN` 指到可執行的 CLI：
+  - 不找 CLI、不 init、不寫設定；
+  - 只印兩行 B1 的 WARN（OpenSpec 鍵忽略、安全開關請搬到 safety）；
+  - exit 0。
+- 同一份設定給 ds.4 的 `bootstrap_repo.py` 跑：會執行 CLI 的 `--version` 和 `init`，並建出 `openspec/`。
+
+### dsh_usage `--out` 必跑（B2）
+- BOOTSTRAP 新增「收尾」節，`templates/AGENTS_PROJECT_SECTION.md` 加收尾規則：最後一步跑 `dsh_usage.py --project-dir <WS> --out <WS>/DIRECTOR/usage.json`，再跑 `gate_check.py --final <WS>/DIRECTOR`。
+- `gate_check.py --final DIRECTOR [--usage FILE]`：找不到、讀不了、或 `NO_DATA` 時印 `~ WARN USAGE`，exit 不變。r2 的 sdd 組 tokens 是 UNKNOWN，就是因為沒跑這一步。
+- 最終端到端檢查由 B7 從 DW 2.2.5 移植，DS 不另做一套。
+
+### 每個 worker 開真的 worktree（B4）
+- `dsh_session.py --worker-worktree <REPO> --order <WO> [--branch B] [--base REF] [--root DIR]`：在 `<REPO>/../wt/<WO>` 開一個 git worktree 和一條分支。資料夾已存在就拒絕，不刪任何東西。
+- `dsh_session.py --worktree-status <checkout>`：依 `git worktree list` 印「WORKTREE: 隔離 worktree …」或「WORKTREE: 共用 checkout …」。
+- `gate_check.py --report-skeleton` 的 WORKTREE 行由同一個函式產生；`templates/TASK_REPORT.md` 加 WORKTREE 行；`templates/WORK_ORDER.md` 的 WORKTREE 預設改成自己的 worktree；`docs/11` 開 worker 流程加第 3 步。
+- r2 的 sdd 組自稱「隔離 worktree」，實際是共用 checkout。
+
+### 時間不得手填（B5）
+- BOOTSTRAP「收尾」、`docs/02`、`templates/AGENTS_PROJECT_SECTION.md` 寫明：報告、裁決、DIRECTOR_LOG 的時間和 RAN 行由工具產生，不得手填。產生時間的工具由 B7 從 DW 2.2.5 移植。
+- r2 的實際狀況：sdd 有 8 份驗收報告寫 01:32，實際是 01:17；nosdd 差約 1 小時。
+
+### 遷移
+- 舊 `director_work.json` 照樣能用。要清掉 WARN：把 `sdd` 裡的安全開關搬到頂層 `"safety"`，`max_*` 搬到 `order_limits`，再刪掉 `sdd` 區塊。
+- 工單的計畫檔從 `openspec/changes/<名>/tasks.md` 改成 `<WORK_DIR>/<WO>/PLAN.md`；`PLAN_APPROVED` 的雜湊算法不變（`safety_gate.py --plan-hash`）。
+- 呼叫 `sdd_gate.py` 的地方改成 `safety_gate.py`；`--which` 已移除。
+- `verify_dsh_run` 設定的 `change`、`openspec_bin` 鍵已移除，寫了會被拒絕（未知鍵）。
+
+### 驗證
+- `selftest_ds.py`：ds.4 是 50 項（不設 OPENSPEC_BIN 50/50；設了 OPENSPEC_BIN 的基準見 TASK_REPORT），這一版是 46 項。
+  - 刪 8 項，都是 OpenSpec 專屬：`sdd_spec_ok`、`sdd_no_spec_change`、`sdd_validate_fails`、`sdd_no_cli`、`sdd_real_openspec`、`sdd_cli_lookup`、`sdd_cli_setup`、`sdd_which_off_224`。
+  - 改名 4 項：`sdd_tests_locked` → `safety_tests_locked_225`、`sdd_plan_and_review` → `safety_plan_and_review_225`、`sdd_spec_off_gate` → `safety_switch_off_225`、`sdd_oversize` → `order_oversize`。
+  - 新增 4 項：`safety_legacy_block_225`、`safety_mutations_225`（5 個 mutation）、`usage_final_225`（3 個 mutation）、`worker_worktree_225`（2 個 mutation）。
+  - 改內容：`bootstrap_repo`（L-061）、`setup_shadow`、`report_skeleton`。
+  - 安全閘門 selftest：ds.4 有 6 項，這一版有 8 項。
+- `test_verify_dsh_run.py` 33 項：D10、步驟「4 鎖定測試」「7 計畫閘門」留著，計畫檔改成 PLAN.md。
+- 每輪必讀（docs/01、03、06、08）：10,964 → 10,964 bytes（這幾個檔沒改）。
+
+### 還沒做（B7，等總監通知 DW 2.2.5 已 commit）
+- 移植 DW 2.2.5：時間戳工具、report_vs_audit 擴充與 H1 fixture、閘門順序（PLAN_APPROVED 時間、審查 session 不同）、裁決後鎖程式碼、最終 E2E 檢查、worker 輪數上限與交接、規格審查清單、點子清單範本、TEMP 自動設定、逐 commit 的 scope_check、BASE_REF 括號解析、長路徑訊息。
+- DS 已有、DW 從 DS 搬回去的部分（ds.4 B2、B4），移植時以 DW 2.2.5 版本為準，不留兩份。
+
 ## 2.2.4-ds.4（2026-11-14）
 
 對應上游 2.2.4（DW commit 18d8ddb；5428682 之後另有 dad65a2 的 UNVERIFIED 和 18d8ddb 的 status 截寬與長路徑）。這一版處理 WO-DS-006 試驗（DSH 有／沒有 SDD 兩組，對照 Claude）比較表 §10 裡歸 DW-DS 的項目，並移植上游 2.2.4 的通用修正。ds 序號從 3 升到 4（總監待辦「ds 序號可以往下」）。

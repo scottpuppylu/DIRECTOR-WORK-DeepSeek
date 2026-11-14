@@ -10,9 +10,14 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 ## New DSH tools
 
 - dsh_session.py (library) - Node discovery, decode of session.v4.jsonl.zstd, session listing, role / agent
-  name mapping from the parent's catalog, and the plain-JSON projection cache. One CLI (2.2.4-ds.4):
-  `dsh_session.py --temp-env WORK_DIR` creates WORK_DIR/tmp and prints the PowerShell and bash lines that point
-  TEMP / TMP / TMPDIR at it.
+  name mapping from the parent's catalog, and the plain-JSON projection cache. CLI (one of):
+  `dsh_session.py --temp-env WORK_DIR` (2.2.4-ds.4) creates WORK_DIR/tmp and prints the PowerShell and bash lines that
+  point TEMP / TMP / TMPDIR at it.
+  `dsh_session.py --worker-worktree REPO --order WO [--branch B] [--base REF] [--root DIR]` (2.2.5-ds.5) runs
+  `git worktree add -b <B, default wt/<wo>> <DIR, default REPO/../wt>/<WO> <REF, default HEAD>` and prints the
+  WORKTREE line; an existing folder exits 1 (nothing removed), a bad order id 2.
+  `dsh_session.py --worktree-status DIR` (2.2.5-ds.5) prints `WORKTREE: 隔離 worktree ...` or `WORKTREE: 共用
+  checkout ...` from `git worktree list` (the first entry is the main checkout); exit 2 when DIR is not a checkout.
 - dsh_usage.py - token / context report per session plus daily totals, from the projection cache (no Node).
   `dsh_usage.py [--sessions-root DIR] [--cache-root DIR] [--project-dir PATH] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
   [--session ID|PREFIX|AGENT] [--json] [--out FILE] [--effort-check ORDER] [--from-jsonl | --no-fallback]`
@@ -29,8 +34,10 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_audit.py verify --log FILE [--from N --to M] [--anchor-log FILE] [--anchor-rev REV --anchor-path PATH [--repo DIR]]`
   exit 0 written / verified, 1 refused (output exists) or write problem, 2 cannot run.
 - dsh_doctor.py - environment self-check: python, node, DSH home / sessions / projection cache, latest session decode,
-  profile model / effort, latest session sandbox / approval, git, required tools, docs and templates.
-  `dsh_doctor.py [--tools-dir DIR] [--sessions-root DIR] [--cache-root DIR] [--profile-config FILE] [--json]`
+  profile model / effort, latest session sandbox / approval, git, required tools, docs and templates; with --config
+  the project director_work.json (one WARN line when it still has the block removed in 2.2.5-ds.5).
+  `dsh_doctor.py [--tools-dir DIR] [--sessions-root DIR] [--cache-root DIR] [--profile-config FILE] [--config FILE]
+  [--json]`
   exit 0 no FAIL, 1 any FAIL, 2 the check itself cannot run.
 - dsh_setup_check.py - validate a DIRECTOR folder built by the DSH BOOTSTRAP: required files, the PENDING_METHOD line,
   PO_PENDING entry fields, the RESUME_STATE header and director_work.json. 2.2.1-ds.1 shadow checks (printed as
@@ -45,12 +52,17 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_guard.py --command "git push" [--mode remind|block] [--profile worker|director] [--pause-flag FILE]
   [--rules FILE] [--shell bash|powershell|cmd] [--cwd DIR] [--json]`
   exit 0 clean, 1 remind (default), 2 block / pause flag exists / rules unreadable.
-- bootstrap_repo.py (2.2.3-ds.3) - BOOTSTRAP 10.5 steps for the project repo: `.memsearch/` into .git/info/exclude,
-  the openspec CLI found by sdd_gate.find_cli written into a null sdd.openspec_bin (%LOCALAPPDATA% form), and
-  `openspec init --tools agents --language zh-TW --no-animation` when <REPO>/openspec/ is missing. Steps already done
-  are skipped; without a CLI it prints the PO_PENDING item 「安裝 openspec」 and installs nothing. Never commits.
-  `bootstrap_repo.py --repo DIR [--config FILE] [--check] [--skip exclude|openspec|init ...]`
+- bootstrap_repo.py (2.2.3-ds.3) - BOOTSTRAP 10.5: `.memsearch/` into .git/info/exclude; a step already done is
+  skipped. --config is only read (2.2.5-ds.5): a config that still has the removed block prints one WARN line and
+  nothing else changes. Never commits.
+  `bootstrap_repo.py --repo DIR [--config FILE] [--check] [--skip exclude]`
   exit 0 done, 1 work left (or --check found some) or a step failed, 2 usage error.
+- safety_gate.py (ds.2 sdd_gate.py, renamed in 2.2.5-ds.5 with OpenSpec removed) - the safety gates of a Standard /
+  Strict order for gate_check (TESTS_LOCKED hashes, <WORK_DIR>/<WO>/PLAN.md vs PLAN_APPROVED, SPEC_REVIEW, STOP_RULES
+  rounds, a safety switch turned off needs the PO's answer), order_limits / protected_tests for scope_check; an old
+  "sdd" block is read with WARN lines (legacy_notes). Only reads.
+  `safety_gate.py --lock-tests FILE ... [--repo DIR]` / `safety_gate.py --plan-hash PLAN_MD --order WO.md`
+  exit 0 done, 1 a file is missing.
 - release.py (2.2.2-ds.3) - release this repository in one pass: fetch, any modified or staged tracked file stops
   (dry run too; VERSION and CHANGELOG are read from HEAD), HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
   BEHIND / DIVERGED; --merge merges into release/<version> with --no-ff and stops on conflicts), VERSION = CHANGELOG top
@@ -59,8 +71,8 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   default. Glue over git and gh: release-please / semantic-release need CI and conventional commits (see CHANGELOG).
   `release.py [--repo DIR] [--config FILE] [--version X] [--merge] [--execute]`
   exit 0 dry run clean or release done, 1 a step failed (a NEXT: line says what to do), 2 cannot run.
-- verify_dsh_run.py (2.2.2-ds.3) - verify a DSH trial run of one spec-first order from the files it left and the session
-  logs (R01-R21 repo half, D01-D14 DSH half; the WO-101 checks of _work/ds2-openspec, made generic). The run's names
+- verify_dsh_run.py (2.2.2-ds.3) - verify a DSH trial run of one work order from the files it left and the session
+  logs (R01-R21 repo half, D01-D14 DSH half; the WO-101 checks, made generic; 2.2.5-ds.5 dropped R14 / R15 / D10). The run's names
   come from a JSON config (templates/VERIFY_DSH_RUN.json). Unit tests: test_verify_dsh_run.py.
   `verify_dsh_run.py --config FILE [--project-dir DIR] [--repo DIR] [--order FILE] [--out DIR] [--sessions-root DIR]
   [--cache-root DIR] [--no-dsh]`
@@ -74,8 +86,10 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 gate_check.py (2.2.2-ds.3: --resume prints `~ shadow: RESUME_SIZE` over resume.max_bytes / max_line_bytes, --strict
 fails it; --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
 is a `~ WARN BASE_REF` note, --strict-base fails it; a failed fetch is said, never passed; --report-skeleton ORDER
-prints a TASK REPORT with the order's fields, hash and AC rows filled in plus the evidence / scope_check / --match
-commands, so a DSH worker does not read the checker's source to learn the format), scope_check.py, evidence_record.py (2.2.3-ds.3 as upstream 2.2.3: a CHECKS
+prints a TASK REPORT with the order's fields, hash, the WORKTREE line from git worktree list (2.2.5-ds.5) and AC
+rows filled in plus the evidence / scope_check / --match commands, so a DSH worker does not read the checker's source
+to learn the format; 2.2.5-ds.5: --final DIRECTOR [--usage FILE] prints `~ WARN USAGE` when DIRECTOR/usage.json from
+`dsh_usage.py --out` is missing, unreadable or NO_DATA, exit code unchanged), scope_check.py, evidence_record.py (2.2.3-ds.3 as upstream 2.2.3: a CHECKS
 line may start bare `git`, read-only subcommands only - diff show log status rev-parse ls-files cat-file; anything else
 is NOT_RUN, exit 2), report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line JSON decoding and the 2-real-word
 rule; 2.2.3-ds.3 as upstream 2.2.3: statements split at new line ; && ||, a ``` block under RAN is one claim, at= ends
