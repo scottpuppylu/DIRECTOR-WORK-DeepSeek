@@ -109,9 +109,20 @@ npm install --prefix "%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0" --ignore-scrip
 - Spec Kit 是**備案**：OpenSpec 停止維護、授權改變、或驗證指令拿掉時才換；換的時候只改 `sdd_gate.py` 的 `validate_change`，工單欄位和其他規則不動。
 - 查過什麼（2026-11-14）：總監讀了兩邊的 README 與文件（證據等級：文件）；worker 在本機實裝 OpenSpec 1.16.0，實測 `init --tools agents`／`--tools dsh`、`new change`、`validate --strict --json`（成功、失敗、找不到變更三種輸出）、`instructions apply`、`archive --help`（證據等級：VERIFIED_LOCAL）。Spec Kit 沒有實裝。
 
+## DSH 實機注意（2026-11-14 試跑踩到的）
+
+- **子代理的模型路由**：開子代理時 `provider` 要寫 lead 自己在用的那個。這台是 `deepseek-account`，所以寫 `subagent({name, prompt, provider: "deepseek-account", model: "deepseek-flash", reasoning_effort: "high"})`。
+  - 寫成 `provider: "deepseek"`（也就是 `deepseek/deepseek-flash`）會被 DSH 拒絕。
+  - 不確定時先跑 `list_subagent_models({provider: "deepseek-account"})` 看可用的組合。
+  - 用 API 金鑰登入的機器，provider 是 `deepseek-official`，同樣先用 `list_subagent_models` 確認。
+- **GATE_VERDICT 的 ORDER 行**：要以工單編號開頭，只寫工單檔名，例如 `ORDER: WO-101-clamp.md REVISION 1`。
+  - 寫完整路徑或工單標題，`gate_check.py --verdict --match` 認不出是哪張工單，也就不會核對裁決和工單的 REVISION：Strict 工單判不過，Standard 只印 `~ ORDER: the verdict names no order` 提示。實測：完整路徑和「加入 clamp WO-101」兩種寫法都認不出來。
+  - 工單完整路徑另起一行寫，不要放在 ORDER 行。
+- **GATE_VERDICT 的 F 節（停止狀態）必填**：空白或缺節，`gate_check.py --verdict` 會判不過。最少寫 `NO MERGE / NO PUSH / NO FINAL ACCEPTANCE`。
+
 ## 已知限制
 
-- DSH 實機（deepseek-flash）照本流程跑一張工單還沒做；是 PO 步驟，見 `_work/ds2-openspec/TRIAL.md`。
+- DSH 實機（deepseek-flash）照本流程跑過一張工單（WO-101 clamp，2026-11-14）：PO 只送出一段 prompt，總監照 `_work/ds2-openspec/VERIFY.md` 驗證，34/34 過（D08 的誤判修正後）。只跑過這一張，其他題目還沒驗。
 - `openspec validate` 只查格式（每條 Requirement 有 Scenario、delta 標題對），不查規格內容對不對。
 - worker 仍然改得動規格和測試檔；工具做的是事後查出（`FORBIDDEN`＋`TESTS_LOCKED` 雜湊＋`PLAN_APPROVED` 雜湊），不是事前擋住（DSH 沒有 hook）。
 - 大小上限算的是最後結果的行數，搬檔案、重排格式也會算進去；真的需要大改就拆工單或由總監在 DIRECTOR_LOG 寫理由後調開關。
