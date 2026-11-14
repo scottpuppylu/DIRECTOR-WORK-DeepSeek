@@ -154,6 +154,7 @@ Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只�
 3. 在 `DIRECTOR/director_work.json` 寫 `"sdd": {"openspec_bin": "<安裝位置>/node_modules/.bin/openspec.cmd"}`（其他開關沿用預設，完整寫法見 `docs/13`「程式會擋什麼」），跑 `python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`，印出版本才算好。
 4. 在專案根目錄跑 `openspec init --tools agents --language zh-TW --no-animation`（會新增 `openspec/` 和 `.agents/skills/`，屬 repo 改動，照專案規則 commit 或交給第一張工單），再把 `<RULES>/templates/openspec_config.yaml` 的 `rules:` 併進 `openspec/config.yaml`。
 5. PO 不同意裝、或沒有 Node：在 `director_work.json` 把 `require_spec_for_standard`、`require_spec_for_strict` 設成 `false`，登記 DD 寫明「沒有規格層」，Standard 以上的工單照 ds.1 的方式派（`gate_check.py` 不會假裝通過，關掉才不擋）。
+6. 派給 DSH worker 前讀 `docs/13`「省 token（ds.3）」：worker 開工先跑 `gate_check.py --report-skeleton`，一個階段一個 `run_code`。要驗證一次 DSH 試跑（PO 只送一段 prompt 的那種），用 `python -I -X utf8 <WS>/DIRECTOR/tools/verify_dsh_run.py --config <設定>`，設定格式見 `<RULES>/templates/VERIFY_DSH_RUN.json`。
 
 ## 11. 機制清單（給續航用）
 
@@ -184,7 +185,7 @@ Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只�
 
 1. 照 `docs/12` 第三節：和使用者談到 `templates/BRIEF.md` 每一列都填得出來，寫成 `DIRECTOR/BRIEF.md`，整張貼給使用者確認。使用者說對才改成 `LOCKED`，之後只有使用者能改。卡可以只鎖「第一階段」；看過真實畫面才能選的事（配色、字型這類）放卡上的「待預覽」，不編 B 號。
 2. **一句回覆同時確認卡和授權開工**：把卡和開工說明（交付與停點、開幾位子代理、effort、用量與額外費用、會動哪些檔）放在同一則。使用者回「卡片對，請開一位助手做這一批」這類明確包含兩件事的話，才同時鎖卡並開線；只說「對」只鎖卡。範本和狀態（`LOCK_ONLY`、`NO_START`、`LOCK_AND_USER_ASKED`……）見 `docs/12` 第三節。
-3. 開線那一輪依序做：記錄同意並鎖卡 → 核對範圍和工單雜湊跟貼出的一致 → 跑 `gate_check --order` 和追溯核對 → 寫 `DISPATCH` 進 `DIRECTOR_LOG` → 同一輪用 `subagent` 把第一批開完（名稱、cwd、effort 照工單）→ `list_agents()` 確認。
+3. 開線那一輪依序做：記錄同意並鎖卡 → 核對範圍和工單雜湊跟貼出的一致 → 跑 `gate_check --order`（2.2.1-ds.3 起會先 `git fetch` 再比 BASE_REF；印 `~ WARN BASE_REF` 落後就先把工單的 BASE_REF 改成遠端最新的 commit，fetch 失敗它會明說沒比對）和追溯核對 → 寫 `DISPATCH` 進 `DIRECTOR_LOG` → 同一輪用 `subagent` 把第一批開完（名稱、cwd、effort 照工單）→ `list_agents()` 確認。
 4. 之後每張工單的 `TRACES_TO` 都寫 B 編號，派工前跑：
 
    ```text

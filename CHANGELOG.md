@@ -3,6 +3,54 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.1（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
+## 2.2.1-ds.3（2026-11-14）
+
+ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的、DSH 試跑驗證器通用化，並根據 WO-101 實機紀錄的量測減少 DSH 的 token 用量。規則和工單格式沒有變；新的檢查預設只提示，不會讓舊工單判不過。
+
+### 工具
+- 新增 `tools/release.py`：發版一次跑完（fetch → 和遠端分支比落後／分岔 → VERSION＝CHANGELOG 最上面一段、版本比遠端所有 tag 新 → selftest → 公開掃描 → push → `ls-remote` 確認 → annotated tag → push tag → `ls-remote` 確認 → `gh release create --latest --verify-tag` → `gh release view`）。
+  - 預設只演練；加 `--execute` 才動遠端。
+  - `--merge`：分岔時開 `release/<版本>` 做 `merge --no-ff`，有衝突就停並列出檔案；演練時用 `git merge-tree` 先預測衝突。
+  - 公開掃描範圍：金鑰與 token 格式（沿用 `secret_mask.py`）、`key = value` 形式的密碼、noreply 和 `*.invalid` 以外的 email、使用者資料夾路徑、`DIRECTOR/`、`_work/`、`AGENTS.local.md`、DSH session 檔、commit 訊息與作者 email。找到時不印出密碼本身；有 gitleaks 時一併跑。
+  - 中途停掉後重跑，已完成的步驟會跳過。
+  - 選型：release-please 和 semantic-release 都要 CI 和 conventional commits，semver 也排不出 `2.2.1-ds.N`，所以不用；`gh release create` 已有 `--verify-tag`、`--notes-file`、`--latest`，直接用。
+- `gate_check.py --order` 檢查 BASE_REF 是否最新：先自己 `git fetch`，再把 BASE_REF 的 commit 和遠端分支比。
+  - 不存在或落後：印 `~ WARN BASE_REF`。
+  - fetch 失敗或沒有遠端：明說「沒和遠端比」，不會靜默通過。
+  - `--strict-base`：上面三種都改成判不過。
+  - 開關在 `director_work.json` 的 `"base_ref"`。
+- `gate_check.py --report-skeleton 工單 [--repo] [--evidence-dir] [--out]`：照工單產生 TASK REPORT 骨架，並印出錄證據（照 CHECKS）、scope_check、`--match` 的完整指令。
+  - 已先填好：TASK_ID、worker、模型、BASE、ORDER、ORDER_SHA256，以及每條 AC 一列（附該類型可填的狀態）。
+  - 骨架沒填完，`--report` 會判有 placeholder。
+- 新增 `tools/verify_dsh_run.py`：DSH 試跑驗證器，由 ds.2 的 WO-101 `verify_run.py` 通用化。
+  - R01–R21 看 repo，D01–D14 看 DSH session 紀錄。
+  - 工單專屬的檔名、代理名、隱藏 oracle 寫在設定檔（`templates/VERIFY_DSH_RUN.json`）；CLI 參數優先於設定檔。
+  - 用 WO-101 重跑：34/34 PASS，37 列結果和 ds.2 那次相同。
+  - 修正兩個從 ds.2 帶來的錯：
+    - 輪數表（D13）的「8 驗收」原本抓到規格審查期間的 `scope_check.py --help`；
+    - 「9 裁決」「10 總結」原本永遠找不到。
+- 新增 `tools/test_verify_dsh_run.py`（20 個單元測試，含原本的 11 個 D08 案例）。
+
+### 省 token（先量測再改）
+- 量測對象：WO-101 實機紀錄，共 829 萬 token、102 步。
+  - 每步重送的固定部分約 46K token，佔 57%；所以步數是最大的成本。
+  - worker 約 8 步在讀檢查器原始碼學報告格式；lead 約 13 步在試 provider、讀 `--help` 和解析程式。
+- `docs/13` 新增「省 token（ds.3）」：7 條規則和一張指令表。
+- 預估同一任務總 token 降 58%～60%（S 取 42K～49K、推理內容算或不算重送，都在這個範圍）。這是推算，還沒有 DSH 實機重跑；重跑列為 PO 選做步驟。
+- `templates/TASK_REPORT.md`、`docs/02`：開工先跑 `--report-skeleton`。
+
+### 文件
+- `docs/02`：BASE_REF 新鮮度、`--report-skeleton`。
+- `templates/WORK_ORDER.md`：BASE_REF 註明先 `git fetch`，格式 `<remote/branch @ commit>`。
+- `docs/13`：省 token 一節、已知限制改指 `verify_dsh_run.py`。
+- `BOOTSTRAP.md`：開線那一輪的 BASE_REF 提示，10.5 第 6 點（省 token、試跑驗證）。
+- `DEEPSEEK-PORT.md` 第 10 節：發版用 `release.py`。
+- `README.md`、`tools/README.md`、`tools/DSH-TOOLS.md`、`director_work.example.json`（`"release"`、`"base_ref"` 兩段）。
+
+### 驗證
+- `selftest_ds.py` 28/28 PASS（OpenSpec 1.16.0 實機），新增 6 項：`release_state`、`release_execute`、`release_scan`、`base_ref_fresh`、`report_skeleton`、`verify_dsh_run_unit`。2.2.1-ds.2 是 22/22。
+- `verify_dsh_run.py` 用 WO-101 設定：`VERIFY_DSH_RUN: PASS pass=34 fail=0 skip=0`。
+
 ## 2.2.1-ds.2（2026-11-14）
 
 ds.2 SDD 建在 2.2.1-ds.1 之上：本版把 ds.2 分支（原本從 2.2.0-ds.1 開出，沒有單獨發佈）merge 進 2.2.1-ds.1。2.2.1-ds.1 從上游移植的工具改動全部保留，再加上 ds.2 的 SDD／OpenSpec。ds.2 分支上的小修正：`memory_size_check.py` 補 `import re`（上游沒有，帶進來）；`dsh_setup_check.py` 把 `CH-xx` 當完整條目的那一個不帶，改用 2.2.1-ds.1 已有的修法（`OD/ACT` 以外的 `ID:` 行跳過並提示，selftest `setup_shadow` 有測）。
