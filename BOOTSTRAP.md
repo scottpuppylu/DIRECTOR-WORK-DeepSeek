@@ -151,7 +151,7 @@ DSH 沒有 `MEMORY.md` 記憶索引。會被每次載入的是 `AGENTS.md`（專
 Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只準備好工具，不寫規格：
 1. 確認 Node 22.12 以上（`node --version`）。沒有就列成待決題給 PO（裝 Node 是使用者層的事）。
 2. 安裝 OpenSpec 是下載第三方套件：把套件名、版本（`@fission-ai/openspec@1.16.0`，MIT，免費）、安裝位置（使用者層獨立資料夾，不改 PATH）列進第 13 步的第一份回報或待決帳，PO 同意後照 `docs/13`「安裝」一節做。
-3. 在 `DIRECTOR/director_work.json` 寫 `"sdd": {"openspec_bin": "<安裝位置>/node_modules/.bin/openspec.cmd"}`（其他開關沿用預設，見 `director_work.example.json`），跑 `python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`，印出版本才算好。
+3. 在 `DIRECTOR/director_work.json` 寫 `"sdd": {"openspec_bin": "<安裝位置>/node_modules/.bin/openspec.cmd"}`（其他開關沿用預設，完整寫法見 `docs/13`「程式會擋什麼」），跑 `python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`，印出版本才算好。
 4. 在專案根目錄跑 `openspec init --tools agents --language zh-TW --no-animation`（會新增 `openspec/` 和 `.agents/skills/`，屬 repo 改動，照專案規則 commit 或交給第一張工單），再把 `<RULES>/templates/openspec_config.yaml` 的 `rules:` 併進 `openspec/config.yaml`。
 5. PO 不同意裝、或沒有 Node：在 `director_work.json` 把 `require_spec_for_standard`、`require_spec_for_strict` 設成 `false`，登記 DD 寫明「沒有規格層」，Standard 以上的工單照 ds.1 的方式派（`gate_check.py` 不會假裝通過，關掉才不擋）。
 

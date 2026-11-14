@@ -41,7 +41,22 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 | 至少一條 AUTO 驗收（只提示） | `gate_check.py --order` | 派工前 | `prefer_auto` |
 | openspec 執行檔位置 | `sdd_gate.py` | — | `openspec_bin`（環境變數 `OPENSPEC_BIN` 優先） |
 
-要對某個專案關掉一條，就把開關設成 `false`（大小設 0），並在 DIRECTOR_LOG 寫理由。範例見 `director_work.example.json`。
+要對某個專案關掉一條，就把開關設成 `false`（大小設 0），並在 DIRECTOR_LOG 寫理由。沒寫的鍵一律用預設值（全開）；把下面這段併進專案的 `DIRECTOR/director_work.json` 就是完整寫法：
+
+```json
+"sdd": {
+  "require_spec_for_strict": true,
+  "require_spec_for_standard": true,
+  "spec_review_for_standard": true,
+  "tests_first": true,
+  "plan_gate": true,
+  "max_files_per_order": 3,
+  "max_lines_per_order": 200,
+  "stop_after_rounds": 1,
+  "prefer_auto": true,
+  "openspec_bin": null
+}
+```
 
 工具通過只代表規格格式對、測試沒被改、計畫沒被偷換、改動夠小；**不代表規格寫對了**。規格對不對靠第 6 步的審查和總監自己讀。
 

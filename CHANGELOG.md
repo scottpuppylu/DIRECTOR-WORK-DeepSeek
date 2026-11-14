@@ -26,7 +26,7 @@
 - 新增 `docs/13_sdd_openspec.md`（流程、開關、原生 vs 膠水、安裝、OpenSpec vs Spec Kit 選型、已知限制）。
 - 更新 `docs/02`（規格先行一節、規格審查）、`docs/05`（SDD 時怎麼分 effort）、`docs/11`（OpenSpec 在 DSH 上的操作）、`BOOTSTRAP.md`（10.5 規格先行工具）、`README.md`、`DEEPSEEK-PORT.md` 第 11 節、`tools/README.md`。
 - `templates/WORK_ORDER.md`：`SPEC_CHANGE`、`TESTS_LOCKED`、大小上限、計畫閘門、STOP_RULES 1 輪；`templates/SPEC_REVIEW.md`：Standard 必做、加審 OpenSpec 變更三題。
-- 新增 `templates/openspec_config.yaml`（OpenSpec 原生 `rules:`／`operations:`）；`director_work.example.json` 加 `"sdd"`。
+- 新增 `templates/openspec_config.yaml`（OpenSpec 原生 `rules:`／`operations:`）；`"sdd"` 開關的完整寫法放在 `docs/13`（`director_work.example.json` 不在本次工單範圍，沒改）。
 
 ### 升級注意
 - 預設全開：舊的 Standard／Strict 工單沒有 `SPEC_CHANGE`／`TESTS_LOCKED`、STOP_RULES 寫 2 輪，`gate_check.py --order` 會判不過。舊工單用 `--warn`／`--since`，或在專案 `director_work.json` 把對應開關設成 `false`。
