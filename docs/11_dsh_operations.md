@@ -53,7 +53,7 @@
 - **待決問題**：一次最多三題，每題給選項和建議；PO 在 GUI 回答，總監把原文寫進 `PO_PENDING.md` 再處理。
 - **排程喚醒**：只有 PO 明確要求才建；建完用 `schedule_list` 記進 `GUARDS.md`。
 - **確認 OpenSpec skill 有載入**：開一個小探測子代理（cwd 指到專案），請它列出看得到的 `openspec-*` skill；看得到 6 個才算生效。看不到時確認 `.agents/skills/` 在專案根目錄，或改用 `openspec init --tools dsh`。
-- **確認 openspec 指令找得到**：`python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`；印 `NOT_FOUND` 時照 `docs/13` 安裝並設定 `sdd.openspec_bin`。
+- **確認 openspec 指令找得到**：`python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`（2.2.3-ds.3 會自己找 `%LOCALAPPDATA%/dw-ds-tools/openspec-*`，印出第幾層和版本）；設定是 null 就跑 `tools/bootstrap_repo.py` 寫進去；印 `NOT_FOUND` 時寫 PO_PENDING「安裝 openspec」，PO 同意後照 `docs/13` 安裝。
 
 ## 已知限制（不要假裝有）
 

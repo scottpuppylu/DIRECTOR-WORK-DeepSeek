@@ -39,9 +39,10 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 | 工單大小：最後結果 ≤3 個檔、≤200 行（新增＋刪除；`openspec/` 不算） | `scope_check.py` | 交件時 | `max_files_per_order`、`max_lines_per_order`（0＝關） |
 | STOP_RULES 允許的輪數不能超過 1 | `gate_check.py --order` | 派工前 | `stop_after_rounds` |
 | 至少一條 AUTO 驗收（只提示） | `gate_check.py --order` | 派工前 | `prefer_auto` |
-| openspec 執行檔位置 | `sdd_gate.py` | — | `openspec_bin`（環境變數 `OPENSPEC_BIN` 優先） |
+| 找得到 openspec CLI 時，`require_spec_for_<治理>` 設成 `false` 要有 PO 的答覆（PO_PENDING 有寫 require_spec 的項目、STATUS answered／closed、有 ANSWER）；還在 open 或沒寫就**判不過**（2.2.3-ds.3） | `gate_check.py --order`；`dsh_setup_check.py` 印 shadow | 派工前、建置時 | — |
+| openspec 執行檔位置：依序 `OPENSPEC_BIN` → `sdd.openspec_bin`（`%VAR%` 會展開）→ `%LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd`（多版取最新；非 Windows 是 `$XDG_DATA_HOME/dw-ds-tools/…/openspec`）→ PATH；`--which` 印用哪一個、第幾層、版本。設了 1、2 層卻指錯，不會偷偷換成後面的層 | `sdd_gate.py`（`gate_check.py` 用同一個函式） | — | `openspec_bin` |
 
-要對某個專案關掉一條，就把開關設成 `false`（大小設 0），並在 DIRECTOR_LOG 寫理由。沒寫的鍵一律用預設值（全開）；把下面這段併進專案的 `DIRECTOR/director_work.json` 就是完整寫法（`director_work.example.json` 已附上同一段）：
+要對某個專案關掉一條，就把開關設成 `false`（大小設 0），並在 DIRECTOR_LOG 寫理由。`require_spec_*` 另有限制，見下一節「誰能關」。沒寫的鍵一律用預設值（全開）；把下面這段併進專案的 `DIRECTOR/director_work.json` 就是完整寫法（`director_work.example.json` 已附上同一段）：
 
 ```json
 "sdd": {
@@ -59,6 +60,14 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 ```
 
 工具通過只代表規格格式對、測試沒被改、計畫沒被偷換、改動夠小；**不代表規格寫對了**。規格對不對靠第 6 步的審查和總監自己讀。
+
+## 誰能關（2.2.3-ds.3）
+
+WO-DS-004 試驗：req-only 專案的 `sdd.openspec_bin` 是 null，本機其實裝好了 openspec 1.16.0，DSH lead 以「無網路、不能裝」自己寫 DD 把 `require_spec_for_*` 關掉，整個規格層沒用上。所以：
+
+- **偵測得到 CLI（`sdd_gate.py --which` 印出版本）時，lead 不得關 `require_spec_for_standard`／`require_spec_for_strict`。** 要關，先在 PO_PENDING 寫一項（寫明 require_spec、理由、建議），等 PO 回答；PO 答應後 `gate_check.py --order` 才會放行（只印 note）。沒寫、或還是 open，`--order` 判不過。
+- **偵測不到 CLI 時**，保留 tests-first（`tests_first`、`spec_review_for_standard`、`plan_gate`），並寫 PO_PENDING「安裝 openspec」一項（套件、版本、MIT、免費、安裝位置）；不能自己宣稱「不能裝」。這時才可以暫時關 `require_spec_*`，`--order` 印 note 提醒有沒有寫安裝項目。
+- 建置時用 `tools/bootstrap_repo.py` 自動找 CLI、寫 `sdd.openspec_bin`、跑 `openspec init`（BOOTSTRAP 10.5），`dsh_setup_check.py` 和 `dsh_doctor.py` 也會印 CLI 狀態（找到／沒找到、層級、版本；設定是 null 時印建議寫入的值）。
 
 ## 哪些是 OpenSpec 原生、哪些是膠水
 
@@ -85,8 +94,8 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 npm install --prefix "%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0" --ignore-scripts --no-fund --no-audit @fission-ai/openspec@1.16.0
 ```
 
-- 告訴工具在哪裡（擇一）：專案 `DIRECTOR/director_work.json` 的 `"sdd": {"openspec_bin": "<上面資料夾>/node_modules/.bin/openspec.cmd"}`；或環境變數 `OPENSPEC_BIN`；或自己把 `node_modules/.bin` 加進 PATH。指到 `node_modules/@fission-ai/openspec/bin/openspec.js` 也可以（工具用 `node` 跑它）。
-- 確認：`python -I -X utf8 tools/sdd_gate.py --which --config DIRECTOR/director_work.json` 印出 `OPENSPEC: … version=1.16.0`。
+- 裝在上面這個位置（`%LOCALAPPDATA%/dw-ds-tools/openspec-<版本>/`），工具不用任何設定就找得到（第 3 層，多版取最新）。`tools/bootstrap_repo.py` 會把找到的路徑寫進專案 `DIRECTOR/director_work.json` 的 `"sdd": {"openspec_bin": "%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec.cmd"}`，讓專案寫明用哪一份。也可以用環境變數 `OPENSPEC_BIN`（最優先）或 PATH。指到 `node_modules/@fission-ai/openspec/bin/openspec.js` 也可以（工具用 `node` 跑它）。
+- 確認：`python -I -X utf8 tools/sdd_gate.py --which --config DIRECTOR/director_work.json` 印出 `OPENSPEC: … (level N …) version=1.16.0`。
 - OpenSpec 預設會送匿名使用統計（只有指令名和版本）。DW-DS 的工具呼叫時一律帶 `OPENSPEC_TELEMETRY=0`；自己在終端機手動跑時也設這個環境變數，或跑一次 `openspec config set telemetry.enabled false`。
 - 專案初始化：在專案根目錄跑 `openspec init --tools agents --language zh-TW --no-animation`，產生 `openspec/` 和 `.agents/skills/openspec-*`（6 個 skill，DSH 從 `<專案>/.agents/skills` 載入）。`--language zh-TW` 是 OpenSpec 原生選項，會在 `openspec/config.yaml` 寫「產出用 zh-TW、結構標題和 SHALL/MUST 保留英文」。再把 `templates/openspec_config.yaml` 的 `context:` 其餘幾行和 `rules:`、`operations:` 併進去。
 - 寫 `CHECKS:` 跑 Python 測試時用 `python -B -I -m unittest discover -s . -p <測試檔>`：`-I` 不把目前資料夾放進 sys.path，`python -I -m unittest <模組名>` 會找不到測試（試跑時規格審查抓到）。
@@ -136,6 +145,7 @@ WO-101 實機一次用了約 829 萬 token（lead 430 萬／49 步、worker 373 
 5. **子代理一次開對**：`provider` 照上一節直接寫，不要先試。
 6. **RUN_SUMMARY 不寫 token 數**：用量由總監事後用 `dsh_usage.py`／`verify_dsh_run.py` 從紀錄算；lead 不用自己查。
 7. worker 不必自己跑 `dsh_audit.py`／`report_vs_audit.py`：`RAN` 行照實際指令逐字抄（不要縮寫），對紀錄是總監的事。
+8. **讀過的檔不整份重讀**（2.2.3-ds.3）：工單、RESUME_STATE、工具原始碼在同一個 session 讀過一次就好。確認自己寫的內容看寫入工具的回傳或 `git diff`；工單改版只讀 H 節變更紀錄和改到的段落。WO-DS-004 的 lead 把工單讀了 7 次、RESUME_STATE 7 次、`dsh_setup_check.py` 4 次，重讀合計約 54 萬 token（每次讀進來的內容之後每一步都會重送）。
 
 | 誰 | 什麼時候 | 指令（`PY` = `python -I -X utf8`，`T` = DW-DS 的 `tools/`） |
 |---|---|---|

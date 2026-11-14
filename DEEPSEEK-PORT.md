@@ -205,8 +205,9 @@
 4. 發版用 `python -I -X utf8 tools/release.py`（2.2.2-ds.3）：預設只演練（dry run），檢查和 origin/main 的落後／分岔、VERSION 和 CHANGELOG 最上面一段相同且比遠端所有 tag 新、selftest、公開掃描（金鑰、私人 email、私人路徑、DIRECTOR/、_work/、session 檔）；加 `--execute` 才 push、打 tag、建 GitHub Release，每步用 `ls-remote`／`gh release view` 確認。發版仍要 PO 核准。
 5. 版本號是 `<上游版本>-ds.<N>`（PO 2026-11-14）：
    - 前面的 `<上游版本>` 跟 DW 原版，搬到哪一版就寫哪一版。
-   - `-ds.<N>` 是 DeepSeek 版自己的流水號，每次發版加 1，**上游換版本也不從 1 重來**。例：v2.2.1-ds.2 之後是 2.2.2-ds.3，不是 2.2.2-ds.1。
-   - `release.py` 的版本檢查照這條：整個版本號要比遠端所有 tag 新，而且 `ds.N` 要比遠端所有 `-ds.*` tag 的 N 都大，否則停下並提示下一個可用的 N。
+   - `-ds.<N>` 是 DeepSeek 版自己的流水號，**上游換版本也不從 1 重來**。例：v2.2.1-ds.2 之後是 2.2.2-ds.3，不是 2.2.2-ds.1。
+   - 2.2.3-ds.3 起（PO 指定版本、總監裁定 WO-DS-005 C）：只有上游版本往上時，ds 序號可以不加，例如 v2.2.2-ds.3 之後是 2.2.3-ds.3。
+   - `release.py` 的版本檢查：「(上游版本, ds 序號)」整組要比遠端所有 tag 新，而且 tag 還不存在，否則停下。2.2.3-ds.3 在 v2.2.2-ds.3 之後可以；2.2.2-ds.2、2.2.2-ds.3 都會停。ds 序號不再單獨比較；沒有任何旗標可以跳過這項檢查。
    - 2.2.1-ds.1 以前的 tag（v2.2.0-ds.1、v2.2.1-ds.1）是這條規則訂下前發的，不改。
 
 ## 11. ds.2 起 DeepSeek 版自己加嚴的規則（上游沒有）

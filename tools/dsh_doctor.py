@@ -14,6 +14,8 @@ Checks:
   latest_session    the newest session log decodes and its header names a cwd (needs Node)
   profile            model / reasoning effort from profiles/desktop/cordis.patch.yml
   session_policy    sandbox mode and approval policy of the latest session (session-scoped, NOT a global setting)
+  openspec          2.2.3-ds.3: the openspec CLI the SDD gate will use (sdd_gate.find_cli, four levels) and its
+                    version; WARN when none is found (installing needs the PO's OK, docs/13)
   git               git on PATH (needed by the evidence / scope / trace tools, not by the DSH readers)
   tools             the required DSH-edition tools exist in tools/; removed Claude-only tools are gone
   docs / templates  the edition's docs and templates folders are present (WARN while they are being rewritten)
@@ -56,7 +58,7 @@ REQUIRED_TOOLS = ("gate_check.py", "scope_check.py", "evidence_record.py", "repo
                   "round_check.py", "status_gen.py", "metrics_report.py", "memory_size_check.py", "secret_mask.py",
                   "pause_ctl.py", "audit_log.py", "vocabulary.json", "guard_rules.json",
                   "dsh_session.py", "dsh_usage.py", "dsh_audit.py", "dsh_doctor.py", "dsh_setup_check.py",
-                  "dsh_guard.py", "selftest_ds.py", "DSH-TOOLS.md")
+                  "dsh_guard.py", "selftest_ds.py", "DSH-TOOLS.md", "sdd_gate.py", "bootstrap_repo.py")
 REMOVED_TOOLS = ("hook_guard.py", "setup_project_settings.py", "context_probe.py", "usage_report.py", "usage_mix.py",
                  "doctor.py", "setup_check.py", "choice_reconcile.py", "browser_check.py", "poll_hint.py", "selftest.py")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -196,6 +198,25 @@ def check_git():
     return "OK", f"{git}" + (f" ({version})" if version else "")
 
 
+def check_openspec(tools_dir, config_path=None):
+    path = tools_dir / "sdd_gate.py"
+    if not path.is_file():
+        return "FAIL", f"sdd_gate.py not found in {tools_dir}"
+    spec = importlib_spec("dsh_doctor_sdd_gate", path)
+    sdd = importlib_module(spec)
+    spec.loader.exec_module(sdd)
+    config, problem = sdd.load_config(None, config_path)
+    command, how = sdd.find_cli(config)
+    if command is None:
+        return "WARN", f"openspec CLI {how}; the SDD gate fails Standard/Strict orders until it is installed (PO_PENDING 「安裝 openspec」, docs/13)"
+    version = sdd.cli_version(command)
+    detail = f"{' '.join(command)} ({how}) version={version}"
+    suggest = sdd.suggested_bin(command, how)
+    if suggest and config_path and not config.get("openspec_bin"):
+        detail += f'; sdd.openspec_bin is null, write "{suggest}"'
+    return ("OK" if re.fullmatch(r"\d+(\.\d+)+", version) else "WARN"), detail + (f"; {problem}" if problem else "")
+
+
 def check_tools(tools_dir):
     if not tools_dir.is_dir():
         return "FAIL", f"tools folder not found: {tools_dir}"
@@ -227,6 +248,7 @@ def main(argv=None):
     ap.add_argument("--sessions-root", help="DSH sessions root (default %%USERPROFILE%%\\.dsh\\sessions)")
     ap.add_argument("--cache-root", help="DSH projection cache root")
     ap.add_argument("--profile-config", help="DSH profile patch file (default <DSH_HOME>/profiles/desktop/cordis.patch.yml)")
+    ap.add_argument("--config", help="a project director_work.json (for the openspec check: sdd.openspec_bin)")
     ap.add_argument("--json", action="store_true", help="print the checks as JSON")
     a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
@@ -251,6 +273,7 @@ def main(argv=None):
     add("latest_session", check_latest_session(sessions_root, node[0] == "OK"))
     add("profile", check_profile(profile_path))
     add("session_policy", check_session_policy(cache_root))
+    add("openspec", check_openspec(tools_dir, a.config))
     add("git", check_git())
     add("tools", check_tools(tools_dir))
     add("docs", check_folder("docs", edition_root / "docs", 8))

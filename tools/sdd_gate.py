@@ -20,15 +20,18 @@ Switches: the "sdd" object of director_work.json (all on when missing; docs/02).
   max_lines_per_order        200   scope_check.py: more changed lines (added + deleted) than this fails it
   stop_after_rounds          1     STOP_RULES of a Standard/Strict order may not allow more rounds than this
   prefer_auto                true  a note when a Standard/Strict order has no AUTO criterion
-  openspec_bin               null  the openspec command (path to openspec(.cmd) or to bin/openspec.js); the
-                                   environment variable OPENSPEC_BIN wins over it; else `openspec` on PATH
+  openspec_bin               null  the openspec command (path to openspec(.cmd) or to bin/openspec.js; %VAR% /
+                                   $VAR / ~ are expanded). Lookup order (2.2.3-ds.3, find_cli): OPENSPEC_BIN, this,
+                                   %LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd (newest;
+                                   $XDG_DATA_HOME/dw-ds-tools elsewhere), `openspec` on PATH
 
 Set a switch to false (or a limit to 0) to turn that rule off for a project; say why in DIRECTOR_LOG.
 
 CLI:
   sdd_gate.py --lock-tests FILE ... [--repo DIR]  print the `TESTS_LOCKED:` list to paste into the order
   sdd_gate.py --plan-hash TASKS_MD --order WO.md  print the `PLAN_APPROVED` line for DIRECTOR_LOG
-  sdd_gate.py --which [--config FILE]             where the openspec CLI is found and its version
+  sdd_gate.py --which [--config FILE]             which openspec CLI, from which level (1-4), its version; a hint
+                                                  with the value to write when sdd.openspec_bin is null
 Exit 0 done, 1 a file or the CLI is missing.
 """
 import argparse
@@ -55,8 +58,9 @@ DEFAULTS = {
 }
 GOVERNED = ("Standard", "Strict")
 CHANGE_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
-INSTALL_HINT = ("install it (docs/11 「OpenSpec」: npm install --prefix <user folder> @fission-ai/openspec@1.16.0) "
-                "and put it on PATH, or set OPENSPEC_BIN / sdd.openspec_bin")
+INSTALL_HINT = ("installing it needs the PO's OK: write a PO_PENDING item 「安裝 openspec」 (docs/13 「安裝」: "
+                "npm install --prefix %LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0 @fission-ai/openspec@1.16.0, found "
+                "there without PATH); or set OPENSPEC_BIN / sdd.openspec_bin")
 LOG_PREFIX = r"(?:\d{4}-\d{2}-\d{2}[^|\n`]*\|[ \t]*)?"
 TIMEOUT = 120
 
@@ -70,6 +74,7 @@ def load_config(order_path=None, config_path=None):
         path = guess if guess.is_file() else None
     if path is None:
         return config, None
+    config["_dir"] = str(path.resolve().parent)  # the DIRECTOR folder, for PO_PENDING.md (spec_off_problems)
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as error:
@@ -120,23 +125,162 @@ def plan_hash(path):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+TOOLS_FOLDER = "dw-ds-tools"
+CLI_FOLDER = re.compile(r"openspec-(\d+(?:\.\d+)*)")
+
+
+def user_tools_root():
+    """The per-user folder DW-DS installs its tools into (docs/13 「安裝」): %LOCALAPPDATA%/dw-ds-tools on Windows,
+    $XDG_DATA_HOME/dw-ds-tools (default ~/.local/share/dw-ds-tools) elsewhere. Built from environment variables,
+    never a fixed user path. None when the variable it needs is not set."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA")
+        return pathlib.Path(base) / TOOLS_FOLDER if base else None
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return pathlib.Path(base) / TOOLS_FOLDER
+
+
+def user_tools_label():
+    return ("%LOCALAPPDATA%/" if os.name == "nt" else "$XDG_DATA_HOME/") + TOOLS_FOLDER
+
+
+def scan_user_tools(root=None):
+    """(newest openspec launcher, its folder name, how many versions) under the user tools folder:
+    <root>/openspec-<version>/node_modules/.bin/openspec(.cmd). Versions compare as numbers (1.16.0 > 1.9.2); a
+    folder without the launcher is skipped. (None, None, 0) when there is none."""
+    root = user_tools_root() if root is None else pathlib.Path(root)
+    if root is None or not root.is_dir():
+        return None, None, 0
+    launcher = "openspec.cmd" if os.name == "nt" else "openspec"
+    found = []
+    for folder in root.iterdir():
+        m = CLI_FOLDER.fullmatch(folder.name)
+        exe = folder / "node_modules" / ".bin" / launcher
+        if m and exe.is_file():
+            found.append((tuple(int(part) for part in m.group(1).split(".")), folder.name, exe))
+    if not found:
+        return None, None, 0
+    newest = max(found)
+    return newest[2], newest[1], len(found)
+
+
+def expand(value):
+    """An openspec_bin value with %VAR% / $VAR / ~ expanded, so a project file can say
+    %LOCALAPPDATA%/dw-ds-tools/... instead of a fixed user path."""
+    return os.path.expanduser(os.path.expandvars(str(value)))
+
+
+def command_for(found, source):
+    if found.lower().endswith(".js"):
+        node = shutil.which("node")
+        return ([node, found], f"{source} (node)") if node else (None, f"{source}: {found} needs node on PATH")
+    if found.lower().endswith(".py"):  # a stand-in CLI for tests (selftest_ds.py); not for real use
+        return [sys.executable, "-I", found], f"{source} (python stand-in)"
+    return [found], source
+
+
 def find_cli(config):
-    """(command list or None, how it was found or why not). OPENSPEC_BIN wins over sdd.openspec_bin, which wins over
-    PATH. An explicit setting that points nowhere is not replaced by PATH: the project asked for that one."""
-    for source, value in (("OPENSPEC_BIN", os.environ.get("OPENSPEC_BIN")), ("sdd.openspec_bin", config.get("openspec_bin"))):
+    """(command list or None, how it was found or why not). 2.2.3-ds.3 looks in four levels, first hit wins:
+      1 OPENSPEC_BIN        environment variable
+      2 sdd.openspec_bin    director_work.json (%VAR% / $VAR / ~ expanded)
+      3 user tools folder   %LOCALAPPDATA%/dw-ds-tools/openspec-<version>/node_modules/.bin/openspec.cmd
+                            (newest version; elsewhere $XDG_DATA_HOME/dw-ds-tools/.../openspec)
+      4 PATH                `openspec`
+    `how` starts with "level N <name>". An explicit setting (1 or 2) that points nowhere is not replaced by a later
+    level: the project asked for that one, so a wrong path fails instead of being silently swapped."""
+    for level, source, value in ((1, "OPENSPEC_BIN", os.environ.get("OPENSPEC_BIN")),
+                                 (2, "sdd.openspec_bin", config.get("openspec_bin"))):
         if value:
-            path = pathlib.Path(value)
-            found = str(path) if path.is_file() else shutil.which(value)
+            path = pathlib.Path(expand(value))
+            found = str(path) if path.is_file() else shutil.which(str(path))
             if not found:
-                return None, f"{source}={value} does not exist"
-            if found.lower().endswith(".js"):
-                node = shutil.which("node")
-                return ([node, found], f"{source} (node)") if node else (None, f"{source}={value} needs node on PATH")
-            if found.lower().endswith(".py"):  # a stand-in CLI for tests (selftest_ds.py); not for real use
-                return [sys.executable, "-I", found], f"{source} (python stand-in)"
-            return [found], source
+                return None, f"level {level} {source}={value} does not exist"
+            return command_for(found, f"level {level} {source}")
+    exe, folder, count = scan_user_tools()
+    if exe is not None:
+        return command_for(str(exe), f"level 3 {user_tools_label()} ({folder}, newest of {count})")
     found = shutil.which("openspec")
-    return ([found], "PATH") if found else (None, "no `openspec` on PATH")
+    if found:
+        return command_for(found, "level 4 PATH")
+    return None, (f"not found: OPENSPEC_BIN unset, sdd.openspec_bin null, no openspec-*/ under {user_tools_label()}, "
+                  "no `openspec` on PATH")
+
+
+PO_ID = re.compile(r"^[ \t]*ID[ \t]*:", re.M)
+
+
+def po_entries(director):
+    """(status, answer, text) of each `ID:` entry in <director>/PO_PENDING.md; [] when there is no such file."""
+    path = pathlib.Path(director) / "PO_PENDING.md" if director else None
+    if path is None or not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8-sig")
+    starts = [m.start() for m in PO_ID.finditer(text)] + [len(text)]
+    entries = []
+    for begin, end in zip(starts, starts[1:]):
+        block = text[begin:end]
+        status = re.search(r"^[ \t]*STATUS[ \t]*:[ \t]*(\S*)", block, re.M)
+        answer = re.search(r"^[ \t]*ANSWER[ \t]*:[ \t]*(.*)$", block, re.M)
+        entries.append(((status.group(1) if status else "").lower(), (answer.group(1).strip() if answer else ""),
+                        block))
+    return entries
+
+
+def po_decided(director, word):
+    """'answered' when a PO_PENDING entry naming `word` is answered or closed with an ANSWER, 'open' when one is
+    still open, None when none names it."""
+    found = None
+    for status, answer, block in po_entries(director):
+        if word.lower() in block.lower():
+            if status in ("answered", "closed") and answer and not re.fullmatch(r"[-—–]|<[^<>]*>|TBD|待\S*", answer):
+                return "answered"
+            found = "open"
+    return found
+
+
+def spec_off_problems(config, gov, notes):
+    """2.2.3-ds.3 (WO-DS-004 lesson): sdd.require_spec_for_<gov> is false. With an openspec CLI found, only the PO
+    may turn spec-first off: a PO_PENDING entry naming require_spec, answered by the PO. Without a CLI, tests-first
+    stays and a PO_PENDING entry 「安裝 openspec」 must exist; the lead may not just declare it cannot be installed."""
+    key = f"require_spec_for_{gov.lower()}"
+    director = config.get("_dir")
+    command, how = find_cli(config)
+    if command is not None:
+        decided = po_decided(director, "require_spec")
+        if decided == "answered":
+            notes.append(f"sdd.{key} is false; the openspec CLI is found ({how}); the PO answered it in PO_PENDING.md")
+            return []
+        wait = "the PO_PENDING entry is still open: wait for the PO" if decided == "open" else (
+            "write a PO_PENDING entry naming require_spec and wait for the PO's answer")
+        return [f"sdd.{key} is false but the openspec CLI is found ({how}); the lead may not turn spec-first off "
+                f"(docs/13 「誰能關」): set it back to true, or {wait}"]
+    if po_decided(director, "openspec") is None:
+        notes.append(f"sdd.{key} is false and no openspec CLI is found ({how}); keep tests-first and write a "
+                     "PO_PENDING entry 「安裝 openspec」 (docs/13 「安裝」); do not record it as impossible")
+    return []
+
+
+def suggested_bin(command, how):
+    """The value to write as sdd.openspec_bin for a CLI found at level 3 or 4, or None. Level 3 keeps the variable
+    (%LOCALAPPDATA%/dw-ds-tools/...), so the project file holds no user path."""
+    if command is None or not how.startswith(("level 3", "level 4")):
+        return None
+    path = pathlib.Path(command[-1])
+    root = user_tools_root()
+    if how.startswith("level 3") and root is not None:
+        try:
+            return f"{user_tools_label()}/{path.relative_to(root).as_posix()}"
+        except ValueError:
+            pass
+    return path.as_posix()
+
+
+def cli_version(command):
+    try:
+        done = run_cli(command, ["--version"], ".")
+        return done.stdout.strip() or f"exit {done.returncode}"
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"cannot run: {error}"
 
 
 def run_cli(command, args, cwd):
@@ -235,6 +379,7 @@ def order_problems(text, order_path, repo, config, notes):
     value = field(text, "SPEC_CHANGE")
     governed = gov in GOVERNED
     needed = governed and config.get(f"require_spec_for_{gov.lower()}", True)
+    problems += spec_off_problems(config, gov, notes) if governed and not needed else []
     if value is None or value in ("", "NONE"):
         if needed:
             problems.append(f"SPEC_CHANGE: a {gov} order names its OpenSpec change (`SPEC_CHANGE = openspec/changes/"
@@ -362,11 +507,11 @@ def main():
             print(f"OPENSPEC: NOT_FOUND {how}; {INSTALL_HINT}")
             status = 1
         else:
-            try:
-                version = run_cli(command, ["--version"], ".").stdout.strip()
-            except (OSError, subprocess.SubprocessError) as error:
-                version = f"cannot run: {error}"
-            print(f"OPENSPEC: {' '.join(command)} ({how}) version={version}")
+            print(f"OPENSPEC: {' '.join(command)} ({how}) version={cli_version(command)}")
+            suggest = suggested_bin(command, how)
+            if suggest and not config.get("openspec_bin"):
+                print(f'# sdd.openspec_bin is null; write "sdd": {{"openspec_bin": "{suggest}"}} into '
+                      "director_work.json (BOOTSTRAP 「規格層」) so the project names the CLI it uses")
     return status
 
 

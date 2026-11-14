@@ -32,6 +32,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import posixpath
 import re
 import shutil
 import subprocess
@@ -475,8 +476,252 @@ def is_write(call, name=None):
     command = command_of(call)
     if tool == "run_code":
         # tools.write / tools.pwsh inside run_code are logged as their own calls; only direct node fs writes count here
-        command = re.sub(r"tools\.\w+\(\{[^}]*\}\)", "", command)
+        command = strip_tool_calls(command)  # D13 fix: the old regex stopped at the } of ${...} (see D06)
     return bool(command) and bool(WRITE_VERB.search(command)) and (name is None or name.lower() in command.lower())
+
+
+# --- D06 write targets (2.2.2-ds.3 fix after the ds.3 rerun's false FAIL) -------------------------------------
+# D06 used to fail a whole shell / run_code text when it held a write verb and ANY absolute path outside the run
+# folder, e.g. a run_code that only reads tools from D:/derictor-work-deepseek/tools and appends to
+# ${ws}/DIRECTOR/DIRECTOR_LOG.md. Now it looks at the TARGET of each write: the path argument of the cmdlet, the
+# redirection, the .NET File call, the node fs call, or rm / mv / cp, after filling in the script's own string
+# variables (JS const / let / var, PowerShell $name = '...') and the last Set-Location / cd before it. A target that
+# cannot be worked out falls back to the old rule for that text, so an unclear write still fails.
+TOOL_CALL = re.compile(r"\btools\.\w+\s*\(")
+_REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")
+
+
+def _skip_quote(s, i):
+    q, i = s[i], i + 1
+    while i < len(s) and s[i] != q:
+        i += 2 if s[i] == "\\" else 1
+    return i + 1
+
+
+def _skip_regex(s, i):
+    i += 1
+    while i < len(s) and s[i] not in "/\n":
+        if s[i] == "\\":
+            i += 2
+        elif s[i] == "[":
+            while i < len(s) and s[i] != "]":
+                i += 2 if s[i] == "\\" else 1
+            i += 1
+        else:
+            i += 1
+    i += 1
+    while i < len(s) and s[i].isalpha():
+        i += 1
+    return i
+
+
+def _regex_can_start(s, i):
+    j = i - 1
+    while j >= 0 and s[j] in " \t\r\n":
+        j -= 1
+    return j < 0 or s[j] in _REGEX_BEFORE
+
+
+def _skip_template(s, i):
+    i += 1
+    while i < len(s):
+        if s[i] == "\\":
+            i += 2
+        elif s[i] == "`":
+            return i + 1
+        elif s.startswith("${", i):
+            i = _skip_balanced(s, i + 1)
+        else:
+            i += 1
+    return i
+
+
+def _skip_balanced(s, i):
+    """From an opening bracket at s[i], the index just after its partner; strings, templates, regex literals and
+    comments are skipped, so a } inside `${log}` or a quote inside /'/g does not end the call early."""
+    depth, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        elif c in "'\"":
+            i = _skip_quote(s, i)
+            continue
+        elif c == "`":
+            i = _skip_template(s, i)
+            continue
+        elif s.startswith("//", i):
+            j = s.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        elif s.startswith("/*", i):
+            j = s.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        elif c == "/" and _regex_can_start(s, i):
+            i = _skip_regex(s, i)
+            continue
+        i += 1
+    return n
+
+
+def strip_tool_calls(code):
+    """run_code JavaScript without its tools.<name>(...) calls: those are logged and judged as their own calls."""
+    out, i = [], 0
+    while True:
+        m = TOOL_CALL.search(code, i)
+        if not m:
+            out.append(code[i:])
+            return "".join(out)
+        out.append(code[i:m.start()])
+        i = _skip_balanced(code, m.end() - 1)
+
+
+_TOKEN = r"(`[^`]*`|'[^']*'|\"[^\"]*\"|[^\s;|,)]+)"
+_JS_VAR = re.compile(r"\b(?:const|let|var)\s+(\w+)\s*(?::\s*[\w\[\]<>]+\s*)?=\s*(`[^`]*`|'[^']*'|\"[^\"]*\")\s*;?")
+_PS_VAR = re.compile(r"\$(\w+)\s*=\s*('[^']*'|\"[^\"]*\")")
+_CMDLET = re.compile(r"\b(Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Clear-Content|Copy-Item|Move-Item|"
+                     r"Rename-Item)\b((?:'[^']*'|\"[^\"]*\"|[^;|\r\n'\"])*)", re.I)
+_SWITCHES = {"-force", "-recurse", "-nonewline", "-passthru", "-confirm", "-whatif", "-append", "-noclobber",
+             "-erroraction:silentlycontinue"}
+_PATH_PARAMS = {"-path", "-literalpath", "-filepath"}
+_REDIRECT = re.compile(r"(?<![-=<>&\d])\d?>{1,2}\s*" + _TOKEN)
+_DOTNET = re.compile(r"\[(?:System\.)?IO\.File\]::(?:WriteAll\w*|AppendAll\w*|Delete|Create\w*)\(\s*" + _TOKEN, re.I)
+_FS_ONE = re.compile(r"\b(?:writeFileSync|appendFileSync|mkdirSync|rmSync|rmdirSync|unlinkSync|writeFile|appendFile|"
+                     r"createWriteStream)\s*\(\s*" + _TOKEN)
+_FS_TWO = re.compile(r"\b(renameSync|copyFileSync|cpSync|rename|copyFile)\s*\(\s*" + _TOKEN + r"\s*,\s*" + _TOKEN)
+_SH_RM = re.compile(r"(?:^|[\s;&|(])(?:rm|del)\s+((?:-\w+\s+)*)" + _TOKEN)
+_SH_TWO = re.compile(r"(?:^|[\s;&|(])(mv|cp)\s+((?:-\w+\s+)*)" + _TOKEN + r"\s+" + _TOKEN)
+_CD = re.compile(r"(?:Set-Location|Push-Location|(?:^|[\s;&(])cd)\s+(?:-(?:Literal)?Path\s+)?" + _TOKEN, re.I)
+_DISCARD = {"$null", "&1", "&2", "/dev/null", "nul", "null"}
+
+
+def _variables(text):
+    names = {}
+    for rx in (_JS_VAR, _PS_VAR):
+        for name, value in rx.findall(text):
+            names[name] = value[1:-1]
+    for _ in range(5):  # templates that use earlier variables: `${ws}/demo`
+        for name, value in names.items():
+            names[name] = _fill(value, names)
+    return names
+
+
+def _fill(text, names):
+    text = re.sub(r"\$\{(\w+)\}", lambda m: names.get(m.group(1), m.group(0)), text)
+    return re.sub(r"\$(\w+)\b", lambda m: names.get(m.group(1), m.group(0)), text)
+
+
+def _resolve(token, names, cwd):
+    """An absolute, normalised path, '' for a discard target ($null, 2>&1), or None when it cannot be worked out."""
+    raw = token.strip()
+    if raw[:1] in "'\"`" and raw[-1:] == raw[:1]:
+        raw = raw[1:-1]
+    elif re.fullmatch(r"[A-Za-z_]\w*", raw):  # a JS identifier
+        raw = names.get(raw, "$" + raw)
+    if raw.lower() in _DISCARD:
+        return ""
+    raw = _fill(raw, names)
+    if not raw or "$" in raw or "{" in raw or "(" in raw or " + " in raw:
+        return None
+    raw = raw.replace("\\", "/")
+    m = re.match(r"^/([A-Za-z])(/.*)?$", raw)  # git bash /d/x
+    if m:
+        raw = f"{m.group(1)}:{m.group(2) or '/'}"
+    if not re.match(r"^[A-Za-z]:/", raw) and not raw.startswith("/"):
+        if not cwd:
+            return None
+        raw = str(cwd).replace("\\", "/").rstrip("/") + "/" + raw
+    return posixpath.normpath(raw)
+
+
+def _cmdlet_targets(name, args):
+    tokens = re.findall(_TOKEN, args)
+    named, positional, i = {}, [], 0
+    while i < len(tokens):
+        tok = tokens[i]
+        low = tok.lower()
+        if low.startswith("-") and not low.startswith("-$"):
+            if low in _SWITCHES or i + 1 >= len(tokens):
+                i += 1
+                continue
+            named[low] = tokens[i + 1]
+            i += 2
+            continue
+        positional.append(tok)
+        i += 1
+    path = next((named[k] for k in _PATH_PARAMS if k in named), positional[0] if positional else None)
+    dest = named.get("-destination", positional[1] if len(positional) > 1 else None)
+    name = name.lower()
+    if name == "copy-item":
+        return [dest]
+    if name == "move-item":
+        return [path, dest]
+    return [path]
+
+
+def write_targets(text, cwd, js=False):
+    """(resolved targets, unresolved count) of every write in one shell text, or in run_code JavaScript (js=True:
+    no shell redirection or rm / mv / cp there; `a > b` is a comparison)."""
+    names = _variables(text)
+    found = []  # (position, token)
+    for m in _CMDLET.finditer(text):
+        found += [(m.start(), tok) for tok in _cmdlet_targets(m.group(1), m.group(2))]
+    for rx in ((_DOTNET, _FS_ONE) if js else (_REDIRECT, _DOTNET, _FS_ONE)):
+        found += [(m.start(), m.group(m.lastindex)) for m in rx.finditer(text)]
+    for m in _FS_TWO.finditer(text):
+        found += [(m.start(), m.group(3))] + ([(m.start(), m.group(2))] if m.group(1).startswith("rename") else [])
+    for m in ([] if js else _SH_RM.finditer(text)):
+        found.append((m.start(), m.group(2)))
+    for m in ([] if js else _SH_TWO.finditer(text)):
+        found += [(m.start(), m.group(4))] + ([(m.start(), m.group(3))] if m.group(1) == "mv" else [])
+    cds = [(m.start(), m.group(1)) for m in _CD.finditer(text)]
+    targets, unresolved = [], 0
+    for pos, tok in found:
+        if tok is None:
+            unresolved += 1
+            continue
+        here = cwd
+        for cpos, ctok in cds:
+            if cpos < pos:
+                here = _resolve(ctok, names, cwd) or here
+        resolved = _resolve(tok, names, here)
+        if resolved is None:
+            unresolved += 1
+        elif resolved:
+            targets.append(resolved)
+    return targets, unresolved
+
+
+def outside_writes(calls, run_dir, allowed_roots):
+    """D06: writes whose target is not under the run folder (or write_allowed); see the note above write_targets."""
+    outside = []
+    for c in calls:
+        tool = c["tool"].lower()
+        if tool in WRITE_TOOLS:
+            if target(c) and not under(target(c), run_dir):
+                outside.append(f"{c['agent']} {c['tool']} {target(c)}")
+            continue
+        text = command_of(c)
+        if tool == "run_code":
+            text = strip_tool_calls(text)
+        if not text or not WRITE_VERB.search(text):
+            continue
+        targets, unresolved = write_targets(text, c.get("cwd"), js=tool == "run_code")
+        for path in targets:
+            if not any(under(path, root) for root in allowed_roots):
+                outside.append(f"{c['agent']} {c['tool']} → {path}")
+        if unresolved or not targets:
+            for path in ABS_PATH.findall(text):
+                if not any(under(path, root) for root in allowed_roots) \
+                        and not norm(path).endswith(("python.exe", "git.exe")):
+                    outside.append(f"{c['agent']} {c['tool']}（寫入目標解不出來，退回看絕對路徑）: {text[:160]}")
+                    break
+    return outside
 
 
 def _slash(text):
@@ -517,14 +762,29 @@ def peek_hits(calls, hidden):
     return hits
 
 
+def round_of(calls, call):
+    """The top-level call (one round) that holds `call`. A tools.* call made inside a run_code is logged as its own
+    call but is not a round; the round it belongs to is the agent's last top-level call in the same session at or
+    before it. Calls without a "top" field (older logs) count as top-level."""
+    if call is None or call.get("top", True):
+        return call
+    rounds = [c for c in calls if c.get("top", True) and c["agent"] == call["agent"]
+              and c.get("session") == call.get("session") and c["ms"] <= call["ms"]]
+    return rounds[-1] if rounds else call
+
+
 def step_markers(calls, s, lead, reviewer, worker, dispatch=None, test_write=None):
     """[(step name, the call that starts it or None)] for the D13 rounds table, from calls sorted by time.
     dispatch / test_write: the calls D10-D12 already found (the lead's `gate_check --hash`, its first test write).
     2.2.2-ds.3 fixes two errors carried over from ds.2: "8 驗收" took the lead's first scope_check of any kind, which
     in WO-101 was `scope_check.py --help` during the spec review; and "9" / "10" matched the stems GATE_VERDICT /
-    RUN_SUMMARY against the end of the path, which never matches WO-101_GATE_VERDICT.md."""
+    RUN_SUMMARY against the end of the path, which never matches WO-101_GATE_VERDICT.md.
+    A step starts with the round in which its first action happens (round_of): when that action is a tools.* call
+    inside a run_code, the run_code is the round that did it, so it is counted in this step, not the one before."""
     def first(pred):
-        return next((c for c in calls if pred(c)), None)
+        return round_of(calls, next((c for c in calls if pred(c)), None))
+
+    dispatch, test_write = round_of(calls, dispatch), round_of(calls, test_write)
 
     def shell_has(c, *words):
         return c["tool"].lower() in SHELLS and all(w.lower() in command_of(c).lower() for w in words)
@@ -621,7 +881,8 @@ def dsh_checks(s, out, ctx, sessions_root, cache_root):
         agent = next((x.get("agent") for x in sessions if x.get("id") == sid), "?")
         calls.extend(calls_of(events, sid, agent, header.get("cwd")))
     calls.sort(key=lambda c: c["ms"])
-    save(out, "calls_full.jsonl", "".join(json.dumps({k: c[k] for k in ("ms", "agent", "tool", "args")},
+    save(out, "calls_full.jsonl", "".join(json.dumps({k: c[k] for k in ("ms", "session", "agent", "cwd", "top",
+                                                                         "tool", "args")},
                                                       ensure_ascii=False) + "\n" for c in calls))
     if not calls:
         add("D05", "解出完整工具呼叫", "FAIL", "新 session 裡沒有工具呼叫")
@@ -635,18 +896,8 @@ def dsh_checks(s, out, ctx, sessions_root, cache_root):
         return c["tool"].lower() in SHELLS and all(w.lower() in command_of(c).lower() for w in words)
 
     allowed_roots = [run_dir] + s.write_allowed
-    outside = []
-    for c in calls:
-        if c["tool"].lower() in WRITE_TOOLS and target(c) and not under(target(c), run_dir):
-            outside.append(f"{c['agent']} {c['tool']} {target(c)}")
-        elif command_of(c) and is_write(c):
-            command = command_of(c)
-            for path in ABS_PATH.findall(command):
-                if not any(under(path, root) for root in allowed_roots) \
-                        and not norm(path).endswith(("python.exe", "git.exe")):
-                    outside.append(f"{c['agent']} shell: {command[:160]}")
-                    break
-    add("D06", f"沒有寫到 {run_dir.name} 以外（write/edit 路徑、shell 寫入指令裡的絕對路徑）", "FAIL" if outside else "PASS",
+    outside = outside_writes(calls, run_dir, allowed_roots)
+    add("D06", f"沒有寫到 {run_dir.name} 以外（write/edit 路徑、shell／node 寫入指令的目標）", "FAIL" if outside else "PASS",
         "；".join(outside[:5]) or "0 筆")
     bad = [f"{c['agent']} {c['tool']}: {command_of(c)[:120]}" for c in calls
            if c["tool"].lower() in SHELLS and FORBIDDEN_CMD.search(command_of(c))]
@@ -683,6 +934,24 @@ def dsh_checks(s, out, ctx, sessions_root, cache_root):
 
     rows = rounds_table(calls, step_markers(calls, s, lead, reviewer, worker, dispatch, test_write),
                         lead, reviewer, worker)
+    rows.append("")
+    rows.append("從紀錄算的返工（程式定義，見 verify_dsh_run.py）：" + "；".join(
+        rework_counts(calls, s, lead, reviewer, worker, locked_tests, plan, review)))
+    save(out, "rounds_from_logs.md", "\n".join(rows) + "\n")
+    add("D13", "每一步的輪數與返工（從紀錄算，不靠 DSH 自報）", "INFO", "rounds_from_logs.md")
+    dsh_report_checks(s, out, ctx, run_dir, since, worker, sessions_root, cache_root)
+
+
+def rework_counts(calls, s, lead, reviewer, worker, locked_tests, plan, review):
+    """D13 rework lines. A write is a write / edit call or a direct shell / node write (is_write); a run_code that only
+    names the file, or reaches it through tools.* calls (logged on their own), is not counted again."""
+    def first(pred):
+        return next((c for c in calls if pred(c)), None)
+
+    def shell_has(c, *words):
+        return c["tool"].lower() in SHELLS and all(w.lower() in command_of(c).lower() for w in words)
+
+    code_file = s.code_files[0]
     rework = []
     first_ac = first(lambda c: c["agent"] == worker and shell_has(c, "unittest"))
     if first_ac:
@@ -703,11 +972,10 @@ def dsh_checks(s, out, ctx, sessions_root, cache_root):
         n = sum(1 for c in calls if c["agent"] == lead and c["ms"] > first_gate["ms"]
                 and is_write(c, s.order.name))
         rework.append(f"第一次 gate_check --order 後 {lead} 又改工單：{n} 次")
-    rows.append("")
-    rows.append("從紀錄算的返工（程式定義，見 verify_dsh_run.py）：" + "；".join(rework))
-    save(out, "rounds_from_logs.md", "\n".join(rows) + "\n")
-    add("D13", "每一步的輪數與返工（從紀錄算，不靠 DSH 自報）", "INFO", "rounds_from_logs.md")
+    return rework
 
+
+def dsh_report_checks(s, out, ctx, run_dir, since, worker, sessions_root, cache_root):
     report = ctx.get("report")
     if report and report.is_file():
         worker_audit = out / "audit_worker.jsonl"

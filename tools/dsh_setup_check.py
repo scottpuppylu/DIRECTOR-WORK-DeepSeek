@@ -38,6 +38,11 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     object, remote / branch / title / tag_message / selftest non-empty strings, gh_repo owner/name or null
     (release.py refuses an unknown release key, so it is a problem here too); sdd is known (sdd_gate.py checks it)
 
+2.2.3-ds.3, shadow too: the openspec CLI (sdd_gate.find_cli: OPENSPEC_BIN, sdd.openspec_bin,
+%LOCALAPPDATA%/dw-ds-tools/openspec-*/, PATH). A note gives the command, level and version; a shadow line when it is
+found but sdd.openspec_bin is null (with the value to write), when it is not found and PO_PENDING.md has no entry
+asking to install it, and when it is found but require_spec_for_* is false without the PO's answer.
+
 Prints OK / FAIL per DIRECTOR with one "  - problem" line each, "  ~ shadow: ..." and "  ~ note" lines, then
   DSH_SETUP_CHECK: PASS|FAIL dirs=n problems=n
 (problems= counts the DIRECTOR folders that failed.)
@@ -350,6 +355,37 @@ def shadow_config(text, notes):
     return problems
 
 
+def shadow_openspec(folder, notes):
+    """2.2.3-ds.3: the openspec CLI status (sdd_gate.find_cli, the same four levels gate_check uses). Found: a note with
+    the command, level and version, plus a shadow line with the value to write when sdd.openspec_bin is null. Not
+    found: a shadow line unless PO_PENDING.md already asks to install it. Found while require_spec_* is false and the
+    PO has not answered: a shadow line (gate_check --order fails it)."""
+    sdd = neighbour("sdd_gate")
+    path = folder / "director_work.json"
+    config, problem = sdd.load_config(None, path if path.is_file() else None)
+    if problem:
+        return []  # check_config already reports an unreadable file
+    config.setdefault("_dir", str(folder.resolve()))
+    command, how = sdd.find_cli(config)
+    found = []
+    if command is None:
+        if sdd.po_decided(config["_dir"], "openspec") is None:
+            found.append(f"openspec: CLI {how}; write a PO_PENDING entry 「安裝 openspec」 (docs/13 「安裝」); "
+                         "keep tests-first meanwhile")
+        else:
+            notes.append(f"openspec: CLI {how}; PO_PENDING.md asks to install it")
+        return found
+    notes.append(f"openspec: {' '.join(command)} ({how}) version={sdd.cli_version(command)}")
+    suggest = sdd.suggested_bin(command, how)
+    if suggest and not config.get("openspec_bin"):
+        found.append(f'openspec: found but sdd.openspec_bin is null; write "sdd": {{"openspec_bin": "{suggest}"}} into '
+                     "director_work.json (BOOTSTRAP 「規格層」)")
+    for gov in sdd.GOVERNED:
+        if not config.get(f"require_spec_for_{gov.lower()}", True):
+            found += [f"openspec: {line}" for line in sdd.spec_off_problems(config, gov, notes)]
+    return found
+
+
 SHADOW = (("PO_PENDING.md", shadow_po_pending), ("RESUME_STATE.md", shadow_resume),
           ("director_work.json", shadow_config))
 
@@ -385,6 +421,11 @@ def check_director(folder, strict=False):
                 problems += found
             else:
                 notes += [f"shadow: {problem}" for problem in found]
+    found = shadow_openspec(folder, notes)
+    if strict:
+        problems += found
+    else:
+        notes += [f"shadow: {problem}" for problem in found]
     return problems, notes
 
 

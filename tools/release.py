@@ -17,9 +17,10 @@ Steps, in order; each prints `STEP <name>: OK | FAIL | SKIP | PLAN ...`, and a F
              change to either stops (the tag goes on HEAD); VERSION equals the first `## ` heading of
              CHANGELOG.md; tag v<version> is not on the remote yet, or
              already points at HEAD (a rerun); <version> sorts above every remote tag of the same shape
-             (<major>.<minor>.<patch>[-<label>.<n>]) - 2.2.0-ds.2 after 2.2.1-ds.1 fails; and <n> is above the <n>
-             of every remote tag with the same label: the -ds.N serial never restarts when the base version
-             moves on (after v2.2.1-ds.2 comes 2.2.2-ds.3, not 2.2.2-ds.1)
+             (<major>.<minor>.<patch>[-<label>.<n>]) - 2.2.0-ds.2 after 2.2.1-ds.1 fails. 2.2.3-ds.3 (總監 ruling
+             WO-DS-005 C): the pair (upstream version, ds serial) as a whole is compared, so 2.2.3-ds.3 after
+             v2.2.2-ds.3 passes and 2.2.2-ds.2 / 2.2.2-ds.3 stop; the serial alone is no longer checked. No flag
+             skips this check.
   worktree   no tracked file is modified or staged (dry run too: the release is made from HEAD)
   selftest   the selftest command exits 0 (default `python -I -X utf8 tools/selftest_ds.py`)
   scan       <remote>/<branch>..HEAD, everything that goes public: paths (DIRECTOR/, _work/, AGENTS.local.md, DSH
@@ -337,17 +338,9 @@ class Release:
         if higher:
             raise Stop(f"{tag} does not sort above the remote tag(s) {', '.join(higher)}",
                        f"use a version above {higher[-1]} (for example bump the base version, not only the -label.n)")
-        if key[4]:
-            # the -<label>.N counter is the port's own serial: it only goes up, also when the base version moves on
-            # (2.2.1-ds.2 -> 2.2.2-ds.3, never 2.2.2-ds.1; DEEPSEEK-PORT.md section 10)
-            same = sorted((name for name in remote_tags if name != tag and version_key(name)
-                           and version_key(name)[4] == key[4] and version_key(name)[5] >= key[5]),
-                          key=lambda name: version_key(name)[5])
-            if same:
-                top_n = version_key(same[-1])[5]
-                raise Stop(f"{tag}: -{key[4]}.{key[5]} is not above the -{key[4]}.N of the remote tag(s) "
-                           f"{', '.join(same)}; the -{key[4]}.N serial never restarts",
-                           f"use -{key[4]}.{top_n + 1} (VERSION and CHANGELOG)")
+        # 2.2.3-ds.3 (總監 ruling, WO-DS-005 C): the whole (upstream version, -label.N) pair must sort above every
+        # remote tag (the check above) and the tag must be new; the -label.N serial is not compared on its own
+        # (2.2.2-ds.3 -> 2.2.3-ds.3 is allowed; DEEPSEEK-PORT.md section 10)
         others = [name for name in remote_tags if not version_key(name)]
         self.step("version", "OK", f"{version} = CHANGELOG top; {tag} " + ("already at HEAD (rerun)" if self.tag_done
                   else "is new") + f"; above {len(remote_tags) - len(others) - (1 if self.tag_done else 0)} remote tag(s)"

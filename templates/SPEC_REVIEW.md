@@ -18,15 +18,18 @@ Strict 和 Standard 工單必做（ds.2 起 Standard 也要，開關 `sdd.spec_r
 7. 規格（specs 的每個 Scenario）和工單驗收條件對得上嗎？有沒有 Scenario 沒有測試、或驗收條件在規格裡找不到？
 8. TESTS_LOCKED 的測試真的測到 Scenario 說的行為嗎（讀測試檔，只看它斷言了什麼）？
 9. 這張工單夠小嗎：預計 ≤3 個檔、約 200 行？太大就建議怎麼拆。
+10. **逐一重算字面期望值**（2.2.3-ds.3）：TESTS_LOCKED 的測試、Scenario、AC 裡每個寫死的期望值（算式結果、數量、字串、錯誤訊息），自己從輸入重算一次，不要照抄測試寫的值。每個寫成一行放進輸出的「重算」段：`<檔名:行或 Scenario>｜<輸入>｜你算的值｜寫的值｜一致／不一致`。不一致是 P0（WO-DS-004：`2 + 3 * (4 - 1)` 被寫成 9，審查沒抓到，正確是 11）。
 
 輸出，總長不超過 40 行：
 - 每個問題一行：AC-x 或「整體」｜問題｜建議改法｜嚴重度 P0 / P1 / P2
 - 沒有問題就寫 NO_ISSUES
+- 「重算」段：第 10 項每個期望值一行（沒有寫死的期望值就寫「重算：無字面期望值」）；這段不算進 40 行
 - 最後一行：讀了哪些檔案
 ```
 
 ## 總監收到結果後
 
 1. 決定改或不改工單，改了就 `REVISION` 加 1、記變更紀錄。
-2. 在 `DIRECTOR_LOG` 記一行（整行，`gate_check.py --match --dispatch-log` 會找它）：`SPEC_REVIEW WO-<編號> tokens=<數字> issues=<P0/P1/P2 各幾個> adopted=<採用幾個>`；tokens 用 `tools/dsh_usage.py` 看該子代理 session 的用量，分不出來或讀不到就記 UNKNOWN。
-3. 之後這張工單如果返工，查一下規格審查有沒有提過；用這些紀錄決定 Standard 要不要繼續做（`docs/02`）。
+2. 把審查員的「重算」段原樣存進審查紀錄（例：`DIRECTOR/reviews/WO-<編號>_SPEC_REVIEW.md`）；有「不一致」就先改測試或規格、重鎖雜湊、REVISION 加 1，再重審。
+3. 在 `DIRECTOR_LOG` 記一行（整行，`gate_check.py --match --dispatch-log` 會找它）：`SPEC_REVIEW WO-<編號> tokens=<數字> issues=<P0/P1/P2 各幾個> adopted=<採用幾個>`；tokens 用 `tools/dsh_usage.py` 看該子代理 session 的用量，分不出來或讀不到就記 UNKNOWN。
+4. 之後這張工單如果返工，查一下規格審查有沒有提過；用這些紀錄決定 Standard 要不要繼續做（`docs/02`）。

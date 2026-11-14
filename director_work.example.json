@@ -6,7 +6,7 @@
   "po_pending_files": ["PO_PENDING.md"],
   "po_item_pattern": "^\\s*ID\\s*:\\s*(OD|ACT|CH)-\\w+",
   "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b",
-  "_comment_sdd": "ds.2 spec-first (docs/13): every switch defaults to on when missing. Set one to false (a limit to 0) only with a reason in DIRECTOR_LOG. openspec_bin: path to openspec(.cmd); the OPENSPEC_BIN environment variable wins; null = openspec on PATH.",
+  "_comment_sdd": "ds.2 spec-first (docs/13): every switch defaults to on when missing. Set one to false (a limit to 0) only with a reason in DIRECTOR_LOG. openspec_bin: path to openspec(.cmd), %VAR% expanded. Lookup (2.2.3-ds.3, sdd_gate.py --which): OPENSPEC_BIN, then this, then %LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd (newest), then openspec on PATH. BOOTSTRAP writes the found path here. When the CLI is found, the lead may not turn require_spec_* off without a PO_PENDING answer from the PO.",
   "sdd": {
     "require_spec_for_strict": true,
     "require_spec_for_standard": true,

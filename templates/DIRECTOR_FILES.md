@@ -6,6 +6,7 @@
 # 本專案版規則 — <專案名稱>
 只寫和規則包不同的地方；沒寫的照 <RULES>/docs/xx。
 | 規則包位置 | 本專案的做法 | 來源（PO-xx / DD-xx） |
+（關 `sdd.require_spec_*` 這種會讓規格層沒用上的改動，找得到 openspec CLI 時來源必須是 PO 的答覆，不能只寫 DD；docs/13「誰能關」）
 ```
 
 ## DIRECTOR_STATE.md

@@ -13,7 +13,7 @@
 
 完整流程、開關和安裝見 `docs/13_sdd_openspec.md`。下面每條都是 `director_work.json` 的 `"sdd"` 開關，預設全開；關掉要在 `DIRECTOR_LOG` 寫理由。
 
-- **規格**：工單寫 `SPEC_CHANGE = openspec/changes/<名稱>`，派工前由總監用 OpenSpec 寫好 proposal 與 specs 並通過 `openspec validate --strict`。`gate_check.py --order --repo <專案>` 會實際跑驗證；找不到 openspec 指令判不過。Direct 工單寫 `NONE`。
+- **規格**：工單寫 `SPEC_CHANGE = openspec/changes/<名稱>`，派工前由總監用 OpenSpec 寫好 proposal 與 specs 並通過 `openspec validate --strict`。`gate_check.py --order --repo <專案>` 會實際跑驗證；找不到 openspec 指令判不過。Direct 工單寫 `NONE`。**找得到 openspec CLI 時，lead 不得關 `require_spec_*`**：要關先寫 PO_PENDING 等 PO 回答，否則 `--order` 判不過；找不到時保留 tests-first，並寫 PO_PENDING「安裝 openspec」（2.2.3-ds.3，`docs/13`「誰能關」）。
 - **規格審查**：Standard 也必做（原本只有 Strict）；`--match --dispatch-log` 查 `SPEC_REVIEW <WO>` 那一行。
 - **測試先寫**：驗收測試在派工前寫好、commit 到 BASE_REF，用 `tools/sdd_gate.py --lock-tests` 把雜湊寫進工單的 `TESTS_LOCKED:`，跑法寫進 `CHECKS:`。worker 不得改測試；改了 gate 判不過。
 - **工單大小**：一張工單最後結果 ≤3 個檔、約 200 行（新增＋刪除，`openspec/` 不算）；超過就拆。`scope_check.py` 印 `OVERSIZE` 並判越界。
@@ -41,7 +41,7 @@
   - 初衷卡定版時跑 `gate_check.py --brief BRIEF.md --snapshot brief-history`：只收狀態 LOCKED、有版次的卡，原子寫入快照，印一行 `BRIEF_LOCKED rev=<n> sha=<雜湊> snapshot=<路徑>`，原樣寫進 `DIRECTOR_LOG`。之後加 `--dispatch-log` 時，以最新一行 BRIEF_LOCKED 為依據；定版後的草稿不算。
   - 派工時用 `--hash 工單 --snapshot order-history` 留下工單原檔。工單改版、用 `EVIDENCE_EQUIVALENT` 沿用舊證據時，`--match ... --order-history order-history` 拿舊工單記的指紋比對；條件變了就印 `BRIEF_STALE`，找不到舊工單就印 `BRIEF_UNCONFIRMED`。
 - Worker 不改工單的驗收條件和規格。發現條件做不到、互相矛盾或有錯，回報 `BLOCKED` 並寫明原因，由總監裁決後改工單。
-- 總監改工單時 `REVISION` 加 1，在 H 節記一列（誰改、原因、影響的 AC）。派工時用 `gate_check.py --hash` 印出工單雜湊，把它印的 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 那行原樣寫進 `DIRECTOR_LOG`（同一工單以最新一行為準）；worker 在報告填 `ORDER_SHA256`。審查時 `--match ... --dispatch-log DIRECTOR_LOG.md` 拿派工紀錄比對：工單被改過再重算雜湊也會被查出；DISPATCH 必須獨占一行，引用、縮排或圍欄裡的不算；沒有紀錄時各模式都失敗。這是事後查出，不是事前防止：誰都還是改得動工單。
+- 總監改工單時 `REVISION` 加 1，在 H 節記一列（誰改、原因、影響的 AC），**同一步同步 `BRIEF.md`、`WORK_DIR/tasks.md`、`WORK_DIR/RESUME_STATE.md`**（WO-DS-004：工單改到 rev2，tasks.md 還留著舊的期望值）；`gate_check.py --order` 對 REVISION ≥2 的工單提示要同步，WORK_DIR 裡比工單舊的 tasks.md／RESUME_STATE.md 印 `~ shadow: REVISION_SYNC`（2.2.3-ds.3，不影響結果）。派工時用 `gate_check.py --hash` 印出工單雜湊，把它印的 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 那行原樣寫進 `DIRECTOR_LOG`（同一工單以最新一行為準）；worker 在報告填 `ORDER_SHA256`。審查時 `--match ... --dispatch-log DIRECTOR_LOG.md` 拿派工紀錄比對：工單被改過再重算雜湊也會被查出；DISPATCH 必須獨占一行，引用、縮排或圍欄裡的不算；沒有紀錄時各模式都失敗。這是事後查出，不是事前防止：誰都還是改得動工單。
 - 發工單前想清楚需求、現有結構、相依、邊界條件、測試方法，一次給完整。
 - 製作類工單的第一步固定是「既有資產盤點」：未合併的分支（`git log --all -- <路徑>`）、需求方提供過的檔案、舊報告。盤點結果寫進 gate 報告。
 - 規格審查：Strict 和 Standard 工單派工前必做（ds.2 起 Standard 也要，開關 `sdd.spec_review_for_standard`；在 DSH 上的做法見 `docs/11_dsh_operations.md`），Direct 不做。審查範圍包含工單和它的 OpenSpec 變更（proposal、specs）。總監開一個短上下文的子代理（`subagent`，新 context；depth 1 可以），照 `templates/SPEC_REVIEW.md` 審工單；reviewer 只准讀，限制靠指示＋總監事後檢查（`docs/07`）。結果只給總監參考，不增加 PO 的工作。每次在 `DIRECTOR_LOG` 記下花費（用 `tools/dsh_usage.py` 看該子代理 session 的 token，分不出來或讀不到就記 UNKNOWN）和抓到的問題；花費高過它省下的返工，就由總監提議、PO 同意後關掉 Standard 的開關。
@@ -75,7 +75,7 @@
 
 ### 發版（2.2.2-ds.3，同上游 2.2.2）
 
-- 用 `python -I -X utf8 tools/release.py`：先 dry run，乾淨再加 `--execute`。它從 HEAD 讀 VERSION 和 CHANGELOG，工作樹有沒 commit 的改動就停並印下一步；遠端主線比本機新就停（落後），分岔要 `--merge` 另開 `release/<版本>`；版本要比遠端所有 tag 新，`-ds.N` 要比遠端所有 `-ds.*` tag 的 N 大（`DEEPSEEK-PORT.md` 第 10 節）；selftest 和公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）過了才 push、打 annotated tag、建 GitHub Release（Latest），每步用 ls-remote／`gh release view` 驗。細節見 `tools/README.md`。
+- 用 `python -I -X utf8 tools/release.py`：先 dry run，乾淨再加 `--execute`。它從 HEAD 讀 VERSION 和 CHANGELOG，工作樹有沒 commit 的改動就停並印下一步；遠端主線比本機新就停（落後），分岔要 `--merge` 另開 `release/<版本>`；「(上游版本, ds 序號)」整組要比遠端所有 tag 新、tag 還不存在（2.2.3-ds.3 起；`DEEPSEEK-PORT.md` 第 10 節）；selftest 和公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）過了才 push、打 annotated tag、建 GitHub Release（Latest），每步用 ls-remote／`gh release view` 驗。細節見 `tools/README.md`。
 - 有 PR 和 CI 時照順序：PR → CI 全綠 → merge → 在 merge 後的主線 commit 跑 `release.py`，這時 push 是 SKIP，只打 tag 和建 Release。CI 沒全綠不發版。
 - push、tag、Release 都要 PO 核准（`docs/08`）；release.py 不代替核准。
 

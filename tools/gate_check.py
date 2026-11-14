@@ -81,6 +81,10 @@ evidence and the product is still the Director's job (docs/02, docs/07).
              --evidence-dir and --dispatch-log; what they would show is NOT_CHECKED without them. Exit 1 when
              anything is lacking. Only reads, like every check here.
 
+2.2.3-ds.3 (shadow): --order on an order at REVISION 2 or later notes to sync BRIEF.md, WORK_DIR/tasks.md and
+             WORK_DIR/RESUME_STATE.md, and prints `~ shadow: REVISION_SYNC <file>` for each of those WORK_DIR files
+             last written before the order (older modification time). Never changes the exit code.
+
 2.1 (shadow: these only add `~` notes and never change the exit code; an order without the new fields passes as before):
   --brief BRIEF.md
              alone: print the brief's `BRIEF_REVISION = n` and `BRIEF_FINGERPRINTS_V1 = {"B-2": "<sha256>"}` lines for an
@@ -2004,6 +2008,7 @@ def main():
             repo = pathlib.Path(a.repo or ".")
             problems += sdd.order_problems(order_text, order_path, repo, config, notes)
             if kind == "order":
+                revision_sync_notes(order_text, order_path, notes)
                 base = base_config(order_path, a.config, notes)
                 base["strict"] = base["strict"] or a.strict_base
                 problems += base_ref_problems(order_text, repo, base, notes, fetched)
@@ -2019,6 +2024,34 @@ def main():
         print(f"checked {len(jobs) - skipped - undated}, {'warned' if a.warn else 'failed'} {failed}, skipped {skipped}"
               + (f", UNDATED {undated} (not checked)" if undated else ""))
     return 1 if failed and not a.warn else 0
+
+
+def revision_sync_notes(order_text, order_path, notes):
+    """2.2.3-ds.3 (WO-DS-004 lesson L-050, shadow): an order at REVISION 2 or later. One note to sync BRIEF.md,
+    WORK_DIR/tasks.md and WORK_DIR/RESUME_STATE.md with the new revision, and `shadow: REVISION_SYNC` for each of
+    those WORK_DIR files that was last written before the order (its modification time is older): it still describes
+    the old revision (the trial's tasks.md kept a corrected expected value). Never a problem; only reads."""
+    m = re.search(r"^\s*REVISION\s*[=:：]\s*(\d+)", order_text, re.M)
+    if not m or int(m.group(1)) < 2:
+        return
+    rev = int(m.group(1))
+    notes.append(f"REVISION {rev}: sync BRIEF.md, WORK_DIR/tasks.md and WORK_DIR/RESUME_STATE.md with this revision "
+                 "and tell the worker the new hash (docs/02)")
+    w = re.search(r"^\s*WORK_DIR\s*[=:：]\s*(.+?)\s*(?:#.*)?$", order_text, re.M)
+    if not w or w.group(1).startswith("<"):
+        return
+    work = pathlib.Path(w.group(1).strip().strip("`"))
+    if not work.is_absolute():
+        work = (pathlib.Path(order_path).resolve().parent / work) if not work.exists() else work
+    try:
+        written = pathlib.Path(order_path).stat().st_mtime
+    except OSError:
+        return
+    for name in ("tasks.md", "RESUME_STATE.md"):
+        path = work / name
+        if path.is_file() and path.stat().st_mtime < written:
+            notes.append(f"shadow: REVISION_SYNC {path} was last written before REVISION {rev} of the order; "
+                         "update it to the new revision (or confirm nothing in it changed)")
 
 
 def not_utf8(error, argv=None):

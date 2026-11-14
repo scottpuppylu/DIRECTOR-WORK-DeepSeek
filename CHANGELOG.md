@@ -3,6 +3,44 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
+## 2.2.3-ds.3（2026-11-14）
+
+對應上游 2.2.3。這一版要讓 OpenSpec 規格層下次一定會被用上，並帶入 WO-DS-004 試驗（DSH 和 Claude 同一需求各跑一次）學到的事。版本號是 PO 指定的：上游段從 2.2.2 升到 2.2.3，ds 序號維持 3；`release.py` 的版本規則因此改成比「(上游版本, ds 序號)」整組（總監裁定，見「工具修正」）。
+
+### OpenSpec CLI 自動偵測（試驗：本機有 CLI，規格層卻被關掉）
+- 試驗裡 req-only 專案的 `sdd.openspec_bin` 是 null，本機其實裝好了 openspec 1.16.0，DSH lead 以「無網路、不能裝」自己寫 DD 把 `require_spec_for_*` 關掉，規格層完全沒用上。
+- `sdd_gate.py` 依序找 CLI：`OPENSPEC_BIN` → `sdd.openspec_bin`（`%VAR%`／`$VAR`／`~` 會展開）→ `%LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd`（多版取最新；非 Windows 是 `$XDG_DATA_HOME/dw-ds-tools/…/openspec`）→ PATH。`--which` 印用哪一個、第幾層、版本；設定是 null 時印建議寫入的值（`%LOCALAPPDATA%` 寫法，不寫死使用者路徑）。設了第 1、2 層卻指錯，會判不過，不會偷偷換成後面的層。`gate_check.py` 用同一個函式。
+- **找得到 CLI 時，lead 不得關 `require_spec_*`**：`gate_check.py --order` 對 `require_spec_for_<治理>` 為 false 的工單判不過，除非 `PO_PENDING.md` 有寫 require_spec 的項目，而且 PO 已回答。找不到 CLI 時照舊放行（tests-first 保留），另印 note 要寫 PO_PENDING「安裝 openspec」。
+- `dsh_setup_check.py` 報告 CLI 狀態（層級、版本）；設定是 null、找不到 CLI 又沒有安裝項目、或有 CLI 卻關了 require_spec 而 PO 沒答，各印一行 shadow（`--strict` 判不過）。`dsh_doctor.py` 多一項 `openspec`（`--config` 可給專案設定），必要工具清單加上 `sdd_gate.py`、`bootstrap_repo.py`。
+- 新 `tools/bootstrap_repo.py`：BOOTSTRAP 10.5 的機械步驟。找到 CLI 就寫進 null 的 `sdd.openspec_bin`（只改那一個值）、專案沒有 `openspec/` 就跑 `openspec init --tools agents --language zh-TW --no-animation`、把 `.memsearch/` 加進 `.git/info/exclude`。做過的跳過，`--check` 只報告；找不到 CLI 就印 PO_PENDING「安裝 openspec」要寫什麼，不安裝任何東西。
+- 文件：BOOTSTRAP 10.5 改成「先找本機已裝的」；`docs/13` 新增「誰能關」一節，程式會擋什麼的表格和「安裝」一節更新；`docs/02`、`docs/11`、`templates/WORK_ORDER.md`、`templates/DIRECTOR_FILES.md`、`director_work.example.json` 的說明同步；`templates/AGENTS_PROJECT_SECTION.md` 加「規格層」一行。
+- 冒煙驗證（不是 DSH 試驗、不用額度）：全新的暫存專案、不設 `OPENSPEC_BIN`，照 BOOTSTRAP 跑 setup_check → bootstrap_repo（寫設定、init、exclude）→ 寫一個最小 change → `gate_check --order` 實際跑 `openspec validate --strict` 通過 → 拿掉 Scenario 後判不過 → 放回又通過，16 步全過。
+
+### 試驗心得
+- `templates/SPEC_REVIEW.md` 第 10 項：**逐一重算字面期望值**，每個寫成一行放進「重算」段並存進審查紀錄，不一致是 P0（試驗：`2 + 3 * (4 - 1)` 被寫成 9，審查沒抓到）。
+- 工單改版同步：`gate_check.py --order` 對 REVISION ≥2 的工單提示同步 BRIEF.md、WORK_DIR/tasks.md、WORK_DIR/RESUME_STATE.md；WORK_DIR 裡比工單舊的那兩個檔印 `~ shadow: REVISION_SYNC`（不影響結果）。`docs/02`、`templates/WORK_ORDER.md` 同步（試驗：工單改到 rev2，tasks.md 還寫 9）。
+- `.memsearch/`（DSH 的記憶索引）由 `bootstrap_repo.py` 自動排除（試驗裡 lead 要自己補 DD-11）。
+- （B3 邊界與壓力清單、B9 上游 2.2.3 移植：等 DW 2.2.3 commit 後補上）
+
+### 工具修正
+- `verify_dsh_run.py` D06：改看每個寫入動作的目標（cmdlet 路徑參數、重新導向、.NET File、node fs、rm／mv／cp，變數照腳本自己的字串展開），`tools.*(...)` 用括號配對剝除（跳過字串、樣板字串、regex、註解）；解不出目標時退回舊規則。ds.3 重跑原本誤判 FAIL，現在 34/34。
+- `verify_dsh_run.py` D13：`is_write` 用同一個剝除（原本只「提到」檔名的 run_code 被算成改檔，返工 5 次 → 2 次、改工單 4 次 → 0 次）；步驟分界改成「第一個動作所在的那一輪」（`round_of`），第 8／9 步不再互相吃掉輪數。`calls_full.jsonl` 多存 `session`、`cwd`、`top`。
+- 回歸測試：`tools/test_verify_dsh_run.py` 新增 8 項（D06 5、D13 3），共 33；fixture 是 ds.3 重跑的紀錄，放在 `tools/fixtures/`，使用者資料夾路徑換成 `%LOCALAPPDATA%`。
+- `release.py` 版本規則（總監裁定 WO-DS-005 C）：「(上游版本, ds 序號)」整組要比遠端所有 tag 新、tag 還不存在；ds 序號不再單獨比。v2.2.2-ds.3 之後的 2.2.3-ds.3 可以，2.2.2-ds.2、2.2.2-ds.3 會停；沒有旗標可以跳過。`DEEPSEEK-PORT.md` 第 10 節、`docs/02`、`tools/README.md` 同步。
+
+### token（只用 WO-DS-004 的現有紀錄，沒有新跑）
+- DSH 一次 20.60M，lead 佔 14.39M（159 步，output 0.9%）。lead 的大項：自己的推理和呼叫重送 24.9%、系統提示 17.5%、規則包文件 10.9%、工具原始碼和 `--help` 8.5%、同一檔重讀 3.7%。
+- 本版改了兩條規則：BOOTSTRAP 第 1 步「每支工具只讀一次，之後不重讀、不跑 `--help`，用法查 `tools/DSH-TOOLS.md`」（重讀加 `--help` 約 0.76M）；`docs/13`「省 token」第 8 條「讀過的檔不整份重讀」（其他檔重讀約 0.20M）。合計上限約 0.96M（lead 的 6.7%），要下次實機才知道實際省多少。
+- 每輪必讀的 bytes：`docs/01`、`03`、`06`、`08` 合計 10,964，本版沒改；AGENTS 總監段落範本 2,360 → 2,601（＋241，「規格層」一行，估計約多 0.02%）。
+
+### 下一版
+- BOOTSTRAP 的讀檔清單分成「建置必讀」和「用到再讀」，或讓短上下文的子代理讀完回摘要：規則包文件佔 lead 的 10.9%，但會改變 lead 的讀法，要實機驗證不漏規則才改。
+- 改檔用 `edit` 只送改的段落、不整份重寫：lead 自己的推理和呼叫重送佔 24.9%，其中有整份工單、初衷卡的內容，還沒量過。
+
+### 驗證
+- `selftest_ds.py` 30 → 35 項（新增 `sdd_cli_lookup`、`sdd_cli_setup`、`sdd_spec_off_gate`、`revision_sync`、`bootstrap_repo`；`setup_shadow`、`report_skeleton`、`release_state` 更新），設與不設 `OPENSPEC_BIN` 各跑一次都全過；不設時 `sdd_real_openspec` 從第 3 層找到真的 CLI。
+- `verify_dsh_run.py` 對 ds.3 重跑 34/34；`test_verify_dsh_run.py` 33/33。
+
 ## 2.2.2-ds.3（2026-11-14）
 
 ds.3 對應上游 2.2.2，是工具版：發版一次到位、派工前確認 BASE_REF 是最新的、DSH 試跑驗證器通用化、根據 WO-101 實機紀錄的量測減少 DSH 的 token 用量，並移植上游 2.2.2 的 RESUME_STATE 大小檢查和原文搬移工具。工單格式沒有變；新的檢查預設只提示，不會讓舊工單判不過。

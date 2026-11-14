@@ -8,6 +8,12 @@
    missing code_files list are refused, command-line paths win, the default hidden pattern comes from the oracle files.
 3. A synthetic project run with --no-dsh: a clean worker branch passes R01 R03-R06 R08-R11 R13; a branch where the
    worker also edits the locked test fails R04 and R08, and a wrong code file fails the hidden oracle test (R13).
+4. D06 write targets (ds.3 rerun false FAIL): that run's calls_full.jsonl (../fixtures) passes, the same calls plus
+   one real outside write fail; outside writes by write / edit / cmdlet / redirection / .NET / bash / node fs fail,
+   an unresolved target falls back to the old absolute-path rule; reads of outside tools with inside writes pass.
+5. D13 (same fixture, re-exported with top / session / cwd): rework is 2 spec / test edits after the review and 0 order
+   edits after the first gate_check --order; every lead round lands in its own step (a step starts with the round
+   that holds its first action, also when that action is a tools.* call inside a run_code).
 Standard library and git only; everything happens in a temp folder.
 """
 
@@ -324,6 +330,165 @@ class SyntheticRun(unittest.TestCase):
         proc, _ = run_verify(self.config, "--out", str(self.proj / "out"))
         self.assertEqual(proc.returncode, 2)
         self.assertIn("NOT_RUN --out must not be inside", proc.stdout)
+
+
+RUN = "D:/trial/run"
+FIXTURE = TOOLS / "fixtures" / "calls_full_20261114T120658.jsonl"
+DS3_RUN = "D:/derictor-work-deepseek/_work/ds3-tools/dsh-run"
+
+
+def wcall(tool, agent="lead", cwd=RUN, **args):
+    return {"ms": 0, "session": "s", "agent": agent, "cwd": cwd, "top": True, "tool": tool, "args": args,
+            "text": json.dumps(args, ensure_ascii=False)}
+
+
+def outside(calls, run=RUN):
+    return vdr.outside_writes(calls, pathlib.Path(run), [pathlib.Path(run)])
+
+
+class WriteTargetsD06(unittest.TestCase):
+    """D06 judges the TARGET of each write, not every absolute path in the text (ds.3 rerun false FAIL)."""
+
+    def fixture(self):
+        self.assertTrue(FIXTURE.is_file(), f"missing fixture {FIXTURE}")
+        calls = [json.loads(line) for line in FIXTURE.read_text(encoding="utf-8").splitlines() if line.strip()]
+        for c in calls:
+            c.setdefault("cwd", DS3_RUN)
+        return calls
+
+    def test_ds3_rerun_calls_pass(self):
+        # the lead's run_code held T = "D:/derictor-work-deepseek/tools" (read and run only) and an Add-Content to
+        # ${log} inside dsh-run; the old rule failed it
+        calls = self.fixture()
+        self.assertEqual(outside(calls, DS3_RUN), [])
+        flagged = [c for c in calls if c["tool"] == "run_code" and "D:/derictor-work-deepseek/tools" in
+                   c["args"].get("code", "") and "Add-Content" in c["args"].get("code", "")]
+        self.assertTrue(flagged, "the fixture no longer holds the misjudged run_code")
+
+    def test_ds3_rerun_plus_one_real_outside_write_fails(self):
+        calls = self.fixture() + [wcall("pwsh", cwd=DS3_RUN,
+                                        command="Add-Content -Path 'D:/derictor-work-deepseek/tools/x.md' -Value hi")]
+        found = outside(calls, DS3_RUN)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("d:/derictor-work-deepseek/tools/x.md", found[0].lower())
+
+    def test_writes_outside_fail(self):
+        cases = {
+            "write tool": wcall("write", file_path="D:/elsewhere/a.md", content="x"),
+            "edit tool, relative": wcall("edit", cwd="D:/elsewhere", path="a.md", old="a", new="b"),
+            "PowerShell variable": wcall("pwsh", command="$p = 'D:/elsewhere/y.txt'; Set-Content -Path $p -Value 1"),
+            "relative after Set-Location": wcall("pwsh", command="Set-Location 'D:/elsewhere'; Set-Content rel.txt 1"),
+            "redirection": wcall("pwsh", command="python x.py > 'D:/elsewhere/out.txt'"),
+            "Out-File positional": wcall("pwsh", command="git log | Out-File D:\\elsewhere\\log.txt"),
+            "Copy-Item destination": wcall("pwsh", command=f"Copy-Item '{RUN}/a.txt' 'D:/elsewhere/a.txt'"),
+            "Move-Item destination": wcall("pwsh", command=f"Move-Item -Path '{RUN}/a.txt' -Destination 'D:/x/a.txt'"),
+            "Remove-Item": wcall("pwsh", command="Remove-Item -Recurse -Force 'D:/elsewhere/dir'"),
+            ".NET File": wcall("pwsh", command="[IO.File]::WriteAllText('D:/elsewhere/z.txt', 'x')"),
+            "bash cp": wcall("bash", command=f"cp {RUN}/a.txt /d/elsewhere/b.txt"),
+            "bash rm": wcall("bash", command="rm -f /d/elsewhere/b.txt"),
+            "node fs in run_code": wcall("run_code", code='const fs = require("fs");\nconst out = "D:/elsewhere";\n'
+                                                          'fs.writeFileSync(`${out}/x.txt`, "x");'),
+            "node rename": wcall("run_code", code=f'require("fs").renameSync("{RUN}/a", "D:/elsewhere/a");'),
+            "unresolved target falls back": wcall("pwsh", command="Set-Content -Path $unknown -Value 1; "
+                                                                  "Get-Item 'D:/elsewhere/z'"),
+        }
+        for name, c in cases.items():
+            with self.subTest(name):
+                self.assertTrue(outside([c]), f"{name} was not caught")
+
+    def test_writes_inside_pass(self):
+        cases = {
+            "tools read outside, log inside (the false FAIL)": wcall("run_code", code=(
+                f'const T = "D:/derictor-work-deepseek/tools";\nconst log = "{RUN}/DIRECTOR/DIRECTOR_LOG.md";\n'
+                "const line = `x`;\n"
+                "await tools.pwsh({ description: \"Append\", command: `Add-Content -Path '${log}' -Value "
+                "'${line.replace(/'/g, \"''\")}' -Encoding utf8` });\n"
+                "const r = await tools.pwsh({ command: `python -I -X utf8 '${T}/gate_check.py' --hash x` });\n"
+                "console.log(r.stdout.text.split(/\\r?\\n/).find(l => l.startsWith(\"OK\")));")),
+            "script outside, output inside": wcall("pwsh", command=(
+                f"python -I 'D:/derictor-work-deepseek/tools/gate_check.py' --hash x > '{RUN}/out.txt'")),
+            "relative after Set-Location inside": wcall("pwsh", command=(
+                f"Set-Location '{RUN}/demo'; git status 2>&1 | Out-File -FilePath status.txt")),
+            "New-Item switch then path": wcall("pwsh", command=f'New-Item -ItemType Directory -Force "{RUN}/DIRECTOR/ev"'),
+            "discard redirect": wcall("pwsh", command="Get-Content 'D:/derictor-work-deepseek/README.md' > $null"),
+            "template variable": wcall("pwsh", command=f"$ws = '{RUN}'; Add-Content -Path \"$ws/DIRECTOR/L.md\" -Value x"),
+        }
+        for name, c in cases.items():
+            with self.subTest(name):
+                self.assertEqual(outside([c]), [], name)
+
+    def test_tool_calls_are_stripped_whole(self):
+        code = ("const a = 1;\nawait tools.pwsh({ command: `Add-Content -Path '${log}' -Value "
+                "'${line.replace(/'/g, \"''\")}'` });\nconst b = 2;")
+        self.assertEqual(vdr.strip_tool_calls(code), "const a = 1;\nawait ;\nconst b = 2;")
+
+
+DS3_NAMES = types.SimpleNamespace(order=pathlib.Path("WO-101-clamp.md"), verdict=pathlib.Path("WO-101_GATE_VERDICT.md"),
+                                  summary=pathlib.Path("RUN_SUMMARY.md"), code_files=["calculator.py"])
+
+
+def ds3_calls():
+    return [json.loads(line) for line in FIXTURE.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def ds3_markers(calls):
+    shell = lambda c, *w: c["tool"].lower() in vdr.SHELLS and all(x in vdr.command_of(c) for x in w)
+    dispatch = next(c for c in calls if c["agent"] == "lead" and shell(c, "gate_check", "--hash"))
+    test_write = next(c for c in calls if c["agent"] == "lead" and vdr.is_write(c, "test_clamp.py"))
+    return vdr.step_markers(calls, DS3_NAMES, "lead", "spec-reviewer", "clamp-worker", dispatch, test_write)
+
+
+class ReworkAndStepsD13(unittest.TestCase):
+    """D13 (ds.3 rerun): is_write used the same broken strip as D06, so a run_code that only NAMED the order or spec
+    counted as rewriting it; and a step's first action inside a run_code put that run_code in the step before."""
+
+    def test_ds3_rework_counts(self):
+        calls = ds3_calls()
+        shell = lambda c, *w: c["tool"].lower() in vdr.SHELLS and all(x in vdr.command_of(c) for x in w)
+        plan = next(c for c in calls if c["agent"] == "lead" and shell(c, "--plan-hash"))
+        review = next(c for c in calls if c["agent"] == "spec-reviewer")
+        lines = vdr.rework_counts(calls, DS3_NAMES, "lead", "spec-reviewer", "clamp-worker", ["test_clamp.py"], plan,
+                                  review)
+        self.assertIn("規格審查開始後 lead 改規格／測試：2 次", lines)  # was 5: run_codes that only named the files
+        self.assertIn("第一次 gate_check --order 後 lead 又改工單：0 次", lines)  # was 4
+        self.assertIn("worker 第一次跑測試後又改 calculator.py：3 次", lines)  # unchanged
+
+    def test_ds3_each_round_lands_in_its_own_step(self):
+        calls = ds3_calls()
+        markers = ds3_markers(calls)
+        bounds = sorted((c["ms"], name) for name, c in markers if c)
+        def step_of(call):
+            return [name for ms, name in bounds if ms <= call["ms"]][-1]
+        rounds = {c["args"].get("description"): step_of(c) for c in calls if c["top"] and c["agent"] == "lead"}
+        self.assertEqual(rounds["Run acceptance checks and rerun evidence"], "8 驗收")
+        self.assertEqual(rounds["Write and validate gate verdict"], "9 裁決＋封存")
+        self.assertEqual(rounds["Write RUN_SUMMARY and close out goal"], "10 總結")
+        self.assertEqual(rounds["Log spec review and lock tests"], "4 鎖定測試")
+        table = vdr.rounds_table(calls, markers, "lead", "spec-reviewer", "clamp-worker")
+        self.assertIn("| 8 驗收 | 1 | 0 | 0 |", table)
+        self.assertIn("| 9 裁決＋封存 | 3 | 0 | 0 |", table)
+        self.assertIn("| 10 總結 | 1 | 0 | 0 |", table)
+
+    def test_marker_inside_a_run_code_starts_at_that_round(self):
+        def c(ms, top, tool, **args):
+            return {"ms": ms, "session": "s1", "agent": "lead", "cwd": RUN, "top": top, "tool": tool, "args": args}
+        calls = [c(100, True, "run_code", code="await tools.pwsh({ command: `python scope_check.py --order o` });"),
+                 c(110, False, "pwsh", command="python scope_check.py --order o"),
+                 c(200, True, "run_code", code="await tools.write({ file_path: `${d}/WO-1_GATE_VERDICT.md` });"),
+                 c(210, False, "write", file_path=f"{RUN}/WO-1_GATE_VERDICT.md", content="x")]
+        self.assertIs(vdr.round_of(calls, calls[1]), calls[0])
+        self.assertIs(vdr.round_of(calls, calls[3]), calls[2])
+        self.assertIs(vdr.round_of(calls, calls[2]), calls[2])
+        self.assertFalse(vdr.is_write(calls[2], "WO-1_GATE_VERDICT.md"), "a run_code reaching a file via tools.* "
+                                                                        "is not a second write")
+        names = types.SimpleNamespace(order=pathlib.Path("WO-1.md"), verdict=pathlib.Path("WO-1_GATE_VERDICT.md"),
+                                      summary=None, code_files=["x.py"])
+        markers = dict(vdr.step_markers(calls, names, "lead", "r", "w"))
+        self.assertIs(markers["8 驗收"], calls[0])
+        self.assertIs(markers["9 裁決＋封存"], calls[2])
+        table = vdr.rounds_table(calls, list(markers.items()), "lead", "r", "w")
+        self.assertIn("| 8 驗收 | 1 | 0 | 0 |", table)  # the old inner-call marker put the verdict round in step 8
+        self.assertIn("| 9 裁決＋封存 | 1 | 0 | 0 |", table)
 
 
 if __name__ == "__main__":

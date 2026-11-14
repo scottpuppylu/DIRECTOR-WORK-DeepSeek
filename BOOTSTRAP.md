@@ -55,7 +55,7 @@
 
 1. 把本規則包放到專案外的位置：`git clone https://github.com/scottpuppylu/DIRECTOR-WORK-DeepSeek <RULES>`（PO 給了本機路徑就直接用）。第 3 步再把整個 `tools/` 複製到 `DIRECTOR/tools/`。
    沒有 git 程式時，PO 可以從 GitHub 下載 ZIP 解開放到 `<RULES>`，版本的 commit 記 `NONE (ZIP)`；這樣只能讀規則、跑不需要 git 的工具，完整導入和派工要 git（第 0 步第 1 點）。
-   PO 給了連結，就算同意下載這一個專案。跑工具前先讀過它的程式碼；第一輪會跑 `dsh_setup_check.py`、`dsh_doctor.py`、`dsh_usage.py`、`memory_size_check.py`、`gate_check.py`，其他的等要用時再讀。
+   PO 給了連結，就算同意下載這一個專案。跑工具前先讀過它的程式碼；第一輪會跑 `dsh_setup_check.py`、`dsh_doctor.py`、`dsh_usage.py`、`memory_size_check.py`、`gate_check.py`，其他的等要用時再讀。**每支只讀一次**：讀過的工具之後不再重讀原始碼、不跑 `--help`，用法和參數查 `tools/DSH-TOOLS.md`，報告格式用 `gate_check.py --report-skeleton`（2.2.3-ds.3：WO-DS-004 的 lead 把 `dsh_setup_check.py` 讀了 4 次、`gate_check.py` 3 次，還跑了 `--help`，多花約 76 萬 token）。
    記下規則包的版本（`<RULES>/VERSION` 加上 `git -C <RULES> rev-parse --short HEAD`），第 3 步寫進 `DIRECTOR_OPERATING_RULES.md`。
 2. 讀 `README.md`、`PURPOSE.md`、本檔、`docs/01` 到 `docs/10`（含 `06b`）、`docs/11_dsh_operations.md`、`docs/12` 和 `docs/13`（規格先行，派第一張 Standard 工單前讀完；小白快速路徑先讀 `docs/01、03、06、08、11、12`，其餘最晚在派第一張工單前讀完）。
 3. 之後每輪只讀 README 標「每輪必讀」的檔。
@@ -148,12 +148,12 @@ DSH 沒有 `MEMORY.md` 記憶索引。會被每次載入的是 `AGENTS.md`（專
 
 ## 10.5 規格先行工具（OpenSpec，ds.2）
 
-Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只準備好工具，不寫規格：
-1. 確認 Node 22.12 以上（`node --version`）。沒有就列成待決題給 PO（裝 Node 是使用者層的事）。
-2. 安裝 OpenSpec 是下載第三方套件：把套件名、版本（`@fission-ai/openspec@1.16.0`，MIT，免費）、安裝位置（使用者層獨立資料夾，不改 PATH）列進第 13 步的第一份回報或待決帳，PO 同意後照 `docs/13`「安裝」一節做。
-3. 在 `DIRECTOR/director_work.json` 寫 `"sdd": {"openspec_bin": "<安裝位置>/node_modules/.bin/openspec.cmd"}`（其他開關沿用預設，完整寫法見 `docs/13`「程式會擋什麼」），跑 `python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`，印出版本才算好。
-4. 在專案根目錄跑 `openspec init --tools agents --language zh-TW --no-animation`（會新增 `openspec/` 和 `.agents/skills/`，屬 repo 改動，照專案規則 commit 或交給第一張工單），再把 `<RULES>/templates/openspec_config.yaml` 的 `rules:` 併進 `openspec/config.yaml`。
-5. PO 不同意裝、或沒有 Node：在 `director_work.json` 把 `require_spec_for_standard`、`require_spec_for_strict` 設成 `false`，登記 DD 寫明「沒有規格層」，Standard 以上的工單照 ds.1 的方式派（`gate_check.py` 不會假裝通過，關掉才不擋）。
+Standard／Strict 工單要先有 OpenSpec 變更（`docs/13`）。這一步只準備好工具，不寫規格。**先找本機已裝的，不要先假設不能裝**（2.2.3-ds.3，WO-DS-004 試驗：本機明明有 CLI，lead 卻以「不能裝」把規格層關掉）：
+1. 跑 `python -I -X utf8 <WS>/DIRECTOR/tools/bootstrap_repo.py --repo <REPO> --config <WS>/DIRECTOR/director_work.json`。它依序找 openspec CLI（`OPENSPEC_BIN` → `sdd.openspec_bin` → `%LOCALAPPDATA%/dw-ds-tools/openspec-*/node_modules/.bin/openspec.cmd`，多版取最新 → PATH），找到就把路徑寫進 `sdd.openspec_bin`（用 `%LOCALAPPDATA%/...` 的寫法，不寫死使用者路徑）；專案沒有 `openspec/` 就跑 `openspec init --tools agents --language zh-TW --no-animation`；順便把 `.memsearch/`（DSH 的記憶索引，工具產物）加進 `<REPO>/.git/info/exclude`。已做過的步驟會跳過，可以重跑；`--check` 只報告不寫。
+2. 印 `BOOTSTRAP_REPO: DONE` 才算好。再跑 `python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`，要印出 `OPENSPEC: … (level N …) version=…`。`openspec init` 新增的 `openspec/` 和 `.agents/skills/` 屬 repo 改動，照專案規則 commit 或交給第一張工單；再把 `<RULES>/templates/openspec_config.yaml` 的 `rules:` 併進 `openspec/config.yaml`。
+3. **找得到 CLI 時，lead 不得關 `require_spec_for_standard`／`require_spec_for_strict`**。真的要關，先寫 PO_PENDING 一項（寫明 require_spec 和理由）並等 PO 回答；沒有 PO 的答覆，`gate_check.py --order` 會判不過（`docs/13`「誰能關」）。PO 說「不要問我」的自動跑也一樣：有 CLI 就用。
+4. 找不到 CLI（印 `TODO openspec`）：安裝是下載第三方套件，先確認 Node 22.12 以上（`node --version`；沒有就列成待決題，裝 Node 是使用者層的事），再把套件名、版本（`@fission-ai/openspec@1.16.0`，MIT，免費）、安裝位置（`%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0`，不改 PATH，工具自己找得到）寫成 PO_PENDING「安裝 openspec」一項，列進第 13 步的第一份回報；PO 同意後照 `docs/13`「安裝」一節做，再跑一次第 1 步。**不能自己宣稱「不能裝」**。
+5. 等 PO 答覆期間、或 PO 不同意裝：保留 tests-first（`tests_first`、`spec_review_for_standard`、`plan_gate` 不關），只有這時才可以把 `require_spec_for_standard`、`require_spec_for_strict` 設成 `false`，登記 DD 寫明「沒有規格層，PO_PENDING 已列安裝」，Standard 以上的工單照 ds.1 的方式派（`gate_check.py` 不會假裝通過，關掉才不擋）。
 6. 派給 DSH worker 前讀 `docs/13`「省 token（ds.3）」：worker 開工先跑 `gate_check.py --report-skeleton`，一個階段一個 `run_code`。要驗證一次 DSH 試跑（PO 只送一段 prompt 的那種），用 `python -I -X utf8 <WS>/DIRECTOR/tools/verify_dsh_run.py --config <設定>`，設定格式見 `<RULES>/templates/VERIFY_DSH_RUN.json`。
 
 ## 11. 機制清單（給續航用）

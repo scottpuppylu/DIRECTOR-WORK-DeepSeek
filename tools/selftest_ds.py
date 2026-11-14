@@ -26,8 +26,9 @@ Runs, on this machine and offline:
               chain and report_vs_audit reads it with a note (no DSH session log needed)
   release_state 2.2.2-ds.3: release.py dry run on temp bare repos: BEHIND and DIVERGED stop, --merge predicts the
               conflicted file, AHEAD plans push / tag / release, a version below a remote tag and a VERSION that
-              differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1; a -ds.N
-              not above every remote tag's -ds.N stops (1.1.0-ds.1 after v1.0.0-ds.2), 1.1.0-ds.3 passes; a
+              differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1; 2.2.3-ds.3:
+              the (upstream, ds) pair as a whole, after v2.2.2-ds.3: 2.2.3-ds.3 passes, 2.2.2-ds.2 and 2.2.2-ds.3
+              stop, release.py has no flag that skips a check; a
               VERSION changed in the working tree but not committed stops before anything else (any modified
               tracked file stops a dry run too; the version is read from HEAD)
   release_scan  2.2.2-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
@@ -53,7 +54,20 @@ Runs, on this machine and offline:
               a valid Standard order passes; SPEC_CHANGE = NONE on Standard, a change that fails validate, a missing
               CLI, an edited locked test, STOP_RULES over 1 round, a changed approved plan, a missing SPEC_REVIEW /
               PLAN_APPROVED line and 4 changed files all FAIL. sdd_real_openspec runs the real CLI (SKIP when
-              neither OPENSPEC_BIN nor PATH has one)
+              no level of sdd_gate.find_cli finds one)
+  sdd_cli_lookup 2.2.3-ds.3: sdd_gate --which with fake folders: OPENSPEC_BIN > sdd.openspec_bin (%VAR% expanded) >
+              %LOCALAPPDATA%/dw-ds-tools/openspec-*/ (newest of several; a folder without a launcher skipped) > PATH >
+              NOT_FOUND with the 「安裝 openspec」 hint; a wrong explicit path fails; the null hint is in variable form
+  sdd_cli_setup 2.2.3-ds.3: dsh_setup_check reports the CLI level / version, hints the value for a null
+              sdd.openspec_bin (shadow, --strict FAIL), flags require_spec off with a CLI until the PO answers, and
+              asks for a PO_PENDING 「安裝 openspec」 entry when there is no CLI
+  revision_sync 2.2.3-ds.3: gate_check --order on REVISION 2 notes BRIEF / tasks.md / RESUME_STATE to sync and
+              marks a WORK_DIR file older than the order `shadow: REVISION_SYNC`; exit code unchanged; REVISION 1 silent
+  bootstrap_repo 2.2.3-ds.3: bootstrap_repo.py adds .memsearch/ to .git/info/exclude once, writes a found CLI into
+              a null sdd.openspec_bin (%LOCALAPPDATA% form, only that value changes), a rerun is clean, --check writes
+              nothing; without a CLI it names the PO_PENDING 「安裝 openspec」 item
+  sdd_spec_off_gate 2.2.3-ds.3: gate_check --order with require_spec_for_standard=false: FAIL while a CLI is found
+              and the PO has not answered; passes after the answer, and without a CLI (with an install note)
 
 Prints PASS / FAIL / SKIP per test and a summary line
   SELFTEST_DS: PASS|FAIL tests=n pass=n fail=n skip=n
@@ -82,7 +96,7 @@ BT = chr(96)
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
              "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release",
-             "verify_dsh_run")
+             "verify_dsh_run", "bootstrap_repo")
 TESTS = []
 
 
@@ -96,10 +110,17 @@ def test(function):
 
 
 def run_tool(name, *args, cwd=None, env=None):
+    full = None
+    if env:
+        full = dict(os.environ)
+        for key, value in env.items():
+            if value is None:
+                full.pop(key, None)
+            else:
+                full[key] = value
     return subprocess.run(PY_ARGS + [str(TOOLS / (name + ".py"))] + [str(a) for a in args],
                           cwd=str(cwd) if cwd else None, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=TIMEOUT,
-                          env=dict(os.environ, **env) if env else None)
+                          errors="replace", timeout=TIMEOUT, env=full)
 
 
 def run_prog(args, cwd=None):
@@ -537,6 +558,234 @@ def sdd_real_openspec(tmp):
     return "real CLI (%s): valid change OK, scenario-less change FAIL" % how
 
 
+# 2.2.3-ds.3 OpenSpec CLI lookup (WO-DS-005 B1): OPENSPEC_BIN > sdd.openspec_bin > the user tools folder
+# (%LOCALAPPDATA%/dw-ds-tools/openspec-<v>/node_modules/.bin/openspec(.cmd), newest) > PATH. Every case runs
+# sdd_gate.py --which in a child process with fake folders, OPENSPEC_BIN removed and PATH replaced.
+WINDOWS = os.name == "nt"
+TOOLS_VAR = "LOCALAPPDATA" if WINDOWS else "XDG_DATA_HOME"
+
+
+def fake_launcher(folder, name, version):
+    """An openspec launcher that only answers --version (a .cmd on Windows, a shell script elsewhere)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if WINDOWS:
+        return write(folder / (name + ".cmd"), "@echo off\r\necho %s\r\n" % version)
+    path = write(folder / name, "#!/bin/sh\necho %s\n" % version)
+    path.chmod(0o755)
+    return path
+
+
+def cli_world(tmp, name, versions=("1.9.2", "1.16.0"), on_path=True):
+    """(env, tools root, path dir): a fake user tools folder holding the given versions (plus a 2.0.0 folder without
+    a launcher, which must be skipped) and a PATH folder with its own openspec."""
+    base = tmp / name
+    root = base / "local" / "dw-ds-tools"
+    for version in versions:
+        fake_launcher(root / ("openspec-" + version) / "node_modules" / ".bin", "openspec", version + "-tools")
+    (root / "openspec-2.0.0" / "node_modules").mkdir(parents=True, exist_ok=True)
+    (root / "openspec-latest").mkdir(parents=True, exist_ok=True)
+    path_dir = base / "bin"
+    path_dir.mkdir(parents=True, exist_ok=True)
+    if on_path:
+        fake_launcher(path_dir, "openspec", "9.9.9-path")
+    env = {"OPENSPEC_BIN": None, TOOLS_VAR: str(base / "local"), "PATH": str(path_dir)}
+    return env, root, path_dir
+
+
+def which(env, config=None):
+    args = ["--which"] + (["--config", config] if config else [])
+    proc = run_tool("sdd_gate", *args, env=env)
+    return proc, text_of(proc)
+
+
+@test
+def sdd_cli_lookup(tmp):
+    env, root, path_dir = cli_world(tmp, "lookup")
+    stand_in = write(tmp / "lookup_fake_openspec.py", FAKE_OPENSPEC)
+    other = write(tmp / "lookup_other_openspec.py", FAKE_OPENSPEC.replace("0.0.0-selftest-stand-in", "0.0.1-config"))
+    var = "%DWDS_SELFTEST_CLI%" if WINDOWS else "$DWDS_SELFTEST_CLI"
+    config = write(tmp / "lookup_cfg" / "director_work.json",
+                   json.dumps({"sdd": {"openspec_bin": var + "/lookup_other_openspec.py"}}))
+    null = write(tmp / "lookup_null" / "director_work.json", json.dumps({"sdd": {"openspec_bin": None}}))
+    level1 = dict(env, OPENSPEC_BIN=str(stand_in), DWDS_SELFTEST_CLI=str(tmp))
+    proc, text = which(level1, config)
+    require(proc.returncode == 0 and "(level 1 OPENSPEC_BIN" in text and "0.0.0-selftest-stand-in" in text,
+            "OPENSPEC_BIN did not win over sdd.openspec_bin, the tools folder and PATH: " + tail(text))
+    proc, text = which(dict(env, DWDS_SELFTEST_CLI=str(tmp)), config)
+    require(proc.returncode == 0 and "(level 2 sdd.openspec_bin" in text and "0.0.1-config" in text,
+            "sdd.openspec_bin (with %s expanded) did not win over the tools folder and PATH: " % var + tail(text))
+    proc, text = which(env, null)
+    want = ("%LOCALAPPDATA%" if WINDOWS else "$XDG_DATA_HOME") + "/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec"
+    require(proc.returncode == 0 and "(level 3 " in text and "openspec-1.16.0, newest of 2" in text
+            and "version=1.16.0-tools" in text, "the tools folder scan did not pick 1.16.0 over 1.9.2: " + tail(text))
+    require("sdd.openspec_bin is null" in text and want in text and str(root) not in text.split("# sdd")[-1],
+            "no hint with the value to write (in variable form, no user path) for a null setting: " + tail(text))
+    proc, text = which(dict(env, **{TOOLS_VAR: str(tmp / "lookup" / "empty")}), null)
+    require(proc.returncode == 0 and "(level 4 PATH)" in text and "9.9.9-path" in text,
+            "PATH was not used when the tools folder is empty: " + tail(text))
+    nothing = dict(env, **{TOOLS_VAR: str(tmp / "lookup" / "empty"), "PATH": str(tmp / "lookup" / "nopath")})
+    proc, text = which(nothing, null)
+    require(proc.returncode == 1 and "OPENSPEC: NOT_FOUND" in text and "安裝 openspec" in text,
+            "no CLI anywhere did not say NOT_FOUND with the PO_PENDING install hint: " + tail(text))
+    broken = write(tmp / "lookup_broken" / "director_work.json",
+                   json.dumps({"sdd": {"openspec_bin": str(tmp / "no-such" / "openspec.cmd")}}))
+    proc, text = which(env, broken)
+    require(proc.returncode == 1 and "level 2 sdd.openspec_bin=" in text and "does not exist" in text,
+            "a wrong sdd.openspec_bin was silently replaced by a later level: " + tail(text))
+    sdd = load_tool("sdd_gate")
+    exe, folder, count = sdd.scan_user_tools(root)
+    require(folder == "openspec-1.16.0" and count == 2, "scan_user_tools: %s %s" % (folder, count))
+    require(sdd.scan_user_tools(tmp / "lookup" / "no-such-root") == (None, None, 0), "a missing root was not empty")
+    return "level 1 > 2 (%s expanded) > 3 (1.16.0 newest of 2, 2.0.0 without launcher skipped) > 4 > NOT_FOUND; a " \
+           "wrong explicit path fails; null hint in variable form" % var
+
+
+@test
+def sdd_cli_setup(tmp):
+    env, root, path_dir = cli_world(tmp, "setupcli", versions=("1.16.0",), on_path=False)
+    folder = shadow_fixture(tmp / "setupcli" / "DIRECTOR")
+    proc = run_tool("dsh_setup_check", folder, env=env)
+    text = text_of(proc)
+    require(proc.returncode == 0 and "~ openspec: " in text and "(level 3 " in text and "version=1.16.0-tools" in text,
+            "setup_check did not report the CLI, its level and version: " + tail(text))
+    require("~ shadow: openspec: found but sdd.openspec_bin is null" in text and "openspec-1.16.0/node_modules" in text,
+            "setup_check did not hint the value to write for a null sdd.openspec_bin: " + tail(text))
+    hard = run_tool("dsh_setup_check", "--strict", folder, env=env)
+    require(hard.returncode == 1 and "  - openspec: found but sdd.openspec_bin is null" in text_of(hard),
+            "--strict did not fail the null setting: " + tail(text_of(hard)))
+    data = json.loads((folder / "director_work.json").read_text(encoding="utf-8"))
+    data["sdd"] = {"openspec_bin": "%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec.cmd"
+                   if WINDOWS else "$XDG_DATA_HOME/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec"}
+    write(folder / "director_work.json", json.dumps(data, indent=1) + "\n")
+    proc = run_tool("dsh_setup_check", "--strict", folder, env=env)
+    require(proc.returncode == 0 and "(level 2 sdd.openspec_bin)" in text_of(proc) and "shadow:" not in text_of(proc),
+            "the written value did not satisfy setup_check --strict: " + tail(text_of(proc)))
+    data["sdd"]["require_spec_for_standard"] = False
+    write(folder / "director_work.json", json.dumps(data, indent=1) + "\n")
+    proc = run_tool("dsh_setup_check", folder, env=env)
+    require("may not turn spec-first off" in text_of(proc), "require_spec off with a CLI found was not flagged: "
+            + tail(text_of(proc)))
+    pending = folder / "PO_PENDING.md"
+    write(pending, pending.read_text(encoding="utf-8") + "\nID: OD-009\nCREATED: 2026-11-14 10:00\nSTATUS: answered\n"
+          "QUESTION: May the lead set require_spec_for_standard to false?\nOPTIONS: a) yes b) no\nRECOMMENDED: b\n"
+          "SOURCE: DIRECTOR\nANSWER: a) yes, this project only\n")
+    proc = run_tool("dsh_setup_check", folder, env=env)
+    require("may not turn spec-first off" not in text_of(proc) and "the PO answered it" in text_of(proc),
+            "the PO's answer did not clear the require_spec line: " + tail(text_of(proc)))
+    gone = shadow_fixture(tmp / "setupcli-none" / "DIRECTOR")
+    none_env = dict(env, **{TOOLS_VAR: str(tmp / "setupcli" / "empty")})
+    proc = run_tool("dsh_setup_check", gone, env=none_env)
+    require("~ shadow: openspec: CLI not found" in text_of(proc) and "安裝 openspec" in text_of(proc),
+            "no CLI did not ask for a PO_PENDING 「安裝 openspec」 entry: " + tail(text_of(proc)))
+    pending = gone / "PO_PENDING.md"
+    write(pending, pending.read_text(encoding="utf-8").replace("QUESTION: Which database?",
+                                                                "QUESTION: 安裝 openspec 1.16.0 (MIT, free)?"))
+    proc = run_tool("dsh_setup_check", "--strict", gone, env=none_env)
+    require(proc.returncode == 0 and "PO_PENDING.md asks to install it" in text_of(proc),
+            "an open 「安裝 openspec」 entry did not clear the line: " + tail(text_of(proc)))
+    return "level / version note; null hint shadow then --strict FAIL; written value clean; require_spec off " \
+           "flagged until the PO answers; no CLI asks for 「安裝 openspec」"
+
+
+@test
+def sdd_spec_off_gate(tmp):
+    repo, lock, env = sdd_fixture(tmp, "sdd_off")
+    director = tmp / "sdd_off_dir" / "DIRECTOR"
+    config = write(director / "director_work.json", json.dumps({"schema_version": 1, "sdd": {
+        "require_spec_for_standard": False}}))
+    proc, text = sdd_run(repo, sdd_order("NONE", lock), env, "--config", config)
+    require(proc.returncode == 1 and "may not turn spec-first off" in text,
+            "gate_check --order let require_spec_for_standard=false pass with a CLI found: " + tail(text))
+    write(director / "PO_PENDING.md", "ID: OD-1\nSTATUS: open\nQUESTION: turn require_spec_for_standard off?\n"
+          "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER:\n")
+    proc, text = sdd_run(repo, sdd_order("NONE", lock), env, "--config", config)
+    require(proc.returncode == 1 and "still open: wait for the PO" in text, "an open PO entry let it pass: " + tail(text))
+    write(director / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: turn require_spec_for_standard off?\n"
+          "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER: a) yes\n")
+    proc, text = sdd_run(repo, sdd_order("NONE", lock), env, "--config", config)
+    require(proc.returncode == 0 and "the PO answered it" in text, "the PO's answer did not allow it: " + tail(text))
+    write(director / "PO_PENDING.md", "")
+    nocli = {"OPENSPEC_BIN": None, TOOLS_VAR: str(tmp / "sdd_off_empty"), "PATH": str(tmp / "sdd_off_empty")}
+    proc, text = sdd_run(repo, sdd_order("NONE", lock), nocli, "--config", config)
+    require(proc.returncode == 0 and "安裝 openspec" in text,
+            "without a CLI, require_spec off should pass with a 「安裝 openspec」 note: " + tail(text))
+    return "CLI found: off FAILs, open PO entry FAILs, answered passes; no CLI: passes with an install note"
+
+
+@test
+def revision_sync(tmp):
+    """2.2.3-ds.3 (WO-DS-005 B5): gate_check --order on REVISION 2 notes the files to sync and marks a WORK_DIR
+    tasks.md written before the order with `shadow: REVISION_SYNC`; the exit code does not change."""
+    repo, lock, env = sdd_fixture(tmp, "revsync")
+    work = tmp / "revsync_work"
+    tasks = write(work / "tasks.md", "- [ ] 1.1 expect 9\n")
+    resume = write(work / "RESUME_STATE.md", "PROGRESS: x\n")
+    text1 = sdd_order("openspec/changes/good-change", lock).replace(
+        "SPEC_CHANGE    =", "WORK_DIR       = %s\nSPEC_CHANGE    =" % work)
+    order = write(repo / "orders" / "WO-7.md", text1.replace("REVISION       = 1", "REVISION       = 2")
+                  + "\n## H. 變更紀錄\n| 版次 | 日期 | 變更 | 原因 |\n|---|---|---|---|\n| 2 | 2026-11-14 | 9 -> 11 | fix |\n")
+    old = order.stat().st_mtime - 600
+    os.utime(tasks, (old, old))
+    os.utime(resume, (old + 1200, old + 1200))
+    proc = run_tool("gate_check", "--order", order, "--repo", repo, env=env)
+    text = text_of(proc)
+    require(proc.returncode == 0 and "REVISION 2: sync BRIEF.md" in text and "shadow: REVISION_SYNC" in text
+            and "tasks.md was last written before REVISION 2" in text and "RESUME_STATE.md was last" not in text,
+            "REVISION 2 did not mark only the older tasks.md: " + tail(text))
+    write(order, text1)
+    proc = run_tool("gate_check", "--order", order, "--repo", repo, env=env)
+    require(proc.returncode == 0 and "REVISION_SYNC" not in text_of(proc) and "REVISION 1" not in text_of(proc),
+            "REVISION 1 printed sync notes: " + tail(text_of(proc)))
+    return "REVISION 2: sync note, older tasks.md marked, newer RESUME_STATE not, exit 0; REVISION 1 silent"
+
+
+@test
+def bootstrap_repo(tmp):
+    """2.2.3-ds.3 (WO-DS-005 B1 / B6): bootstrap_repo.py excludes .memsearch/ once, writes the found CLI into a null
+    sdd.openspec_bin (variable form) and changes nothing on a rerun; without a CLI it names the PO_PENDING item."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    env, root, path_dir = cli_world(tmp, "boot", versions=("1.16.0",), on_path=False)
+    repo = tmp / "boot" / "demo"
+    repo.mkdir(parents=True)
+    proc = run_prog(["git", "init", "-q", "-b", "main"], cwd=repo)
+    require(proc.returncode == 0, "git init failed: " + tail(text_of(proc)))
+    write(repo / "openspec" / "config.yaml", "schema: spec-driven\n")  # init is the smoke check's job (B2)
+    exclude = repo / ".git" / "info" / "exclude"
+    write(exclude, "# git's own comment\n*.log")  # no newline at the end
+    example = json.loads((TOOLS.parent / "director_work.example.json").read_text(encoding="utf-8"))
+    config = write(tmp / "boot" / "DIRECTOR" / "director_work.json", json.dumps(example, ensure_ascii=False, indent=2))
+    before = config.read_text(encoding="utf-8")
+    check = run_tool("bootstrap_repo", "--repo", repo, "--config", config, "--check", env=env)
+    require(check.returncode == 1 and "TODO  exclude" in text_of(check) and "TODO  openspec" in text_of(check)
+            and config.read_text(encoding="utf-8") == before and ".memsearch" not in exclude.read_text(encoding="utf-8"),
+            "--check changed something or did not list the work: " + tail(text_of(check)))
+    proc = run_tool("bootstrap_repo", "--repo", repo, "--config", config, env=env)
+    text = text_of(proc)
+    lines = exclude.read_text(encoding="utf-8").splitlines()
+    require(proc.returncode == 0 and "BOOTSTRAP_REPO: DONE" in text and "*.log" in lines and ".memsearch/" in lines,
+            "the exclude line was not added after the last line: %s %s" % (lines, tail(text)))
+    value = json.loads(config.read_text(encoding="utf-8"))["sdd"]["openspec_bin"]
+    want = ("%LOCALAPPDATA%" if WINDOWS else "$XDG_DATA_HOME") + "/dw-ds-tools/openspec-1.16.0/node_modules/.bin/openspec"
+    require(value.startswith(want) and str(root) not in value, "sdd.openspec_bin was not written in variable form: %r"
+            % value)
+    changed = [a for a, b in zip(before.splitlines(), config.read_text(encoding="utf-8").splitlines()) if a != b]
+    require(len(changed) == 1 and '"openspec_bin": null' in changed[0], "more than the one value changed: %s" % changed)
+    again = run_tool("bootstrap_repo", "--repo", repo, "--config", config, "--check", env=env)
+    require(again.returncode == 0 and "TODO" not in text_of(again)
+            and exclude.read_text(encoding="utf-8").count(".memsearch/") == 1,
+            "a rerun was not clean or added the line twice: " + tail(text_of(again)))
+    which = run_tool("sdd_gate", "--which", "--config", config, env=env)
+    require("(level 2 sdd.openspec_bin)" in text_of(which), "the written value is not found again: " + tail(text_of(which)))
+    none_env = dict(env, **{TOOLS_VAR: str(tmp / "boot" / "empty")})
+    bare = write(tmp / "boot" / "DIRECTOR2" / "director_work.json", json.dumps({"schema_version": 1}))
+    proc = run_tool("bootstrap_repo", "--repo", repo, "--config", bare, "--skip", "init", env=none_env)
+    require(proc.returncode == 1 and "安裝 openspec" in text_of(proc) and "openspec_bin" not in bare.read_text(
+        encoding="utf-8"), "without a CLI it should name the PO_PENDING item and write nothing: " + tail(text_of(proc)))
+    return ".memsearch/ excluded once (file without final newline kept), null openspec_bin -> variable form, only " \
+           "that value changed, rerun clean, no CLI -> 「安裝 openspec」"
+
+
 def synthetic_audit(tmp, audit):
     commands = [
         r'& "C:\Tools\python.exe" -I -X utf8 "C:\ws\tools\scope_check.py" --order "C:\ws\orders\WO-7.md" --repo "C:\ws" 2>&1; Write-Output "EXIT=$LASTEXITCODE"',
@@ -746,6 +995,12 @@ SHADOW_CASES = [
 
 @test
 def setup_shadow(tmp):
+    # 2.2.3-ds.3: dsh_setup_check also reports the openspec CLI; a stand-in named by OPENSPEC_BIN (level 1, no
+    # "write sdd.openspec_bin" hint) keeps these cases the same on every machine. sdd_cli_setup tests the CLI lines.
+    fake = {"OPENSPEC_BIN": str(write(tmp / "shadow_fake_openspec.py", FAKE_OPENSPEC))}
+
+    def run_tool(name, *args):
+        return globals()["run_tool"](name, *args, env=fake)
     clean = shadow_fixture(tmp / "shadow-clean" / "DIRECTOR")
     proc = run_tool("dsh_setup_check", "--strict", clean)
     require(proc.returncode == 0 and "DSH_SETUP_CHECK: PASS" in text_of(proc) and "shadow:" not in text_of(proc),
@@ -915,19 +1170,31 @@ def release_state(tmp):
     code, out = release(mismatch)
     require(code == 1 and "VERSION is 1.2.0 but the first CHANGELOG.md heading is 1.1.0" in out,
             "VERSION different from the CHANGELOG top was not stopped: " + tail(out))
-    # the -ds.N serial: after v1.0.0-ds.2, 1.1.0-ds.1 stops although 1.1.0 is a higher base; 1.1.0-ds.3 passes
-    rgit(other, "tag", "-a", "v1.0.0-ds.2", "-m", "v1.0.0-ds.2")
-    rgit(other, "push", "-q", "origin", "refs/tags/v1.0.0-ds.2")
-    restart = release_clone(origin, base / "restart")
-    release_commit(restart, "1.1.0-ds.1")
-    code, out = release(restart)
-    require(code == 1 and "-ds.1 is not above the -ds.N of the remote tag(s) v1.0.0-ds.2" in out
-            and "use -ds.3" in out, "a -ds.N serial that restarted was not stopped: " + tail(out))
-    serial = release_clone(origin, base / "serial")
-    release_commit(serial, "1.1.0-ds.3")
-    code, out = release(serial)
-    require(code == 0 and "STEP version: OK 1.1.0-ds.3" in out, "a -ds.N above every remote one was stopped: " + tail(out))
-    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order, -ds.N serial, uncommitted VERSION and CHANGELOG mismatch"
+    # 2.2.3-ds.3 (總監 ruling WO-DS-005 C): the (upstream, ds) pair as a whole. After v2.2.2-ds.3: 2.2.3-ds.3 (same
+    # serial, higher upstream) passes; 2.2.2-ds.2 (lower) and 2.2.2-ds.3 (the tag exists) stop
+    rgit(other, "tag", "-a", "v2.2.2-ds.3", "-m", "v2.2.2-ds.3")
+    rgit(other, "push", "-q", "origin", "refs/tags/v2.2.2-ds.3")
+    pair = release_clone(origin, base / "pair")
+    release_commit(pair, "2.2.3-ds.3")
+    code, out = release(pair)
+    require(code == 0 and "STEP version: OK 2.2.3-ds.3" in out and "v2.2.3-ds.3 is new" in out,
+            "2.2.3-ds.3 after v2.2.2-ds.3 was stopped: " + tail(out))
+    lower = release_clone(origin, base / "lower")
+    release_commit(lower, "2.2.2-ds.2")
+    code, out = release(lower)
+    require(code == 1 and "does not sort above the remote tag(s) v2.2.2-ds.3" in out,
+            "2.2.2-ds.2 after v2.2.2-ds.3 was not stopped: " + tail(out))
+    same = release_clone(origin, base / "same")
+    release_commit(same, "2.2.2-ds.3")
+    code, out = release(same)
+    require(code == 1 and "tag v2.2.2-ds.3 is already on the remote" in out,
+            "2.2.2-ds.3 again (tag exists) was not stopped: " + tail(out))
+    flags = run_tool("release", "--help").stdout
+    usage = flags.split("\n\n")[0]  # the argparse usage block: the options release.py takes
+    require("--execute" in usage and not re.search(r"\[--(force|skip|no-|allow|ignore)", usage),
+            "release.py has a flag that skips a check: " + usage)
+    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order, (upstream, ds) pair: 2.2.3-ds.3 OK, " \
+           "2.2.2-ds.2 / 2.2.2-ds.3 stop, uncommitted VERSION and CHANGELOG mismatch"
 
 
 @test
@@ -1071,9 +1338,12 @@ def report_skeleton(tmp):
         "| AC-2 | REVIEW | the code reads well | 總監看 diff | 好讀 |", "",
         "```text", "CHECKS:", "- AC-1: " + json.dumps(check), "```", "",
         "- DELIVERABLES: one commit", "- STOP_RULES: 同一根因 1 輪沒進展就停", ""]))
-    # this test is about the report, not SDD: the order's folder config turns the spec and locked-test rules off
+    # this test is about the report, not SDD: the order's folder config turns the spec and locked-test rules off,
+    # which 2.2.3-ds.3 allows only with the PO's answer in PO_PENDING.md when an openspec CLI is found
     write(root / "DIRECTOR" / "director_work.json",
           json.dumps({"schema_version": 1, "sdd": {"require_spec_for_standard": False, "tests_first": False}}) + "\n")
+    write(root / "DIRECTOR" / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: turn require_spec_for_standard "
+          "off for the report selftest?\nOPTIONS: a) yes b) no\nRECOMMENDED: a\nSOURCE: selftest\nANSWER: a) yes\n")
     write(repo / "calc.py", "def add(a, b):\n    return a + b\n")
     rgit(repo, "commit", "-q", "-am", "WO-8: add returns the sum")
     head = rgit(repo, "rev-parse", "HEAD")

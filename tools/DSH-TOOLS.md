@@ -40,6 +40,12 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_guard.py --command "git push" [--mode remind|block] [--profile worker|director] [--pause-flag FILE]
   [--rules FILE] [--shell bash|powershell|cmd] [--cwd DIR] [--json]`
   exit 0 clean, 1 remind (default), 2 block / pause flag exists / rules unreadable.
+- bootstrap_repo.py (2.2.3-ds.3) - BOOTSTRAP 10.5 steps for the project repo: `.memsearch/` into .git/info/exclude,
+  the openspec CLI found by sdd_gate.find_cli written into a null sdd.openspec_bin (%LOCALAPPDATA% form), and
+  `openspec init --tools agents --language zh-TW --no-animation` when <REPO>/openspec/ is missing. Steps already done
+  are skipped; without a CLI it prints the PO_PENDING item 「安裝 openspec」 and installs nothing. Never commits.
+  `bootstrap_repo.py --repo DIR [--config FILE] [--check] [--skip exclude|openspec|init ...]`
+  exit 0 done, 1 work left (or --check found some) or a step failed, 2 usage error.
 - release.py (2.2.2-ds.3) - release this repository in one pass: fetch, any modified or staged tracked file stops
   (dry run too; VERSION and CHANGELOG are read from HEAD), HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
   BEHIND / DIVERGED; --merge merges into release/<version> with --no-ff and stops on conflicts), VERSION = CHANGELOG top

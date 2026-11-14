@@ -20,7 +20,7 @@ HEAVY_RESOURCE = <無 | 需先 TEST REQUEST：類型、預估分鐘>
 SPEC_CHANGE    = <openspec/changes/<名稱> | NONE>   # Standard／Strict 必填且不可為 NONE（docs/13）；Direct 寫 NONE
 ```
 
-`SPEC_CHANGE`（ds.2）：派工前由總監寫好的 OpenSpec 變更資料夾（相對專案根目錄）。`gate_check.py --order <本工單> --repo <專案>` 會確認資料夾存在並實際跑 `openspec validate <名稱> --strict --json`；找不到 openspec 指令也判不過。
+`SPEC_CHANGE`（ds.2）：派工前由總監寫好的 OpenSpec 變更資料夾（相對專案根目錄）。`gate_check.py --order <本工單> --repo <專案>` 會確認資料夾存在並實際跑 `openspec validate <名稱> --strict --json`；找不到 openspec 指令也判不過。找得到 CLI 時不得把 `require_spec_*` 關掉改寫 `NONE`，除非 PO 在 PO_PENDING 答應過（docs/13「誰能關」）。
 
 兩個 `BRIEF_` 欄位是選用的：寫了以後，工單依據的初衷卡列被改掉時，`gate_check.py --order / --match --brief BRIEF.md` 印 `~ BRIEF_STALE`（舊條件驗過，新條件待重驗）；只是提示，不改結果。不寫照樣通過。
 
@@ -100,7 +100,7 @@ TESTS_LOCKED:
 - STOP_RULES：同一根因 1 輪沒進展就停並回報（ds.2；開關 `sdd.stop_after_rounds`）；超出 SCOPE 先問；超過測試上限 10 分鐘先停下回報。
 
 ## H. 變更紀錄
-只有總監能改本工單。REVISION 1 不用寫；之後每改一次加一列，再把新的雜湊告訴 worker。
+只有總監能改本工單。REVISION 1 不用寫；之後每改一次加一列，同步 BRIEF.md、WORK_DIR/tasks.md、WORK_DIR/RESUME_STATE.md，再把新的雜湊告訴 worker（`gate_check.py --order` 對比工單舊的 tasks.md／RESUME_STATE.md 印 `REVISION_SYNC`）。
 
 | 版本 | 時間 | 誰改 | 原因 | 影響的 AC |
 |---|---|---|---|---|
