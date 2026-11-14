@@ -100,6 +100,16 @@ evidence and the product is still the Director's job (docs/02, docs/07).
   A verdict may carry `ORDER_SHA256:` and `REPORT_SHA256:` (gate_check.py --hash of each file); with --match a
              mismatch is `~ VERDICT_RECORD`.
 
+ds.2 SDD (switches in director_work.json "sdd", all on by default; the checks live in sdd_gate.py next to this file):
+  --order / --match on a Standard or Strict order: `SPEC_CHANGE = openspec/changes/<name>` (not NONE) must exist under
+             --repo (default: the current folder) and pass `openspec validate <name> --strict --json`; an openspec CLI
+             that cannot be found or run FAILS, never passes quietly. `TESTS_LOCKED:` lists the acceptance tests written
+             before dispatch with their sha256; a changed one fails. STOP_RULES may not allow more rounds than
+             sdd.stop_after_rounds (1).
+  --match with --dispatch-log on a Standard or Strict order: whole lines `SPEC_REVIEW <WO-ID> ...` and
+             `PLAN_APPROVED <WO-ID> sha=<64 hex>` must be in the log, and tasks.md may differ from the approved plan only
+             by ticked boxes. --config FILE: director_work.json (default: the order's folder/../director_work.json).
+
 The hash only detects a changed order after the fact; it cannot stop anyone from editing it. An evidence record shows
 a command ran and passed, not that it tests the right thing.
 Lines starting with `~` are notes for the newer format (v0.10): they never fail a file.
@@ -1093,6 +1103,16 @@ def evidence_module():
     return module
 
 
+def sdd_module():
+    """sdd_gate.py next to this file (ds.2: SPEC_CHANGE, locked tests, spec review and plan approval)."""
+    import importlib.util
+    path = pathlib.Path(__file__).resolve().parent / "sdd_gate.py"
+    spec = importlib.util.spec_from_file_location("sdd_gate", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def check_binding(ac, name, record, binding, problems, notes, strict):
     """The record's `order` field (evidence_record.py run --order) against the order now (G03b). binding: {"ids", "rev",
     "sha", "path", "equivalent"} of the order and the log's EVIDENCE_EQUIVALENT lines. A bound record must be for this
@@ -1532,7 +1552,10 @@ def main():
     ap.add_argument("--hash", nargs="+", default=[], metavar="FILE", help="print the hash ORDER_SHA256 compares and the DISPATCH line")
     ap.add_argument("--preflight", nargs=2, action="append", default=[], metavar=("REPORT", "ORDER"),
                     help="list what an older review lacks for a Strict review now (LACKS lines)")
-    ap.add_argument("--repo", metavar="DIR", help="with --preflight: a trusted checkout to resolve a short HEAD in")
+    ap.add_argument("--repo", metavar="DIR", help="with --preflight: a trusted checkout to resolve a short HEAD in; "
+                    "with --order / --match: the project checkout holding openspec/ and the locked tests (default: .)")
+    ap.add_argument("--config", metavar="FILE", help="director_work.json with the \"sdd\" switches (default: next to "
+                    "the order's folder; all rules on when there is none)")
     ap.add_argument("--brief", metavar="BRIEF", help="the brief's fingerprints; with --order / --match / --preflight: "
                     "BRIEF_STALE notes (shadow)")
     ap.add_argument("--snapshot", metavar="DIR", help="with --brief or --hash: keep a snapshot in DIR (atomic write)")
@@ -1577,8 +1600,10 @@ def main():
     if not jobs and not a.preflight:
         ap.error("give at least one of --resume / --order / --report / --verdict / --test-request / --po-acceptance / "
                  "--match / --preflight / --hash / --brief")
-    if a.repo and not a.preflight:
-        ap.error("--repo works with --preflight")
+    if a.repo and not (a.preflight or a.order or a.match):
+        ap.error("--repo works with --preflight, --order or --match")
+    if a.config and not pathlib.Path(a.config).is_file():
+        ap.error(f"--config: file not found: {a.config}")
     if a.since and not DATE.fullmatch(a.since):
         ap.error("--since takes a date: YYYY-MM-DD")
     if a.evidence_dir and not (a.match or a.preflight):
@@ -1655,6 +1680,17 @@ def main():
             problems = CHECKS[kind](text, notes)
             if kind == "verdict" and (a.match or candidate):
                 problems += verdict_binding(text, matched, candidate, notes, pairs)
+        if text is not None and kind in ("order", "match"):  # ds.2 SDD rules (sdd_gate.py)
+            sdd = sdd_module()
+            order_path = files[-1]
+            order_text = text if kind == "order" else order_path.read_text(encoding="utf-8-sig")
+            config, problem = sdd.load_config(order_path, a.config)
+            if problem:
+                problems.append(problem)
+            repo = pathlib.Path(a.repo or ".")
+            problems += sdd.order_problems(order_text, order_path, repo, config, notes)
+            if kind == "match":
+                problems += sdd.match_problems(order_text, order_ids(order_text, order_path), log_text, repo, config, notes)
         if brief and text is not None and kind in ("order", "match"):
             brief_notes(text if kind == "order" else files[1].read_text(encoding="utf-8-sig"), files[-1], brief, notes)
         failed += bool(problems)

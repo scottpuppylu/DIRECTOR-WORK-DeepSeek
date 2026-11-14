@@ -1,9 +1,21 @@
 {
-  "_comment": "Copy to DIRECTOR/director_work.json. DeepSeek Harness edition: schema_version is the config format tools understand (1). Skipped in this edition: window (Claude context-window threshold; DSH compacts automatically), plugins_off, hooks, protect_director, director_worktree (Claude Code hook settings; DSH has no hooks). trace_id_pattern: regex for the requirement or decision IDs that work orders list in TRACES_TO; trace_report.py flags IDs that do not fit. Use the project's own IDs. mode: general or beginner, picked right after the starting prompt (docs/12); tools do not read it. po_pending_files / po_item_pattern / po_open_pattern: where metrics_report.py counts PO entries.",
+  "_comment": "Copy to DIRECTOR/director_work.json. DeepSeek Harness edition: schema_version is the config format tools understand (1). Skipped in this edition: window (Claude context-window threshold; DSH compacts automatically), plugins_off, hooks, protect_director, director_worktree (Claude Code hook settings; DSH has no hooks). trace_id_pattern: regex for the requirement or decision IDs that work orders list in TRACES_TO; trace_report.py flags IDs that do not fit. Use the project's own IDs. mode: general or beginner, picked right after the starting prompt (docs/12); tools do not read it. po_pending_files / po_item_pattern / po_open_pattern: where metrics_report.py counts PO entries. sdd (ds.2, docs/13): spec-driven switches read by gate_check.py / scope_check.py through sdd_gate.py; every rule is on when the key is missing; set one to false (a limit to 0) to turn it off and log why in DIRECTOR_LOG. openspec_bin: the openspec command (openspec.cmd or bin/openspec.js); OPENSPEC_BIN wins; null means PATH.",
   "schema_version": 1,
   "mode": "general",
   "trace_id_pattern": "^(B|DD|OD)-\\d+$",
   "po_pending_files": ["PO_PENDING.md"],
   "po_item_pattern": "^\\s*ID\\s*:\\s*(OD|ACT|CH)-\\w+",
-  "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b"
+  "po_open_pattern": "^\\s*STATUS\\s*:\\s*open\\b",
+  "sdd": {
+    "require_spec_for_strict": true,
+    "require_spec_for_standard": true,
+    "spec_review_for_standard": true,
+    "tests_first": true,
+    "plan_gate": true,
+    "max_files_per_order": 3,
+    "max_lines_per_order": 200,
+    "stop_after_rounds": 1,
+    "prefer_auto": true,
+    "openspec_bin": null
+  }
 }

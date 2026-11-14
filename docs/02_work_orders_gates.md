@@ -9,6 +9,18 @@
 - **Strict**：核心邏輯、資料格式、存檔、對外介面、跨分支整合、發布。
 - 流程：`Baseline → Plan → Isolated Change → Build/Test → 成品檢查 → Evidence → Gate → Checkpoint`。
 
+### 規格先行（SDD，ds.2；Standard／Strict）
+
+完整流程、開關和安裝見 `docs/13_sdd_openspec.md`。下面每條都是 `director_work.json` 的 `"sdd"` 開關，預設全開；關掉要在 `DIRECTOR_LOG` 寫理由。
+
+- **規格**：工單寫 `SPEC_CHANGE = openspec/changes/<名稱>`，派工前由總監用 OpenSpec 寫好 proposal 與 specs 並通過 `openspec validate --strict`。`gate_check.py --order --repo <專案>` 會實際跑驗證；找不到 openspec 指令判不過。Direct 工單寫 `NONE`。
+- **規格審查**：Standard 也必做（原本只有 Strict）；`--match --dispatch-log` 查 `SPEC_REVIEW <WO>` 那一行。
+- **測試先寫**：驗收測試在派工前寫好、commit 到 BASE_REF，用 `tools/sdd_gate.py --lock-tests` 把雜湊寫進工單的 `TESTS_LOCKED:`，跑法寫進 `CHECKS:`。worker 不得改測試；改了 gate 判不過。
+- **工單大小**：一張工單最後結果 ≤3 個檔、約 200 行（新增＋刪除，`openspec/` 不算）；超過就拆。`scope_check.py` 印 `OVERSIZE` 並判越界。
+- **計畫閘門**：worker 第一步只交 `tasks.md`（OpenSpec 格式），總監核准後在 `DIRECTOR_LOG` 寫 `PLAN_APPROVED <WO> sha=<64>`（`sdd_gate.py --plan-hash` 印）才可以寫程式；交件時 tasks.md 只准比核准版多打勾，而且要全部勾完。
+- **停止規則**：同一根因 **1 輪**沒進展就停並回報（原 2 輪）。
+- **驗收**：優先寫可自動判定的 AUTO 條件；REVIEW／PO 只留給真的要人看的。
+
 ### 工單
 
 - 一律落檔：`DIRECTOR/orders/WO-<編號>-<短名>.md`，格式見 `templates/WORK_ORDER.md`。`send_message` 只附路徑、一句摘要和必要的決定。
@@ -31,7 +43,7 @@
 - 總監改工單時 `REVISION` 加 1，在 H 節記一列（誰改、原因、影響的 AC）。派工時用 `gate_check.py --hash` 印出工單雜湊，把它印的 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 那行原樣寫進 `DIRECTOR_LOG`（同一工單以最新一行為準）；worker 在報告填 `ORDER_SHA256`。審查時 `--match ... --dispatch-log DIRECTOR_LOG.md` 拿派工紀錄比對：工單被改過再重算雜湊也會被查出；DISPATCH 必須獨占一行，引用、縮排或圍欄裡的不算；沒有紀錄時各模式都失敗。這是事後查出，不是事前防止：誰都還是改得動工單。
 - 發工單前想清楚需求、現有結構、相依、邊界條件、測試方法，一次給完整。
 - 製作類工單的第一步固定是「既有資產盤點」：未合併的分支（`git log --all -- <路徑>`）、需求方提供過的檔案、舊報告。盤點結果寫進 gate 報告。
-- 規格審查：Strict 工單派工前必做（在 DSH 上的做法見 `docs/11_dsh_operations.md`），Standard 選用，Direct 不做。總監開一個短上下文的子代理（`subagent`，新 context；depth 1 可以），照 `templates/SPEC_REVIEW.md` 審工單；reviewer 只准讀，限制靠指示＋總監事後檢查（`docs/07`）。結果只給總監參考，不增加 PO 的工作。每次在 `DIRECTOR_LOG` 記下花費（用 `tools/dsh_usage.py` 看該子代理 session 的 token，分不出來或讀不到就記 UNKNOWN）和抓到的問題；花費高過它省下的返工，就降回選用。
+- 規格審查：Strict 和 Standard 工單派工前必做（ds.2 起 Standard 也要，開關 `sdd.spec_review_for_standard`；在 DSH 上的做法見 `docs/11_dsh_operations.md`），Direct 不做。審查範圍包含工單和它的 OpenSpec 變更（proposal、specs）。總監開一個短上下文的子代理（`subagent`，新 context；depth 1 可以），照 `templates/SPEC_REVIEW.md` 審工單；reviewer 只准讀，限制靠指示＋總監事後檢查（`docs/07`）。結果只給總監參考，不增加 PO 的工作。每次在 `DIRECTOR_LOG` 記下花費（用 `tools/dsh_usage.py` 看該子代理 session 的 token，分不出來或讀不到就記 UNKNOWN）和抓到的問題；花費高過它省下的返工，就由總監提議、PO 同意後關掉 Standard 的開關。
 
 ### Gate 與回報
 
@@ -93,7 +105,8 @@
 - 四階段審查擋住最常見的問題：worker 偷偷縮小驗收範圍、把「跑過」說成「通過」。驗收條件只有總監能改，worker 改了就等於自己批准自己的交件。
 - v0.10 以前，工單的驗收表同時放結果欄：worker 要填結果就得改工單，規格有沒有被動也就查不出來。所以規格留在工單，結果放報告，再用 `--match` 逐條對照。
 - 原專案一段展示影片的工程數字全部正確，角色卻朝反方向動作：審查只看了被問到的部位，看的角度也由作者自己挑。所以要用眼睛看的條件，開工前就寫明誰看、怎麼看，實作者不能自己判過。
-- 規格審查會花用量，所以只在 Strict 必做，而且要記下花費和抓到的問題，用數字決定要不要繼續做。
+- 規格審查會花用量，Claude 版只在 Strict 必做。DSH 版的 worker 判斷力較弱，派工前多看一眼比事後返工便宜，所以 ds.2 起 Standard 也做；照樣記下花費和抓到的問題，用數字決定要不要繼續做。
+- 規格、測試、計畫先寫死再實作（`docs/13`）：弱模型的錯會變成程式查得到的失敗，而不是「看起來做完了」。
 - 狀態分開寫，是因為一個面向 PASS 常被拿來蓋過其他面向沒驗。
 - 規則只寫在文件裡，靠模型自律就會漏；能在交件時用程式檢查的就用程式檢查（`scope_check.py`、`gate_check.py`、`dsh_audit.py`），DSH 沒有 hook 在動手前幫你擋。報告裡的「沒超出範圍」「測試通過」是自述，要能重跑、能對上動作紀錄才算證據。
 - GO 用檔案發：DSH 樹內 `send_message` 沒有原專案那種「使用者兩次發言之間約 10 則就被暫停」的限制，但每則訊息都會叫醒對方一輪（成本），而且訊息在壓縮後可能消失；看板檔沒有這些問題，背景等待也不花 token。原專案曾因看板寫短名、監看等全名，獨佔時段空轉近半小時。

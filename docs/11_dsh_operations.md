@@ -33,6 +33,7 @@
 | 限制 reviewer 工具 | 子代理預設拿到完整工具集，沒有 per-child 工具限制工具 | 用指示「只准讀」＋總監事後用 `tools/dsh_audit.py` 核對它有沒有寫檔；真的要限制只能改 DSH preset（使用者層，需要 PO 同意）。 |
 | 專案指示 | `AGENTS.md`（DSH 也載入 `CLAUDE.md`；本版統一 `AGENTS.md`）＋ `AGENTS.local.md` 疊加；使用者層 `~/.dsh/AGENTS.md`、`~/.agents/AGENTS.md` | 子代理 session 會自動載入（已實測）。改指示後要讓相關 session 重新讀到：下一次成功讀寫到那個目錄，或重開 session。 |
 | 檔案沙箱與核准 | 每個 session 有 `read-only / workspace-write / danger-full-access`；核准政策是 session 設定 | **沒有** PreToolUse hooks，hook_guard 不移植。`docs/08` 的「會擋」改成「規則＋PO 核准＋事後 audit」；不要宣稱自動擋。 |
+| 規格先行（OpenSpec，ds.2） | 專案根目錄 `openspec init --tools agents --language zh-TW --no-animation`；`openspec new change <名稱>`、`openspec validate <名稱> --strict`、`openspec archive <名稱> --yes`；工單閘門用 `gate_check.py --order <工單> --repo <專案>` | OpenSpec 的 6 個 skill 寫進 `<專案>/.agents/skills/openspec-*`，DSH 的 filesystem skill provider 從這裡載入（rank 200；`.dsh/skills` 是 rank 100，`openspec init --tools dsh` 寫那裡，也能用）。CLI 位置與安裝見 `docs/13`。 |
 | 動作紀錄 | `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_audit.py build --session <agent> --out <WS>/DIRECTOR/research/audit-<日期>.jsonl`（`--project-dir <WS>` 抓整個工作區） | 事後從 session 紀錄重建，不是即時 hook；給 `report_vs_audit.py` 和 gate 審查用。子代理 session 記在總監 session 的啟動資料夾下，所以 `--project-dir <REPO>` 抓不到 worker。input 經 secret_mask 後最多記 500 字，長指令尾端會截斷。 |
 
 ## 開 worker 的流程
@@ -42,6 +43,7 @@
 3. 同一輪把要開的都開完：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO）。
 4. 開完用 `list_agents()` 確認名字和數量；把實際名稱寫進 `ACTIVE_WORKSTREAMS.md` 和 `DIRECTOR_LOG.md` 的 DISPATCH 行。
 5. 之後只靠 `send_message` 和檔案交接；不要為了問進度發訊息（`docs/03`）。
+6. Standard／Strict 工單（ds.2，`docs/13`）：開 worker 前，規格（`SPEC_CHANGE`）、鎖定的測試（`TESTS_LOCKED`）和 `SPEC_REVIEW` 都要先完成；prompt 加一句「第一步只寫 tasks.md 交給總監，等 `PLAN_APPROVED` 的通知才寫程式；同一根因 1 輪沒進展就停」。worker 交 tasks.md 時，總監在同一輪看完、核准並 `send_message` 回覆，不讓 worker 空等。
 
 ## 常見用法
 
@@ -50,6 +52,8 @@
 - **核對動作**：worker 交件後 `dsh_audit.py build`，再把 `RAN:` 的聲明用 `report_vs_audit.py` 對一次。
 - **待決問題**：一次最多三題，每題給選項和建議；PO 在 GUI 回答，總監把原文寫進 `PO_PENDING.md` 再處理。
 - **排程喚醒**：只有 PO 明確要求才建；建完用 `schedule_list` 記進 `GUARDS.md`。
+- **確認 OpenSpec skill 有載入**：開一個小探測子代理（cwd 指到專案），請它列出看得到的 `openspec-*` skill；看得到 6 個才算生效。看不到時確認 `.agents/skills/` 在專案根目錄，或改用 `openspec init --tools dsh`。
+- **確認 openspec 指令找得到**：`python -I -X utf8 <WS>/DIRECTOR/tools/sdd_gate.py --which --config <WS>/DIRECTOR/director_work.json`；印 `NOT_FOUND` 時照 `docs/13` 安裝並設定 `sdd.openspec_bin`。
 
 ## 已知限制（不要假裝有）
 

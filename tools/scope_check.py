@@ -22,6 +22,13 @@ files as they are now (tracked files that differ from the merge base, untracked 
 or, with `--candidate SHA`, the candidate commit's tree against its merge base with BASE_REF (use it on the commit you
 hand in). A `REQUIRED_BASIS:` line says which. A file staged and then put back as it was is MISSING.
 
+ds.2 (SDD size limit): a Standard or Strict order may change at most sdd.max_files_per_order files (3) and
+sdd.max_lines_per_order lines (200, added + deleted, `git diff --numstat`; binary files count 0) in the final result
+(the --candidate tree, else the working files and untracked files, against the merge base). Files under openspec/
+(the spec, written before the code) are not counted. Over a limit prints `OVERSIZE files=n/3 lines=n/200` and is a
+VIOLATION: split the order. The limits come from the "sdd" object of director_work.json (--config, default: the
+order's folder/../director_work.json); 0 turns a limit off. OpenSpec has no size limit for a change, hence this.
+
 The last line is the one to paste into the TASK REPORT. Exit 0 pass, 1 violation, 2 could not check.
 """
 import argparse
@@ -110,6 +117,43 @@ def hidden_changes(root):
     return marked, changed
 
 
+def sdd_module():
+    """sdd_gate.py next to this file (ds.2: the "sdd" switches of director_work.json)."""
+    import importlib.util
+    path = pathlib.Path(__file__).resolve().parent / "sdd_gate.py"
+    spec = importlib.util.spec_from_file_location("sdd_gate", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def diff_size(root, base, candidate=None):
+    """(files, lines) the work changes in its final result, openspec/ left out: the candidate's tree, else the working
+    files plus untracked files, against the merge base with base. Lines are added + deleted; a binary file counts 0."""
+    if candidate:
+        commit = git(root, "rev-parse", "--verify", candidate + "^{commit}").strip()
+        args = [git(root, "merge-base", base, commit).strip(), commit]
+    else:
+        args = [git(root, "merge-base", base, "HEAD").strip()]
+    files, lines = set(), 0
+    for row in git(root, "diff", "--numstat", "--no-renames", "-z", *args).split("\0"):
+        parts = row.split("\t")
+        if len(parts) != 3 or parts[2].startswith("openspec/"):
+            continue
+        files.add(parts[2])
+        lines += sum(int(n) for n in parts[:2] if n.isdigit())
+    if not candidate:
+        for path in git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+            if path and not path.startswith("openspec/"):
+                files.add(path)
+                try:
+                    data = pathlib.Path(root, path).read_bytes()
+                    lines += 0 if b"\0" in data[:8000] else len(data.splitlines())
+                except OSError:
+                    pass
+    return len(files), lines
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--order", required=True, help="work order file holding SCOPE, FORBIDDEN and BASE_REF")
@@ -117,6 +161,8 @@ def main():
     ap.add_argument("--base", help="base ref (default: BASE_REF of the work order)")
     ap.add_argument("--max-lines", type=int, default=20, help="how many violating paths to print (default 20)")
     ap.add_argument("--candidate", help="2.2: the commit handed in; REQUIRED_CHANGES is matched against its tree")
+    ap.add_argument("--config", help="ds.2: director_work.json with the \"sdd\" size limits (default: next to the "
+                    "order's folder; 3 files / 200 lines when there is none)")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -161,7 +207,15 @@ def main():
             else:
                 final = git(root, *names, merge_base) + "\0" + states["untracked"]
                 basis = "worktree-final"
-    except (RuntimeError, OSError) as error:
+        size = None
+        if re.search(r"^\s*GOVERNANCE\s*=\s*(Standard|Strict)\b", text, re.M):  # ds.2 SDD size limit
+            config, problem = sdd_module().load_config(order, a.config)
+            if problem:
+                return cannot(problem)
+            limits = (int(config.get("max_files_per_order") or 0), int(config.get("max_lines_per_order") or 0))
+            if any(limits):
+                size = diff_size(root, base, a.candidate) + limits
+    except (RuntimeError, OSError, ValueError, TypeError) as error:
         return cannot(str(error))
 
     states = {state: {path for path in out.split("\0") if path} for state, out in states.items()}
@@ -180,6 +234,10 @@ def main():
     final = {path for path in (final or "").split("\0") if path} | (hidden if basis == "worktree-final" else set())
     missing = [g for g in required or [] if g != "NONE" and not any(glob_regex(g).fullmatch(path) for path in final)]
     hits += [("MISSING", glob, "") for glob in missing]
+    oversize = bool(size) and ((size[2] and size[0] > size[2]) or (size[3] and size[1] > size[3]))
+    if oversize:
+        hits.append(("OVERSIZE", f"files={size[0]}/{size[2] or '-'} lines={size[1]}/{size[3] or '-'}",
+                     "split the order (sdd.max_files_per_order / max_lines_per_order)"))
     for kind, path, rule in hits[:a.max_lines]:
         print(f"{kind:9} {path}" + (f"  ({rule})" if rule else ""))
     if len(hits) > a.max_lines:
@@ -189,8 +247,11 @@ def main():
     print("STATES: " + " ".join(f"{state}={len(paths)}" for state, paths in states.items()))
     if basis:
         print(f"REQUIRED_BASIS: {basis} final={len(final)}")
+    if size:
+        print(f"SIZE: files={size[0]} lines={size[1]} limit={size[2] or '-'}/{size[3] or '-'} (openspec/ not counted)")
     print(f"SCOPE_CHECK: {'VIOLATION' if hits else 'PASS'} base={merge_base[:10]} changed={len(changed)} "
-          f"forbidden={count} outside={len(hits) - count - len(missing)}" + ("" if required is None else f" missing={len(missing)}"))
+          f"forbidden={count} outside={len(hits) - count - len(missing) - oversize}"
+          + ("" if required is None else f" missing={len(missing)}") + (" oversize=1" if oversize else ""))
     return 1 if hits else 0
 
 

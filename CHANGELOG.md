@@ -3,6 +3,40 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.0（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
+## 2.2.0-ds.2（2026-11-14）
+
+規格先行（SDD）：DSH 上的 worker（deepseek-flash）判斷力較弱，所以規格、驗收測試和計畫在寫程式前寫死並鎖住。規格層採用現成的 OpenSpec（Fission-AI/OpenSpec，MIT，鎖 1.16.0），DW-DS 只寫膠水。完整說明見 `docs/13_sdd_openspec.md`。
+
+### 規則（`director_work.json` 的 `"sdd"` 開關，預設全開）
+- Standard／Strict 工單必填 `SPEC_CHANGE = openspec/changes/<名稱>`；`gate_check.py --order / --match` 會實際跑 `openspec validate <名稱> --strict --json`，找不到 CLI 判不過（不會靜默通過）。Strict 的變更不能 `skip_specs: true`。
+- 規格審查從「只有 Strict」改成 Standard 也必做（`--match --dispatch-log` 查 `SPEC_REVIEW <WO>` 行）。
+- 測試先寫：`TESTS_LOCKED:` 記驗收測試的 sha256（`sdd_gate.py --lock-tests` 產生）；被改就判不過。
+- 計畫閘門：worker 先交 OpenSpec 的 `tasks.md`，總監核准後記 `PLAN_APPROVED <WO> sha=<64>`；交件時 tasks.md 只准比核准版多打勾，而且要全部勾完（勾選規則照 OpenSpec）。
+- 工單大小：最後結果 ≤3 個檔、≤200 行（`openspec/` 不算），`scope_check.py` 超過印 `OVERSIZE`。
+- STOP_RULES：同一根因 1 輪沒進展就停（原 2 輪）。
+- 沒有 AUTO 驗收時提示（優先 AUTO）。
+
+### 工具
+- 新增 `tools/sdd_gate.py`：上述檢查的共用模組（`gate_check.py`、`scope_check.py` 載入），CLI `--lock-tests`、`--plan-hash`、`--which`。每段註明 OpenSpec 為什麼沒有這個功能。
+- `gate_check.py`：`--order / --match` 接 SDD 檢查；`--repo` 可用在 `--order / --match`（專案 checkout）；新增 `--config`。
+- `scope_check.py`：Standard／Strict 工單的大小上限（`SIZE:`／`OVERSIZE`）；新增 `--config`。
+- `selftest_ds.py`：新增 8 個 `sdd_*` 測試（含「NONE 但 Standard」「validate 失敗」「找不到 CLI」三個負面案例，及改測試、停止規則、計畫被改、大小超過）；`sdd_real_openspec` 用真的 CLI（找不到就 SKIP）。
+
+### 文件與範本
+- 新增 `docs/13_sdd_openspec.md`（流程、開關、原生 vs 膠水、安裝、OpenSpec vs Spec Kit 選型、已知限制）。
+- 更新 `docs/02`（規格先行一節、規格審查）、`docs/05`（SDD 時怎麼分 effort）、`docs/11`（OpenSpec 在 DSH 上的操作）、`BOOTSTRAP.md`（10.5 規格先行工具）、`README.md`、`DEEPSEEK-PORT.md` 第 11 節、`tools/README.md`。
+- `templates/WORK_ORDER.md`：`SPEC_CHANGE`、`TESTS_LOCKED`、大小上限、計畫閘門、STOP_RULES 1 輪；`templates/SPEC_REVIEW.md`：Standard 必做、加審 OpenSpec 變更三題。
+- 新增 `templates/openspec_config.yaml`（OpenSpec 原生 `rules:`／`operations:`）；`director_work.example.json` 加 `"sdd"`。
+
+### 升級注意
+- 預設全開：舊的 Standard／Strict 工單沒有 `SPEC_CHANGE`／`TESTS_LOCKED`、STOP_RULES 寫 2 輪，`gate_check.py --order` 會判不過。舊工單用 `--warn`／`--since`，或在專案 `director_work.json` 把對應開關設成 `false`。
+- 沒裝 OpenSpec 的專案：關掉 `require_spec_for_standard`／`require_spec_for_strict`（BOOTSTRAP 10.5 第 5 點）。
+
+### 驗證
+- `selftest_ds.py`：基準 11/11 → 19/19 PASS（`OPENSPEC_BIN` 指到實機 OpenSpec 1.16.0）；不設時 18 PASS、1 SKIP（`sdd_real_openspec`）。
+- 試跑找到並已修進來：`validate --strict` 要求 Requirement 含英文 SHALL／MUST（改用原生 `init --language zh-TW`）；archive 後主規格 Purpose 要 ≥50 字元；`python -I -m unittest <模組>` 找不到 cwd 的測試（CHECKS 改 `discover -s .`）；交件時未勾的任務原本不查。
+- 試跑：`_work/demo-project` 一張 Standard 工單走完 propose → 審查 → tasks 核准 → apply → 交件檢查 → archive，見 `_work/ds2-openspec/TRIAL.md`（Claude 模擬 worker；DSH 實機 deepseek-flash 尚未跑，列為 PO 步驟）。
+
 ## 2.2.0-ds.1（2026-11-12）
 
 第一個 DeepSeek Harness 版，對應上游 2.2.0。流程核心（角色、工單、gate、證據、續航、初衷卡）不變，平台層重寫。

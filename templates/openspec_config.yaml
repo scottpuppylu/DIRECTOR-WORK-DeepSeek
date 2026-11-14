@@ -1,0 +1,38 @@
+# DW-DS (DIRECTOR-WORK DeepSeek edition, ds.2) rules for OpenSpec's own config.
+# Merge the `context:` and `rules:` below into <project>/openspec/config.yaml after
+# `openspec init --tools agents --language zh-TW --no-animation` (the first three context lines are what --language wrote).
+# These are OpenSpec's native per-artifact rules (no DW-DS code reads this file); OpenSpec puts them into the
+# instructions its skills give the agent. The checks that a program enforces live in tools/sdd_gate.py (docs/13).
+schema: spec-driven
+
+context: |
+  Language: zh-TW
+  All artifacts must be written in zh-TW.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  The implementer is a smaller model (deepseek-flash) on DeepSeek Harness. Specs, acceptance tests and the
+  task plan are fixed before any code; the Director approves tasks.md before implementation starts.
+
+rules:
+  proposal:
+    - State what is out of scope.
+    - One change serves one work order; if it needs more than 3 files or about 200 changed lines, split it.
+  specs:
+    - Every requirement has at least one "#### Scenario:" with WHEN / THEN that a test can check.
+    - Every requirement sentence contains SHALL or MUST in English, also in zh-TW text (validate --strict refuses it otherwise).
+    - Write the behaviour, not the implementation.
+    - A new capability's "## Purpose" is at least 50 characters (about two zh-TW sentences); --strict refuses a shorter one after archive.
+  tasks:
+    - The implementer writes tasks.md and hands it to the Director before any code; wait for PLAN_APPROVED.
+    - Each task names the file it changes and the requirement it serves; at most 3 files in total.
+    - Do not add tasks that change specs, proposal.md or the locked acceptance tests.
+    - The first task runs the locked acceptance tests and records that they fail before the change.
+
+operations:
+  apply:
+    guidance:
+      - Tick a task only after its code is written and the locked tests were run.
+      - If the same root cause blocks progress for 1 round, stop and report to the Director; do not retry the same approach.
+      - Never edit the locked acceptance tests or the spec files; report BLOCKED instead.
+  archive:
+    guidance:
+      - Archive only after the Director accepts the work order (ACCEPT_AND_CLOSE).

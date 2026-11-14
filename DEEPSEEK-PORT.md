@@ -200,3 +200,9 @@
 1. 看 `CHANGELOG-upstream.md` 的該版變更，只搬「規則、工單格式、gate、證據、續航、初衷卡」這類平台中立的變更。
 2. 平台層（docs/04、05、11、12、BOOTSTRAP 的 DSH 段落、tools/dsh_*.py）以本版為準，不要直接覆蓋。
 3. 每次搬完跑 `tools/selftest_ds.py`，並在 `CHANGELOG.md` 記一筆。
+
+## 11. ds.2 起 DeepSeek 版自己加嚴的規則（上游沒有）
+
+- 規格先行（SDD）：Standard／Strict 工單要有 OpenSpec 變更、鎖定的驗收測試、Standard 也做規格審查、計畫閘門、≤3 檔約 200 行、停止規則 1 輪（`docs/13`）。
+- 理由：上游的品質靠 Opus 的判斷力與 Claude Desktop 機制；DSH 版的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以把判斷前移到派工前。
+- 跟上游同步時，`docs/02` 的「規格先行」一節、`templates/WORK_ORDER.md` 的 `SPEC_CHANGE`／`TESTS_LOCKED`／計畫閘門、`tools/sdd_gate.py` 和 `gate_check.py`／`scope_check.py` 的 ds.2 呼叫點以本版為準；上游改到同一段時手動合併。
