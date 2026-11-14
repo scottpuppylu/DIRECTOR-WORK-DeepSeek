@@ -27,7 +27,8 @@ Runs, on this machine and offline:
               conflicted file, AHEAD plans push / tag / release, a version below a remote tag and a VERSION that
               differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1; a -ds.N
               not above every remote tag's -ds.N stops (1.1.0-ds.1 after v1.0.0-ds.2), 1.1.0-ds.3 passes; a
-              VERSION changed in the working tree but not committed stops (the version is read from HEAD)
+              VERSION changed in the working tree but not committed stops before anything else (any modified
+              tracked file stops a dry run too; the version is read from HEAD)
   release_scan  2.2.2-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
               <drive>:/Users path, DIRECTOR/ / _work/ / session files and a private author email, never prints a secret;
               noreply / .invalid emails and DIRECTOR/ named in text pass
@@ -873,7 +874,7 @@ def release_state(tmp):
     write(loose / "VERSION", "1.2.0\n")
     code, out = release(loose)
     require(code == 1 and "VERSION differ(s) from HEAD (uncommitted); HEAD says 1.1.0" in out
-            and "NEXT: commit them" in out and "STEP version: OK" not in out,
+            and "NEXT: commit them" in out and "STEP version: OK" not in out and "STEP state" not in out,
             "an uncommitted VERSION different from HEAD was not stopped: " + tail(out))
     mismatch = release_clone(origin, base / "mismatch")
     release_commit(mismatch, "1.2.0", top="1.1.0")

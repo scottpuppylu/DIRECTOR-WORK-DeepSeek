@@ -13,7 +13,7 @@ ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的�
   - `--merge`：分岔時開 `release/<版本>` 做 `merge --no-ff`，有衝突就停並列出檔案；演練時用 `git merge-tree` 先預測衝突。
   - 公開掃描範圍：金鑰與 token 格式（沿用 `secret_mask.py`）、`key = value` 形式的密碼、noreply 和 `*.invalid` 以外的 email、使用者資料夾路徑、`DIRECTOR/`、`_work/`、`AGENTS.local.md`、DSH session 檔、commit 訊息與作者 email。找到時不印出密碼本身；有 gitleaks 時一併跑。
   - 中途停掉後重跑，已完成的步驟會跳過。
-  - VERSION 和 CHANGELOG 從 HEAD 讀（`git show HEAD:…`）；這兩個檔有沒 commit 的改動就停，避免 tag 名稱和 tag 裡的 VERSION 對不上（總監演練時抓到）。
+  - VERSION 和 CHANGELOG 從 HEAD 讀（`git show HEAD:…`）；任何 tracked 檔有沒 commit 的改動就停（演練也一樣），避免 tag 名稱和 tag 裡的 VERSION 對不上（總監演練時抓到；DW 的 release.py 同樣修法）。
   - 版本檢查：整個版本號要比遠端所有 tag 新，而且 `-ds.N` 要比遠端所有 `-ds.*` tag 的 N 大（流水號不因上游換版本歸 1；規則寫在 `DEEPSEEK-PORT.md` 第 10 節）。
   - 選型：release-please 和 semantic-release 都要 CI 和 conventional commits，semver 也排不出 `2.2.1-ds.N`，所以不用；`gh release create` 已有 `--verify-tag`、`--notes-file`、`--latest`，直接用。
 - `gate_check.py --order` 檢查 BASE_REF 是否最新：先自己 `git fetch`，再把 BASE_REF 的 commit 和遠端分支比。

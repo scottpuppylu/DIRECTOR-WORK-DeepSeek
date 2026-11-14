@@ -20,7 +20,7 @@ Steps, in order; each prints `STEP <name>: OK | FAIL | SKIP | PLAN ...`, and a F
              (<major>.<minor>.<patch>[-<label>.<n>]) - 2.2.0-ds.2 after 2.2.1-ds.1 fails; and <n> is above the <n>
              of every remote tag with the same label: the -ds.N serial never restarts when the base version
              moves on (after v2.2.1-ds.2 comes 2.2.2-ds.3, not 2.2.2-ds.1)
-  worktree   (--execute) no tracked file is modified or staged
+  worktree   no tracked file is modified or staged (dry run too: the release is made from HEAD)
   selftest   the selftest command exits 0 (default `python -I -X utf8 tools/selftest_ds.py`)
   scan       <remote>/<branch>..HEAD, everything that goes public: paths (DIRECTOR/, _work/, AGENTS.local.md, DSH
              session files), added lines (secret formats from secret_mask.py, key = value secrets with a real-looking
@@ -289,20 +289,6 @@ class Release:
         proc = git(self.repo, "show", f"HEAD:{name}", check=False)
         return proc.stdout.lstrip("﻿") if proc.returncode == 0 else None
 
-    def check_committed(self):
-        """VERSION and CHANGELOG.md must be committed: an uncommitted bump would name a tag whose commit says
-        another version (found in the 2.2.2-ds.3 dry run). Other modified tracked files are a note here and stop
-        --execute in check_worktree."""
-        changed = git(self.repo, "diff", "--name-only", "HEAD", "--", "VERSION", "CHANGELOG.md").splitlines()
-        if changed:
-            committed = (self.head_text("VERSION") or "").strip() or "no VERSION"
-            raise Stop(f"{', '.join(changed)} differ(s) from HEAD (uncommitted); HEAD says {committed}, and the "
-                       "release is made from HEAD", "commit them (git add VERSION CHANGELOG.md; git commit), then run again")
-        others = git(self.repo, "status", "--porcelain", "--untracked-files=no").splitlines()
-        if others and not self.execute:
-            print(f"  ~ {len(others)} tracked file(s) have uncommitted changes; they are not released (--execute stops "
-                  "on them)")
-
     def read_version(self):
         if self.version:
             return self.version
@@ -312,7 +298,6 @@ class Release:
         return text.strip()
 
     def check_version(self):
-        self.check_committed()
         version = self.read_version()
         key = version_key(version)
         if not key:
@@ -364,10 +349,17 @@ class Release:
         return version
 
     def check_worktree(self):
-        dirty = git(self.repo, "status", "--porcelain", "--untracked-files=no")
+        """No tracked file may be modified or staged, in a dry run too: the release is made from HEAD, and VERSION /
+        CHANGELOG.md are read from HEAD. An uncommitted version bump would otherwise name a tag whose commit says
+        another version (found in the 2.2.2-ds.3 dry run). DW's release.py stops the same way."""
+        dirty = git(self.repo, "diff", "--name-only", "HEAD").splitlines()
         if dirty:
-            raise Stop(f"tracked files are modified or staged: {', '.join(l[3:] for l in dirty.splitlines()[:5])}",
-                       "commit or undo them; a release is made from a commit, not the working tree")
+            listed = ", ".join(dirty[:5]) + (f" (+{len(dirty) - 5} more)" if len(dirty) > 5 else "")
+            bump = [name for name in dirty if name in ("VERSION", "CHANGELOG.md")]
+            committed = (self.head_text("VERSION") or "").strip() or "no VERSION"
+            raise Stop(f"{listed} differ(s) from HEAD (uncommitted)"
+                       + (f"; HEAD says {committed}, and the release is made from HEAD" if bump else ""),
+                       "commit them (or undo them), then run again; a release is made from a commit, not the working tree")
         self.step("worktree", "OK", "clean (untracked files are not released)")
 
     def selftest(self):
@@ -505,8 +497,7 @@ def main():
     print(f"RELEASE {mode} repo={repo} remote={job.remote} branch={job.branch}")
     try:
         job.fetch()
-        if a.execute:
-            job.check_worktree()
+        job.check_worktree()
         state = job.state()
         version = job.check_version()
         job.selftest()
