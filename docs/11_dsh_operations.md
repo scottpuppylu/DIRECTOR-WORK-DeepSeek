@@ -42,7 +42,7 @@
 
 1. 先在待決帳列好要開的線：名稱（`w1`…）、工單路徑、effort、cwd（工作副本；DSH 沒有 per-worker worktree）、範圍。放進 `ACTIVE_WORKSTREAMS.md` 的草案。
 2. 請 PO 同意（第一批可以併進初衷卡確認那一句）。沒有同意不開。
-3. 同一輪把要開的都開完：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO）。
+3. 同一輪把要開的都開完：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO），再加一句「開工時把 TEMP、TMP（及 TMPDIR）設成 WORK_DIR/tmp」（2.2.4-ds.4，`docs/02`）。
 4. 開完用 `list_agents()` 確認名字和數量；把實際名稱寫進 `ACTIVE_WORKSTREAMS.md` 和 `DIRECTOR_LOG.md` 的 DISPATCH 行。
 5. 之後只靠 `send_message` 和檔案交接；不要為了問進度發訊息（`docs/03`）。
 6. Standard／Strict 工單（ds.2，`docs/13`）：開 worker 前，規格（`SPEC_CHANGE`）、鎖定的測試（`TESTS_LOCKED`）和 `SPEC_REVIEW` 都要先完成；prompt 加一句「第一步只寫 tasks.md 交給總監，等 `PLAN_APPROVED` 的通知才寫程式；同一根因 1 輪沒進展就停」。worker 交 tasks.md 時，總監在同一輪看完、核准並 `send_message` 回覆，不讓 worker 空等。

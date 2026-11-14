@@ -3,6 +3,55 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
+## 2.2.4-ds.4（2026-11-14）
+
+對應上游 2.2.4（DW commit 5428682）。這一版處理 WO-DS-006 試驗（DSH 有／沒有 SDD 兩組，對照 Claude）比較表 §10 裡歸 DW-DS 的項目，並移植上游 2.2.4 的通用修正。ds 序號從 3 升到 4（總監待辦「ds 序號可以往下」）。
+
+### 工單大小上限搬出 sdd（#8、S-P1）
+- 上限不是 SDD 開關，SDD 關掉的專案也要用，所以搬到 `director_work.json` 頂層的 `order_limits`：`max_files_per_order` 3、`max_lines_per_order` 200、新的 `max_test_lines_per_order` 400。
+- 測試檔（`test_*.py`、`*_test.py`、`tests/` 下）照算檔數，但行數另算，不吃掉 200 行（試驗：鎖定測試把 200 行吃掉，sdd 組只好把上限改成 600）。`scope_check.py` 的 `SIZE:` 行印 `files= lines= test_lines= limit=3/200/400`。
+- 舊的 `sdd.max_files_per_order`／`sdd.max_lines_per_order` 照讀，`scope_check.py` 印 `NOTE: SHADOW WARN … 請搬到 order_limits`；兩邊都寫時以 `order_limits` 為準。`dsh_setup_check.py` 對舊位置印 shadow，並檢查 `order_limits` 的型別。`docs/13`、`sdd_gate.py` 說明、`director_work.example.json` 同步。
+
+### 共用 checkout 的 scope_check（#2）
+- DSH 的工人共用一個 checkout，舊版每張工單都把別人的檔算進來（試驗：`--match` 沒法自動過）。工單 `WORKTREE` 寫「共用」（或加 `--shared`）時，`scope_check.py` 只算 commit 訊息寫了本工單編號的 commit，加上 SCOPE 內還沒 commit 的檔；別人的檔印 `OTHER`，不算越界。本工單 commit 動到 SCOPE 外的檔照樣 `OUTSIDE`。`docs/11` 寫明 commit 訊息要帶工單編號。
+
+### CHECKS 路徑（#3）
+- `gate_check.py --order` 派工前就把反斜線路徑擋下，訊息指出第幾行、建議改正斜線。兩種都抓：`\w` 這種不合法的 JSON 跳脫，以及 `\t`、`\n` 這種會悄悄變成控制字元的。其他 CHECKS 錯誤也加上行號。`templates/WORK_ORDER.md` 寫明一律用正斜線。試驗的 WO-004 副本：`CHECKS line 97 (AC-5): backslash path … is not valid JSON; write the path with forward slashes`。
+
+### 每張工單都要 SPEC_REVIEW（#4）
+- 原本：只有給 `--dispatch-log` 才查 SPEC_REVIEW，沒給就完全不查，沒審過的工單照樣通過（試驗 WO-005／006）。現在：Standard／Strict 的 `--match` 一律查，沒給 log 就找工單所在 DIRECTOR 的 `DIRECTOR_LOG.md` 和 `reviews/` 下檔名有工單編號與 SPEC_REVIEW 的檔，找不到判不過。行裡缺 `tokens=`／`issues=`／`adopted=` 印 note。
+
+### 受保護的測試只准新增（#7）
+- TESTS_LOCKED 的檔和 `director_work.json` 頂層 `protected_tests` 列的檔，只能新增檔案或在檔尾加測試；改到原有內容或刪檔，`scope_check.py` 判 `PROTECTED` 越界（換行符號和檔尾空行不算改）。它也印 `PROTECTED_CHANGED:` 一行。
+- `templates/TASK_REPORT.md` 加 `PROTECTED_CHANGED:`（逐檔列出改到的受保護檔，沒有寫 NONE）。`gate_check.py --match --repo` 拿它對 git：寫「無」卻有改、漏列、或改到原有內容都判不過（試驗：nosdd 的 PO 報告寫「兩支原測試沒改一行」，實際有改）。
+
+### SDD 關閉時不提示 CLI（#9）
+- `require_spec_for_strict` 和 `require_spec_for_standard` 都是 false 時，`sdd_gate.py --which` 只印一行「SDD 關閉，不檢查 CLI」，不找 CLI、不建議寫入 `openspec_bin`；`dsh_doctor.py` 印 OK 和同一句，`dsh_setup_check.py` 不再印寫入建議。找得到 CLI 時關掉 require_spec 仍要 PO 答覆。
+
+### 範本建議（#10、#13）
+- `templates/WORK_ORDER.md` 的邊界與壓力清單、`templates/SPEC_REVIEW.md` 第 7 項、`templates/openspec_config.yaml` 的 specs 規則各補兩行：巢狀深度含 JSON（不透出 RecursionError）；批次輸入有錯時預設輸出就列出是哪幾筆，問題物件用 dict 或中文名稱，不用 `XxxError` 類別名當使用者看到的字。原有清單文字和 DW 2.2.3 相同，只補這兩行。
+
+### effort 一致（#14）
+- `dsh_usage.py --effort-check <工單>`：找工單 PRIMARY_WORKER 的 session，印 `EFFORT_ACTUAL <WO> agent= effort= order=`，和工單 `MODEL / EFFORT` 不同印 shadow WARN（exit 0）。試驗資料實測：WO-004 的 w4 是 `effort=max order=high`。lead 把那行貼進 DIRECTOR_LOG；`gate_check.py --match --dispatch-log` 讀到不一致印 shadow WARN，沒有那行印 note。寫回 DIRECTOR_LOG 而不是工單，因為改工單會改掉派工雜湊。`docs/11`、`templates/WORK_ORDER.md` 寫明 `subagent` 的 `reasoning_effort` 一定要填工單的值。
+
+### dsh_usage --out（#16）
+- 原因：`--out` 只在有資料時才寫；篩選後沒有 session（`NO_DATA`）就在寫檔前 `return 2`，所以呼叫端看到 rc=2、沒有檔、也不知道為什麼。試驗的常見情況是 `--project-dir` 指到 repo 子資料夾（`…/ws/ledger`），但 session 記在啟動資料夾 `…/ws` 下。另一種 rc=2 是參數寫錯（`-o`、`--output`），那是 argparse 的用法錯誤。
+- 修正：`NO_DATA` 時 `--out` 也寫 JSON（`status: NO_DATA`、`reason`、`hints`、`filters`），exit 仍是 2；`--project-dir` 在某個啟動資料夾底下時，印 `HINT` 指出該用的上層資料夾。
+
+### DSH 啟動設 TEMP（對應上游 2.2.4 B3）
+- `dsh_session.py` 多一個 CLI：`--temp-env <WORK_DIR>` 建 `WORK_DIR/tmp`，印出把 `TEMP`／`TMP`／`TMPDIR` 指過去的 PowerShell 與 bash 設定行。BOOTSTRAP 第 7 步、`docs/02`、`docs/11`、`templates/WORK_ORDER.md`、`templates/TASK_REPORT.md` 寫明開工先設；`gate_check.py --report-skeleton` 對有 WORK_DIR 的工單也印這一行。
+
+### 上游 2.2.4 移植
+- `report_vs_audit.py`（上游原樣搬，DS 只留自己的說明段和 rebuild 註記）：WO-DS-006 三組 20 份報告的誤判 FAIL 64 → 0（claude 8、dsh-sdd 32、dsh-nosdd 24；64 條全是誤判，沒有真漏跑）。變數會展開（`$X`、`${X}`、`$env:X`、`%X%`、PowerShell `a + b`、here-string，同一 agent 前面設的延用到後面）；`git -C DIR x` 當 `cd DIR` 再 `git x`；字中 `...`／`…` 代表任意字；短 hex 對長 sha 開頭；主張的絕對路徑對紀錄的相對路徑；`at=HH:MM:SS` 和時間區間；`AC-1 .. AC-6`；選項換順序；全形 `；` 斷句；多段主張分在幾次呼叫跑也算；從 RAN: 外開的 ``` 在那裡結束（WO-01 的 ACCEPTANCE 表格不再當成指令）；別的主張對到的截斷呼叫裡找不到的主張印「may be in the cut part」不判 FAIL；PowerShell 這類從不回報 error 的工具 exit 對不上印 not checkable。沒人跑過的指令照樣 FAIL。
+- `gate_check.py --after-verdict <裁決.md>... --repo <專案> [--orders <資料夾>] [--strict]`（shadow）：最後一份裁決的 `CANDIDATE_HEAD` 之後，改到該工單 SCOPE 外、又不是文件（`DIRECTOR/` 底下、`.md`／`.rst`／`.txt`）的 commit 印 `~ WARN LATE_COMMIT`，exit 不變；`--strict` 判 FAIL。候選解不出印 `NOT_CHECKED`。DS 的 `--strict` 原本只配 `--resume`，現在兩者都可以。
+- `templates/WORK_ORDER.md` B 節：「不做（OUT OF SCOPE）」不可留空（沒有寫「無」）；新欄「可呼叫的入口」（交付物是函式庫或工具時寫一個測試可直接呼叫的公開函式）。`templates/SPEC_REVIEW.md` 第 12 項審這兩欄（上游是第 9 項，DS 編號不同）。
+- `docs/05`「派工規劃」加三行：平行線切多大、能同時就同時派、派工前估時間。
+- 暫存檔放 WORK_DIR/tmp：DS 在本版 B10 已做（`dsh_session.py --temp-env`、`docs/02`、BOOTSTRAP 第 7 步）；另照上游在 `docs/11` 開 worker 流程第 3 步的提示加一句。
+
+### 驗證
+- `selftest_ds.py` 由 37 項增為 49 項，新增：`order_limits_224`、`scope_shared_224`、`protected_tests_224`、`spec_review_224`、`protected_report_224`、`sdd_which_off_224`、`checks_paths_224`、`dsh_usage_out_224`、`effort_check_224`、`temp_env_224`，以及上游 2.2.4 的 `report_vs_audit_224`（20 個比對案例、14 個 CLI 情境、22 個 mutation，案例表與上游逐字相同）、`after_verdict_224`（11 個 CLI 檢查、4 個階段、5 個 mutation）。`report_skeleton` 的 fixture 補一行 SPEC_REVIEW（B4 之後沒審過的 Standard 工單會被擋）。新增 `--only <名稱>` 方便單跑（摘要行標 ONLY，不會被當成全套）。
+- 每輪必讀（docs/01、03、06、08）：10,964 → 10,964 bytes。
+
 ## 2.2.3-ds.3（2026-11-14）
 
 對應上游 2.2.3（DW commit 4f6c9e6）。這一版要讓 OpenSpec 規格層下次一定會被用上，並帶入 WO-DS-004 試驗（DSH 和 Claude 同一需求各跑一次）學到的事。版本號是 PO 指定的：上游段從 2.2.2 升到 2.2.3，ds 序號維持 3；`release.py` 的版本規則因此改成比「(上游版本, ds 序號)」整組（總監裁定，見「工具修正」）。

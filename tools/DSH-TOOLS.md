@@ -80,7 +80,11 @@ line may start bare `git`, read-only subcommands only - diff show log status rev
 is NOT_RUN, exit 2), report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line JSON decoding and the 2-real-word
 rule; 2.2.3-ds.3 as upstream 2.2.3: statements split at new line ; && ||, a ``` block under RAN is one claim, at= ends
 at the time, one run per listed AC ID, abbreviated claims skip options, shadow WARNs for a RAN line with no command and
-for SCOPE_CHECK PASS before the agent's last commit),
+for SCOPE_CHECK PASS before the agent's last commit; 2.2.4-ds.4 as upstream 2.2.4: variables put back, git -C DIR,
+`...` inside a word, short hex prefix, HH:MM:SS and spans, AC-1 .. AC-6, options in another order, full-width ；, a claim
+in the cut part of a matched call is "may be in the cut part", WO-DS-006 false FAILs 64 -> 0),
+gate_check.py --after-verdict VERDICT... --repo DIR [--orders DIR] [--strict] (2.2.4-ds.4 as upstream 2.2.4, shadow:
+`~ WARN LATE_COMMIT` for commits after the last verdict's candidate that change non-document files outside its SCOPE),
 trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit; PENDING_METHOD instead of PO_PAGE_URL),
 metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md; 2.2.2-ds.3 as upstream 2.2.2: --kind resume,
 several --file, --glob, --workstreams, one line per file and `SIZE: PASS|OVER|MISSING`), resume_archive.py

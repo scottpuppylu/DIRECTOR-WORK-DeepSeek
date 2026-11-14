@@ -908,6 +908,321 @@ def checks_paths_224(tmp):
     return "\\w invalid and \\t silent both refused with the line number; forward / escaped slashes pass; --order FAILs"
 
 
+# 2.2.4-ds.4 (upstream 2.2.4, WO-DW-224 B1): report_vs_audit and the 64 false FAILs of the WO-DS-006 trial. The case,
+# log and run tables are upstream selftest.py's, byte for byte (de-identified, made-up paths).
+RVA_EV224 = ("python tools/evidence_record.py run --label AC-1 --order D:/w/orders/wo-9.md --cwd D:/w/repo -- "
+             "python -m unittest")
+RVA_SCOPE224 = "python D:/w/tools/scope_check.py --order D:/w/orders/wo-9.md --repo D:/w/repo"
+# (name, tool, command in the log, claimed command, should match) for matches() in process; 2.2.4 (WO-DS-006 misses,
+# de-identified: the shapes of the 64 FAILs in H1_CLASSIFY, with made-up paths)
+RVA_224_CASES = [
+    ("git -C DIR x is cd DIR then git x", "Bash", "cd D:/w/repo && ls; git status --short", "git -C D:/w/repo status",
+     True),
+    ("git -C with another folder", "Bash", "cd D:/w/repo && ls; git status --short", "git -C D:/w/other status", False),
+    ("bash variables are put back", "Bash", "T=D:/w/tools; O=D:/w/orders/wo-9.md\npython $T/gate_check.py --hash $O",
+     "python D:/w/tools/gate_check.py --hash D:/w/orders/wo-9.md", True),
+    ("a put-back variable still has to match", "Bash", "T=D:/w/tools; O=D:/w/orders/wo-9.md\n"
+     "python $T/gate_check.py --hash $O", "python D:/w/tools/gate_check.py --hash D:/w/orders/wo-8.md", False),
+    ("PowerShell $x = a + b is put back", "PowerShell",
+     '$r = "D:\\w\\repo"; $o = $r + "\\orders\\wo-9.md"; python D:\\w\\tools\\scope_check.py --order $o --repo $r',
+     "scope_check.py --order D:/w/repo/orders/wo-9.md --repo D:/w/repo", True),
+    ("a here-string is a value", "PowerShell", "$o = @\"\nD:\\w\\orders\\wo-9.md\n\"@\npython tools/gate_check.py --hash $o",
+     "gate_check.py --hash D:/w/orders/wo-9.md", True),
+    ("a here-string value still has to match", "PowerShell",
+     "$o = @\"\nD:\\w\\orders\\wo-9.md\n\"@\npython tools/gate_check.py --hash $o", "gate_check.py --hash D:/w/orders/wo-8.md",
+     False),
+    ("a bash heredoc does not hide the next line", "Bash",
+     "cat <<'EOF' > D:/w/a.txt\nhello\nEOF\npython tools/gate_check.py --hash D:/w/orders/wo-9.md",
+     "gate_check.py --hash D:/w/orders/wo-9.md", True),
+    (".../x and ...\\x inside a word", "Bash", RVA_SCOPE224, "scope_check.py --order .../wo-9.md --repo ...\\repo", True),
+    (".../x with another file", "Bash", RVA_SCOPE224, "scope_check.py --order .../wo-8.md --repo ...\\repo", False),
+    ("a short hex is a prefix of the logged sha", "Bash",
+     "python tools/scope_check.py --base 98f9a89ec0aa11 --candidate 1dc08601cd04b1d6238e",
+     "scope_check.py --base 98f9a89ec0 --candidate 1dc08601cd04", True),
+    ("a short hex with another start", "Bash", "python tools/scope_check.py --base 98f9a89ec0aa11 --candidate 1dc08601cd04b1",
+     "scope_check.py --base 98f9a89ec0 --candidate 1dc08601cd05", False),
+    ("an absolute claimed path ends with the logged relative one", "Bash",
+     "python DIRECTOR/tools/gate_check.py --report DIRECTOR/reports/r.md",
+     "python D:/w/DIRECTOR/tools/gate_check.py --report D:/w/DIRECTOR/reports/r.md", True),
+    ('python -c "..." is compared with its launcher', "Bash", 'python -B -c "import ast; print(1)"',
+     'python -B -c "..."', True),
+    ('python -c "..." against another call', "Bash", "python -B -m unittest", 'python -B -c "..."', False),
+    ("options in another order", "Bash", RVA_EV224,
+     "evidence_record.py run --order .../wo-9.md --cwd .../repo --label AC-1 -- python -m unittest", True),
+    ("options in another order, another value", "Bash", RVA_EV224,
+     "evidence_record.py run --order .../wo-9.md --cwd .../repo --label AC-2 -- python -m unittest", False),
+    ("a full claim in another order names every option", "Bash", RVA_EV224,
+     "evidence_record.py run --cwd D:/w/repo --label AC-1 -- python -m unittest", False),
+    ("a full-width ； ends a statement and a word between CJK words is a note", "Bash",
+     "git clone --quiet D:/w/repo D:/w/tmp/c1; cd D:/w/tmp/c1; python D:/w/tools/scope_check.py --repo .",
+     "git clone --quiet ...；複製 w9 三檔後 scope_check.py --repo .", True),
+    ("； with another option", "Bash",
+     "git clone --quiet D:/w/repo D:/w/tmp/c1; cd D:/w/tmp/c1; python D:/w/tools/scope_check.py --repo .",
+     "git clone --depth ...；複製 w9 三檔後 scope_check.py --repo .", False)]
+RVA_CUT224 = "python tools/build_all.py --mode full --target alpha " + "--x " * 140 + "; python tools/lint.py --all"
+# log rows: (MM:SS, agent, command, kind, status, tool_raw); session S1, 2026-11-14 03:MM:SS UTC
+RVA_224_ROWS = [
+    ("01:10", "w1", "python -m unittest tests.test_a", "result", "ok", None),
+    ("02:00", "w1", "T=D:/w/tools", "result", "ok", None),
+    ("02:30", "w1", "python $T/gate_check.py --hash D:/w/orders/wo-9.md", "result", "ok", None),
+    ("03:00", "w1", "python -m py_compile a.py", "result", "ok", None),
+    ("03:20", "w1", "git status --porcelain", "result", "ok", None),
+    ("10:00", "w1", RVA_CUT224, "result", "ok", None),
+    ("20:00", "w1", "for l in AC-1 AC-2 AC-3; do python tools/evidence_record.py run --label $l -- python -m unittest; "
+     "done", "result", "ok", None),
+    ("30:00", "w2", "python tools/scope_check.py --order D:/w/orders/wo-9.md --repo D:/w/repo", "result", "ok", "pwsh"),
+    ("35:00", "w1", "python tools/report.py --week", "result", "ok", None),
+    ("41:00", "w1", "python tools/ledger.py --strict", "result", "ok", None)]
+RVA_224_LOGS = {"main": RVA_224_ROWS,
+                "pwsh_error": RVA_224_ROWS + [("50:00", "w2", "python tools/x.py", "failure", "error", "pwsh")]}
+# (name, report body after SESSION_ID: S1, log, exit, says, lacks); run by the CLI and, for mutants, in process
+RVA_224_RUNS = [
+    ("at=HH:MM:SS", "RAN: `python -m unittest tests.test_a` exit=0 at=03:01:10\n", "main", 0,
+     ["seq 1 at", "PASS claims=1 ok=1"], []),
+    ("at= span HH:MM–HH:MM widens the tolerance", "RAN: `python tools/report.py --week` exit=0 at=03:00–03:40\n", "main",
+     0, ["seq 9 at", "PASS claims=1 ok=1"], []),
+    ("variables carry from call to call of the agent",
+     "RAN: `python D:/x/other/gate_check.py --hash D:/w/orders/wo-9.md` exit=0\n", "main", 1,
+     ["not run in session S1"], []),
+    ("a fence opened outside RAN: closes there; a table after it is no claim",
+     "```text\nRAN:\n  - `python -m py_compile a.py` exit=0\n```\n\nACCEPTANCE:\n| AC-1 | `python -m nothing_ran` | PASS |\n"
+     "\n```text\nNEXT: x\n```\n", "main", 0, ["PASS claims=1 ok=1"], []),
+    ("statements run in separate calls", "RAN: `python -m py_compile a.py; git status --porcelain` exit=0\n", "main", 0,
+     ["its statements were run in separate calls, seq 4, 5", "PASS claims=1 ok=1"], []),
+    ("statements in separate calls must keep their order",
+     "RAN: `git status --porcelain; python -m py_compile a.py` exit=0\n", "main", 1, ["not run in session S1"], []),
+    ("a claim in the cut part of a call another claim matched",
+     "RAN: `build_all.py --mode full --target alpha ...` exit=0\nRAN: `python tools/lint.py --all` exit=0\n", "main", 0,
+     ["seq 6 was cut at the log's input limit", "may be in the cut part", "PASS claims=2 ok=2"], []),
+    ("a cut call no other claim matched covers nothing", "RAN: `python tools/lint.py --all` exit=0\n", "main", 1,
+     ["`python tools/lint.py --all`: not run in session S1"], ["may be in the cut part"]),
+    ("a cut call outside at= covers nothing",
+     "RAN: `build_all.py --mode full --target alpha ...` exit=0\nRAN: `python tools/lint.py --all` exit=0 at=03:50\n",
+     "main", 1, ["`python tools/lint.py --all`: not run in session S1"], ["may be in the cut part"]),
+    ("exit=1 on a mapped tool that never reports error: not checkable", "RAN: `" + RVA_SCOPE224.replace("D:/w/tools/", "tools/")
+     + "` exit=1\n", "main", 0, ["seq 8 is a pwsh call and no pwsh call of this session has status error",
+                                  "PASS claims=1 ok=1"], []),
+    ("exit=1 on a mapped tool that does report error is checked", "RAN: `"
+     + RVA_SCOPE224.replace("D:/w/tools/", "tools/") + "` exit=1\n", "pwsh_error", 1,
+     ["exit=1, but the log says ok (seq 8)"], ["not checkable"]),
+    ("exit=1 on a hook-logged call is checked", "RAN: `python tools/ledger.py --strict` exit=1\n", "main", 1,
+     ["exit=1, but the log says ok (seq 10)"], ["not checkable"]),
+    ("AC-1 .. AC-3 with spaces is a range (a $l loop)",
+     "RAN: `evidence_record.py run --label AC-1 .. AC-3 -- python -m unittest` exit=0\n", "main", 0,
+     ["seq 7, 7, 7 at", "PASS claims=1 ok=1"], []),
+    ("a command nobody ran stays FAIL", "RAN: `python tools/deploy.py --prod` exit=0\n", "main", 1,
+     ["not run in session S1"], [])]
+# (name, swaps, checked by the runs instead of the matcher cases); each anchor must occur once in report_vs_audit.py
+RVA_224_MUTATIONS = [
+    ("no git -C", [('    for statement in norm(GIT_C.sub(lambda found: f"cd {found.group(1)} ; git ", command))'
+                    '.split(" ; "):\n', '    for statement in norm(command).split(" ; "):\n')], False),
+    ("no variables", [("            out.append(refs(part))\n", "            out.append(part)\n")], False),
+    ("no here-string", [("    for found in HERE_STRING.finditer(command):\n", "    for found in []:\n")], False),
+    ("no ... inside a word", [("    pattern = word_pattern(claim_word)\n", "    pattern = None\n")], False),
+    ("no hex prefix", [("    if HEX.fullmatch(claim_word) and HEX.fullmatch(log_word) and "
+                        "log_word.startswith(claim_word):\n", "    if False:\n")], False),
+    ("no absolute claim, relative log", [('    return ("/" in log_word and not log_word.startswith(("/", ".", "-"))'
+                                          ' and re.match(', '    return (False and re.match(')], False),
+    ("no launcher-kept compare", [('        return word_match(fold(launched), norm(command).split(" "), cut, '
+                                   'short)\n', "        return False\n")], False),
+    ("no options in another order", [('            or any_order(words, have.split(" "), leaves_out(words) if '
+                                      'short is None else short))\n', "            or False)\n")], False),
+    ("another order may leave options out", [("            if used != sorted(used) and (short or len(used) == "
+                                              "len(log_options)):\n", "            if used != sorted(used):\n")],
+     False),
+    ("no ；", [('text.replace("；", ";")', 'text.replace("；", "；")')], False),
+    ("no CJK-note fold", [('    words = fold(want.split(" "))\n', '    words = want.split(" ")\n')], False),
+    ("no carry between calls", [("            expanded, envs[agent] = expand_line(command, cut, "
+                                 "envs.get(agent))\n", "            expanded, _ = expand_line(command, cut)\n")],
+     True),
+    ("no HH:MM:SS", [('    clock = re.fullmatch(r"(\\d{1,2}):(\\d{2})(?::\\d{2}(?:\\.\\d+)?)?", value)\n',
+                      '    clock = re.fullmatch(r"(\\d{1,2}):(\\d{2})", value)\n')], True),
+    ("no span", [("    span = AT_SPAN.fullmatch(value)\n", "    span = None\n")], True),
+    ("no outer fence", [('and (outer or field != "RAN"):', "and False:")], True),
+    ("no separate calls", [("        parts = split_runs(claim, mine, offset, tolerance)\n",
+                            "        parts = None\n")], True),
+    ("no cut cover", [("                if cover is not None:\n", "                if False:\n")], True),
+    ("cut cover without another claim", [('    pool = [e for e in mine if e.get("seq") in anchors and',
+                                          "    pool = [e for e in mine if True and")], True),
+    ("cut cover outside at=", [('            and command_of(e)[1] and (at is None or near(str(e.get("ts")), at, '
+                                'offset, tolerance + extra))]\n', "            and command_of(e)[1]]\n")], True),
+    ("no mapped-tool exit rule", [('        elif (raw and claim["exit"] != 0', '        elif (False and raw')],
+     True),
+    ("mapped-tool exit rule with an error seen", [('not any(e.get("tool_raw") == raw and',
+                                                   'not any(False and e.get("tool_raw") == raw and')], True),
+    ("no spaced range", [('    command = ID_SPACED.sub(r"\\1..\\2", command)\n', "    pass\n")], True)]
+
+
+def rva224_matches_wrong(module, audit):
+    return [name for name, tool, command, claim, want in RVA_224_CASES
+            if bool(module.matches({"command": claim}, {"tool": tool, "input": audit.summary({"command": command})})) != want]
+
+
+def rva224_runs_wrong(module, reports, logs):
+    wrong = []
+    for (name, _, log, code, says, lacks), report in zip(RVA_224_RUNS, reports):
+        try:
+            got, out = call_main(module, "--report", report, "--log", logs[log], "--utc-offset", "+00:00")
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            wrong.append("%s: crashed %s" % (name, type(error).__name__))
+            continue
+        if rva223_wrong(name, code, says, lacks, got, out):
+            wrong.append(name)
+    return wrong
+
+
+@test
+def report_vs_audit_224(tmp):
+    audit = load_tool("audit_log")
+    cut = audit.summary({"command": RVA_CUT224})
+    require(cut.endswith("\u2026") and "lint.py" not in cut, "the RVA_CUT224 log line is not cut before lint.py, so it "
+            "tests nothing")
+    folder = tmp / "rva224"
+    logs = {}
+    for log_name, rows in RVA_224_LOGS.items():
+        prev, out = audit.GENESIS, []
+        for seq, (clock, agent, command, kind, status, raw) in enumerate(rows, 1):
+            entry = {"seq": seq, "ts": "2026-11-14T03:%s.000+00:00" % clock, "session_id": "S1", "agent_id": agent,
+                     "tool": "Bash", "tool_use_id": "t%d" % seq, "input": audit.summary({"command": command}),
+                     "kind": kind, "result": {"status": status}, "duration_ms": None, "prev": prev}
+            if raw:
+                entry["tool_raw"] = raw
+            entry["hash"] = audit.digest(entry)
+            prev = entry["hash"]
+            out.append(audit.canonical(entry))
+        logs[log_name] = write(folder / (log_name + ".jsonl"), "".join(line + "\n" for line in out))
+    reports = [write(folder / ("r%d.md" % n), "SESSION_ID: S1\n" + body) for n, (_, body, *_) in enumerate(RVA_224_RUNS)]
+    cli = []
+    for (name, _, log, code, says, lacks), report in zip(RVA_224_RUNS, reports):
+        proc = run_tool("report_vs_audit", "--report", report, "--log", logs[log], "--utc-offset", "+00:00")
+        if rva223_wrong(name, code, says, lacks, proc.returncode, text_of(proc)):
+            cli.append("%s (exit %s): %s" % (name, proc.returncode, tail(text_of(proc), 300)))
+    require(not cli, "report_vs_audit CLI gets these 2.2.4 runs wrong: %s" % cli)
+    real = load_tool("report_vs_audit")
+    wrong = rva224_matches_wrong(real, audit)
+    require(not wrong, "report_vs_audit gets these 2.2.4 matcher cases wrong: %s" % wrong)
+    wrong = rva224_runs_wrong(real, reports, logs)
+    require(not wrong, "report_vs_audit in process gets these 2.2.4 runs wrong: %s" % wrong)
+    survived = []
+    for name, swaps, by_runs in RVA_224_MUTATIONS:
+        module = mutated("report_vs_audit", swaps)
+        if not (rva224_runs_wrong(module, reports, logs) if by_runs else rva224_matches_wrong(module, audit)):
+            survived.append(name)
+    require(not survived, "these 2.2.4 mutations get no case wrong, so the cases do not test them: %s" % survived)
+    return "%d matcher cases, %d CLI runs (+ in process), %d mutations killed" % (
+        len(RVA_224_CASES), len(RVA_224_RUNS), len(RVA_224_MUTATIONS))
+
+
+# 2.2.4-ds.4 (upstream 2.2.4, WO-DW-224 B2): gate_check --after-verdict; order and verdict text are upstream's
+AV224_ORDER = """# WO-002 app fix
+ORDER_ID: WO-002
+REVISION = 1
+SCOPE:
+- app.py
+- lib/**
+FORBIDDEN:
+- secret.py
+"""
+AV224_VERDICT = """# GATE VERDICT {wo}
+ORDER: {order} REVISION 1
+CANDIDATE_HEAD: {head}
+"""
+AV224_MUTATIONS = (
+    ("no document rule", [('    return "DIRECTOR" in parts[:-1] or parts[-1].lower().endswith((".md", ".rst", ".txt"))',
+                           '    return False')]),
+    ("no SCOPE", [("not is_document(n) and not any(rx.fullmatch(n) for rx in scope)", "not is_document(n)")]),
+    ("no strict", [("""late.append(f"  ~ {'FAIL' if strict else 'WARN'} LATE_COMMIT""",
+                    """late.append(f"  ~ {'WARN'} LATE_COMMIT""")]),
+    ("first verdict, not last", [("last = next((f for f in found if all(leads_to(o[0], f[0]) for o in found)), None)",
+                                  "last = found[-1]")]),
+    ("every commit is late", [("        if outside:\n", "        if True:\n")]))
+
+
+@test
+def after_verdict_224(tmp):
+    folder = tmp / "after_verdict_224"
+    repo, gates, orders = folder / "repo", folder / "DIRECTOR" / "gates", folder / "DIRECTOR" / "orders"
+    for d in (repo / "lib", gates, orders):
+        d.mkdir(parents=True)
+
+    def git(*args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=repo,
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(message, files):
+        for name, text in files.items():
+            write(repo / name, text)
+        git("add", "-A")
+        git("commit", "-q", "-m", message)
+        return git("rev-parse", "HEAD")
+
+    git("init", "-q", "-b", "main")
+    first = commit("start", {"app.py": "a = 1\n", "other.py": "b = 1\n"})
+    write(orders / "WO-002-app.md", AV224_ORDER)
+    old = write(gates / "WO-001-GATE.md", AV224_VERDICT.format(wo="WO-001", order="WO-001-none.md", head=first[:12]))
+    second = commit("candidate", {"app.py": "a = 2\n"})
+    verdict = write(gates / "WO-002-GATE.md", AV224_VERDICT.format(wo="WO-002", order="WO-002-app.md", head=second))
+    both = [verdict, old]
+    expect_tool("after-verdict: HEAD is the candidate", "gate_check", 0, "--after-verdict", old, verdict, "--repo", repo,
+                says=["OK   AFTER_VERDICT", "candidate %s (the others lead to it)" % second[:12], "HEAD is the candidate"],
+                lacks="LATE_COMMIT")
+    stages = [("none", both, False)]
+    docs = commit("docs only", {"README.md": "x\n", "docs/guide.md": "y\n", "DIRECTOR/state.json": "{}\n"})
+    expect_tool("after-verdict: documents only", "gate_check", 0, "--after-verdict", *both, "--repo", repo,
+                says=["OK   AFTER_VERDICT", "is 1 commit(s) later, 0 change files outside SCOPE"], lacks="LATE_COMMIT")
+    inside = commit("code inside SCOPE", {"app.py": "a = 3\n", "lib/x.py": "c = 1\n"})
+    expect_tool("after-verdict: documents and in-SCOPE code only", "gate_check", 0, "--after-verdict", *both, "--repo",
+                repo, says=["OK   AFTER_VERDICT", "is 2 commit(s) later, 0 change files outside SCOPE"], lacks="LATE_COMMIT")
+    stages.append(("docs", both, False))
+    late = commit("code outside SCOPE", {"other.py": "b = 2\n", "notes.md": "z\n"})
+    expect_tool("after-verdict: a code commit outside SCOPE is a WARN, exit unchanged", "gate_check", 0,
+                "--after-verdict", *both, "--repo", repo,
+                says=["WARN AFTER_VERDICT", "~ WARN LATE_COMMIT %s code outside SCOPE: other.py" % late[:12],
+                      "shadow, exit unchanged", "is 3 commit(s) later, 1 change files"],
+                lacks=[docs[:12], inside[:12], "notes.md"])
+    expect_tool("after-verdict: --strict fails", "gate_check", 1, "--after-verdict", *both, "--repo", repo, "--strict",
+                says=["FAIL AFTER_VERDICT", "~ FAIL LATE_COMMIT %s" % late[:12]], lacks="shadow, exit unchanged")
+    expect_tool("after-verdict: the older verdict alone counts every later commit", "gate_check", 0, "--after-verdict",
+                old, "--repo", repo,
+                says=["order not found: every non-document file counts", "~ WARN LATE_COMMIT " + second[:12]])
+    stages += [("late", both, False), ("strict", both, True)]
+    bad = write(gates / "WO-003-GATE.md", AV224_VERDICT.format(wo="WO-003", order="WO-002-app.md", head="deadbeef0"))
+    expect_tool("after-verdict: a candidate that is not a commit is NOT_CHECKED", "gate_check", 0, "--after-verdict", bad,
+                "--repo", repo, says=["NOT_CHECKED after-verdict", "~ NOT_CHECKED", "deadbeef0 is not a commit"])
+    expect_tool("after-verdict: needs --repo", "gate_check", 2, "--after-verdict", verdict)
+    expect_tool("after-verdict: a missing verdict file fails", "gate_check", 1, "--after-verdict", folder / "nope.md",
+                "--repo", repo, says="file not found")
+    expect_tool("after-verdict: --strict alone is still refused", "gate_check", 2, "--verdict", verdict, "--strict")
+    expect_tool("after-verdict: --orders needs --after-verdict", "gate_check", 2, "--verdict", verdict, "--orders", orders)
+    real = load_tool("gate_check")
+    for path in ("DIRECTOR/a.json", "x/y.MD", "a\\DIRECTOR\\b.py"):
+        require(real.is_document(path), "after-verdict: %s is not a document" % path)
+    require(not real.is_document("DIRECTORY/a.py"), "after-verdict: DIRECTORY/a.py counted as a document")
+    expected = {"none": 0, "docs": 0, "late": 1, "strict": 1}
+
+    def wrong_with(module):
+        got = []
+        for head, part in ((second, stages[:1]), (inside, stages[1:2]), ("main", stages[2:])):
+            git("checkout", "-q", "--detach", head) if head != "main" else git("checkout", "-q", "main")
+            for name, paths, strict in part:
+                try:
+                    lines, count, _ = module.after_verdict([str(v) for v in paths], str(repo), None, strict)
+                except Exception as error:  # a mutant that crashes is a wrong answer
+                    got.append("%s: crashed %s" % (name, type(error).__name__))
+                    continue
+                text = "\n".join(lines)
+                if count != expected[name] or (name == "strict") != ("~ FAIL LATE_COMMIT" in text) \
+                        or (name == "late") != ("~ WARN LATE_COMMIT" in text) \
+                        or (name in ("late", "strict")) != ("%s (the others lead to it)" % second[:12] in text and count > 0):
+                    got.append(name)
+        git("checkout", "-q", "main")
+        return got
+    wrong = wrong_with(real)
+    require(not wrong, "after-verdict: after_verdict() is wrong at %s" % wrong)
+    survived = [name for name, swaps in AV224_MUTATIONS if not wrong_with(mutated("gate_check", swaps))]
+    require(not survived, "these after-verdict mutations get no stage wrong: %s" % survived)
+    return "11 CLI checks, 4 stages in process, %d mutations killed" % len(AV224_MUTATIONS)
+
 @test
 def sdd_real_openspec(tmp):
     sdd = load_tool("sdd_gate")

@@ -30,7 +30,9 @@ SPEC_CHANGE    = <openspec/changes/<名稱> | NONE>   # Standard／Strict 必填
 ## B. 目標
 - MUST HAVE：
 - OPTIONAL：
-- OUT OF SCOPE：
+- 不做（OUT OF SCOPE）：<這次明確不做的範圍；沒有就寫「無」，不可留空>
+- 可呼叫的入口：<交付物是函式庫或工具時，一個公開、測試可直接呼叫的函式：輸入路徑或資料 → 輸出結果，
+  例 `report.build(path) -> Report`；不能只能從命令列用。不是函式庫或工具就寫「不適用」（2.2.4-ds.4，上游 2.2.4）>
 
 可以改和不准碰的路徑（`tools/scope_check.py` 直接讀這兩份清單）：
 
