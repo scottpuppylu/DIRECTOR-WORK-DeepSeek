@@ -26,7 +26,8 @@ Runs, on this machine and offline:
   release_state 2.2.2-ds.3: release.py dry run on temp bare repos: BEHIND and DIVERGED stop, --merge predicts the
               conflicted file, AHEAD plans push / tag / release, a version below a remote tag and a VERSION that
               differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1; a -ds.N
-              not above every remote tag's -ds.N stops (1.1.0-ds.1 after v1.0.0-ds.2), 1.1.0-ds.3 passes
+              not above every remote tag's -ds.N stops (1.1.0-ds.1 after v1.0.0-ds.2), 1.1.0-ds.3 passes; a
+              VERSION changed in the working tree but not committed stops (the version is read from HEAD)
   release_scan  2.2.2-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
               <drive>:/Users path, DIRECTOR/ / _work/ / session files and a private author email, never prints a secret;
               noreply / .invalid emails and DIRECTOR/ named in text pass
@@ -34,7 +35,8 @@ Runs, on this machine and offline:
               up to date is confirmed, 1 behind is a WARN note (--strict-base: FAIL), a missing commit is noted,
               a failed fetch says it did not compare (--strict-base: FAIL)
   verify_dsh_run_unit 2.2.2-ds.3: tools/test_verify_dsh_run.py: the 11 D08 peek cases of WO-101, config / order
-              settings, and a synthetic project run (--no-dsh) with a clean, a test-editing and a wrong worker branch
+              settings, a synthetic project run (--no-dsh) with a clean, a test-editing and a wrong worker branch,
+              and the D13 step markers (acceptance is not a --help read, verdict / summary found by file name)
   report_skeleton 2.2.2-ds.3: gate_check --report-skeleton fills the order's fields, hash and one row per AC; left
               unfilled it fails --report; filled with the evidence its printed commands record, it passes --match
   release_execute 2.2.2-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
@@ -865,6 +867,14 @@ def release_state(tmp):
     code, out = release(low)
     require(code == 1 and "does not sort above the remote tag(s) v1.0.0" in out,
             "a version below a remote tag was not stopped: " + tail(out))
+    # VERSION bumped in the working tree but not committed: HEAD says 1.1.0, the tag would say 1.2.0 -> stop
+    loose = release_clone(origin, base / "loose")
+    release_commit(loose, "1.1.0")
+    write(loose / "VERSION", "1.2.0\n")
+    code, out = release(loose)
+    require(code == 1 and "VERSION differ(s) from HEAD (uncommitted); HEAD says 1.1.0" in out
+            and "NEXT: commit them" in out and "STEP version: OK" not in out,
+            "an uncommitted VERSION different from HEAD was not stopped: " + tail(out))
     mismatch = release_clone(origin, base / "mismatch")
     release_commit(mismatch, "1.2.0", top="1.1.0")
     code, out = release(mismatch)
@@ -882,7 +892,7 @@ def release_state(tmp):
     release_commit(serial, "1.1.0-ds.3")
     code, out = release(serial)
     require(code == 0 and "STEP version: OK 1.1.0-ds.3" in out, "a -ds.N above every remote one was stopped: " + tail(out))
-    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order, -ds.N serial and CHANGELOG mismatch"
+    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order, -ds.N serial, uncommitted VERSION and CHANGELOG mismatch"
 
 
 @test

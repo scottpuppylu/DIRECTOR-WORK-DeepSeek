@@ -176,6 +176,76 @@ def run_verify(config, *extra):
     return proc, status
 
 
+class RoundsTable(unittest.TestCase):
+    """D13 (2.2.2-ds.3): the step markers of the rounds table, on a WO-101-shaped timeline."""
+    DIR = "D:/w/DIRECTOR"
+    S = types.SimpleNamespace(order=pathlib.Path(DIR + "/orders/WO-101-clamp.md"),
+                              verdict=pathlib.Path(DIR + "/reviews/WO-101_GATE_VERDICT.md"),
+                              summary=pathlib.Path(DIR + "/reports/RUN_SUMMARY.md"))
+
+    def at(self, ms, tool, agent="lead", **args):
+        c = call(tool, agent, **args)
+        c["ms"] = ms
+        return c
+
+    def timeline(self):
+        d = self.DIR
+        return [
+            self.at(1, "pwsh", command="git status"),
+            self.at(2, "write", file_path="D:/w/demo/test_clamp.py", content="x"),
+            self.at(3, "subagent", name="spec-reviewer", prompt="review"),
+            self.at(4, "pwsh", command="python -I -X utf8 T/scope_check.py --help"),  # learning the tool, in review
+            self.at(5, "run_code", "spec-reviewer", code="read spec"),
+            self.at(6, "pwsh", command="python T/sdd_gate.py --lock-tests test_clamp.py --repo ."),
+            self.at(7, "write", file_path=d + "/orders/WO-101-clamp.md", content="order"),
+            self.at(8, "pwsh", command="python T/gate_check.py --hash " + d + "/orders/WO-101-clamp.md"),
+            self.at(9, "write", "clamp-worker", file_path="D:/w/demo/openspec/changes/add-clamp/tasks.md", content="- [ ]"),
+            self.at(10, "run_code", "clamp-worker", code="implement"),
+            self.at(11, "pwsh", command="python T/scope_check.py --order o --repo . --candidate abc"),
+            self.at(12, "pwsh", command="python T/gate_check.py --match r o"),
+            self.at(13, "write", file_path=d + "/reviews/WO-101_GATE_VERDICT.md", content="verdict"),
+            self.at(14, "write", file_path=d + "/reports/RUN_SUMMARY.md", content="RUN_DONE"),
+        ]
+
+    def markers(self, calls):
+        dispatch = next(c for c in calls if "--hash" in c["args"].get("command", ""))
+        test_write = calls[1]
+        return dict(vdr.step_markers(calls, self.S, "lead", "spec-reviewer", "clamp-worker", dispatch, test_write))
+
+    def test_acceptance_is_not_the_help_read_during_review(self):
+        found = self.markers(self.timeline())
+        self.assertEqual(found["8 驗收"]["ms"], 11)
+
+    def test_verdict_and_summary_are_found_by_file_name(self):
+        found = self.markers(self.timeline())
+        self.assertEqual(found["9 裁決＋封存"]["ms"], 13)
+        self.assertEqual(found["10 總結"]["ms"], 14)
+
+    def test_table_counts_each_step_until_the_next_in_time(self):
+        calls = self.timeline()
+        rows = vdr.rounds_table(calls, list(self.markers(calls).items()), "lead", "spec-reviewer", "clamp-worker")
+        table = {r.split(" | ")[0][2:]: r for r in rows if r.startswith("| ") and not r.startswith("| 步驟")}
+        self.assertEqual(table["3 規格審查"], "| 3 規格審查 | 2 | 1 | 0 |")  # ms 3, 4 (lead) and 5 (reviewer)
+        self.assertEqual(table["7 計畫閘門"], "| 7 計畫閘門 | 0 | 0 | 2 |")
+        self.assertEqual(table["8 驗收"], "| 8 驗收 | 2 | 0 | 0 |")
+        self.assertEqual(rows[-1], "沒在紀錄裡找到開頭的步驟：無")
+
+    def test_markers_out_of_list_order_are_sorted_by_time(self):
+        calls = self.timeline()
+        found = self.markers(calls)
+        late_test = self.at(7.5, "write", file_path="D:/w/demo/test_clamp.py", content="x")
+        calls = sorted(calls + [late_test], key=lambda c: c["ms"])
+        found["2 測試先寫"] = late_test  # the test written after the order (ms 7.5 > 7): listed 2nd, sorted 5th
+        rows = vdr.rounds_table(calls, list(found.items()), "lead", "spec-reviewer", "clamp-worker")
+        names = [r.split(" | ")[0][2:] for r in rows if r.startswith("| ") and not r.startswith("| 步驟")]
+        self.assertLess(names.index("5 寫工單"), names.index("2 測試先寫"))
+
+    def test_missing_steps_are_listed(self):
+        calls = [c for c in self.timeline() if "RUN_SUMMARY" not in c["args"].get("file_path", "")]
+        rows = vdr.rounds_table(calls, list(self.markers(calls).items()), "lead", "spec-reviewer", "clamp-worker")
+        self.assertEqual(rows[-1], "沒在紀錄裡找到開頭的步驟：10 總結")
+
+
 class SettingsFromConfigAndOrder(unittest.TestCase):
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="vdr-"))

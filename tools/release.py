@@ -13,7 +13,9 @@ Steps, in order; each prints `STEP <name>: OK | FAIL | SKIP | PLAN ...`, and a F
              with `git merge-tree`, and --execute makes branch release/<version> from <remote>/<branch>, merges HEAD
              into it with --no-ff and stops on a conflict, listing the conflicted files (resolve, commit, run again
              from that branch)
-  version    VERSION equals the first `## ` heading of CHANGELOG.md; tag v<version> is not on the remote yet, or
+  version    VERSION and CHANGELOG.md are read as committed at HEAD (git show HEAD:...), and an uncommitted
+             change to either stops (the tag goes on HEAD); VERSION equals the first `## ` heading of
+             CHANGELOG.md; tag v<version> is not on the remote yet, or
              already points at HEAD (a rerun); <version> sorts above every remote tag of the same shape
              (<major>.<minor>.<patch>[-<label>.<n>]) - 2.2.0-ds.2 after 2.2.1-ds.1 fails; and <n> is above the <n>
              of every remote tag with the same label: the -ds.N serial never restarts when the base version
@@ -282,21 +284,41 @@ class Release:
         self.step("state", "OK", f"{detail}; merged into {target} ({self.head()[:10]})")
         return "merged"
 
+    def head_text(self, name):
+        """A file as committed at HEAD (the tag goes on HEAD, so the version is read from there), or None."""
+        proc = git(self.repo, "show", f"HEAD:{name}", check=False)
+        return proc.stdout.lstrip("﻿") if proc.returncode == 0 else None
+
+    def check_committed(self):
+        """VERSION and CHANGELOG.md must be committed: an uncommitted bump would name a tag whose commit says
+        another version (found in the 2.2.2-ds.3 dry run). Other modified tracked files are a note here and stop
+        --execute in check_worktree."""
+        changed = git(self.repo, "diff", "--name-only", "HEAD", "--", "VERSION", "CHANGELOG.md").splitlines()
+        if changed:
+            committed = (self.head_text("VERSION") or "").strip() or "no VERSION"
+            raise Stop(f"{', '.join(changed)} differ(s) from HEAD (uncommitted); HEAD says {committed}, and the "
+                       "release is made from HEAD", "commit them (git add VERSION CHANGELOG.md; git commit), then run again")
+        others = git(self.repo, "status", "--porcelain", "--untracked-files=no").splitlines()
+        if others and not self.execute:
+            print(f"  ~ {len(others)} tracked file(s) have uncommitted changes; they are not released (--execute stops "
+                  "on them)")
+
     def read_version(self):
-        path = self.repo / "VERSION"
         if self.version:
             return self.version
-        if not path.is_file():
-            raise Stop("no VERSION file", "write the version into VERSION or pass --version")
-        return path.read_text(encoding="utf-8-sig").strip()
+        text = self.head_text("VERSION")
+        if text is None:
+            raise Stop("no VERSION file at HEAD", "commit the version in VERSION or pass --version")
+        return text.strip()
 
     def check_version(self):
+        self.check_committed()
         version = self.read_version()
         key = version_key(version)
         if not key:
             raise Stop(f"version {version!r} is not <major>.<minor>.<patch>[-<label>.<n>]", "fix VERSION")
-        changelog = self.repo / "CHANGELOG.md"
-        top, section = changelog_top(changelog.read_text(encoding="utf-8-sig")) if changelog.is_file() else (None, "")
+        changelog = self.head_text("CHANGELOG.md")
+        top, section = changelog_top(changelog) if changelog is not None else (None, "")
         if top != version:
             raise Stop(f"VERSION is {version} but the first CHANGELOG.md heading is {top or 'missing'}",
                        "put the new version's section on top of CHANGELOG.md (or fix VERSION)")

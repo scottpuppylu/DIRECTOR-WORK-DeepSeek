@@ -517,6 +517,52 @@ def peek_hits(calls, hidden):
     return hits
 
 
+def step_markers(calls, s, lead, reviewer, worker, dispatch=None, test_write=None):
+    """[(step name, the call that starts it or None)] for the D13 rounds table, from calls sorted by time.
+    dispatch / test_write: the calls D10-D12 already found (the lead's `gate_check --hash`, its first test write).
+    2.2.2-ds.3 fixes two errors carried over from ds.2: "8 驗收" took the lead's first scope_check of any kind, which
+    in WO-101 was `scope_check.py --help` during the spec review; and "9" / "10" matched the stems GATE_VERDICT /
+    RUN_SUMMARY against the end of the path, which never matches WO-101_GATE_VERDICT.md."""
+    def first(pred):
+        return next((c for c in calls if pred(c)), None)
+
+    def shell_has(c, *words):
+        return c["tool"].lower() in SHELLS and all(w.lower() in command_of(c).lower() for w in words)
+
+    return [
+        ("1 propose", first(lambda c: c["agent"] == lead)),
+        ("2 測試先寫", test_write),
+        ("3 規格審查", first(lambda c: c["agent"] == lead and c["tool"] == "subagent"
+                         and c["args"].get("name") == reviewer)),
+        ("4 鎖定測試", first(lambda c: shell_has(c, "--lock-tests"))),
+        ("5 寫工單", first(lambda c: is_write(c, s.order.name))),
+        ("6 派工", dispatch),
+        ("7 計畫閘門", first(lambda c: c["agent"] == worker and is_write(c, "tasks.md"))),
+        # acceptance = the lead's first real scope_check after dispatch; `--help` reads (learning the tool) do not count
+        ("8 驗收", first(lambda c: c["agent"] == lead and shell_has(c, "scope_check")
+                       and "--help" not in command_of(c) and (not dispatch or c["ms"] > dispatch["ms"]))),
+        # file names, not stems: is_write matches the end of the path (WO-101_GATE_VERDICT.md, RUN_SUMMARY.md)
+        ("9 裁決＋封存", first(lambda c: is_write(c, s.verdict.name if s.verdict else "GATE_VERDICT.md"))),
+        ("10 總結", first(lambda c: is_write(c, s.summary.name if s.summary else "RUN_SUMMARY.md"))),
+    ]
+
+
+def rounds_table(calls, markers, lead, reviewer, worker):
+    """Markdown rows: per step, each agent's top-level calls from its marker to the next one in time order, then the
+    steps whose start was not found."""
+    present = sorted(((name, c["ms"]) for name, c in markers if c), key=lambda x: x[1])
+    rows = [f"| 步驟 | {lead} 輪 | {reviewer} 輪 | {worker} 輪 |", "|---|---|---|---|"]
+    for i, (name, start) in enumerate(present):
+        end = present[i + 1][1] if i + 1 < len(present) else float("inf")
+        counts = {a: sum(1 for c in calls if c["top"] and c["agent"] == a and start <= c["ms"] < end)
+                  for a in (lead, reviewer, worker)}
+        rows.append(f"| {name} | {counts[lead]} | {counts[reviewer]} | {counts[worker]} |")
+    absent = [name for name, c in markers if not c]
+    rows.append("")
+    rows.append("沒在紀錄裡找到開頭的步驟：" + ("、".join(absent) if absent else "無"))
+    return rows
+
+
 def dsh_checks(s, out, ctx, sessions_root, cache_root):
     run_dir = s.project
     prepared = ctx.get("prepared_at")
@@ -635,32 +681,8 @@ def dsh_checks(s, out, ctx, sessions_root, cache_root):
     add("D12", f"測試先寫（{lead} 寫 {locked_test} 在任何程式之前），worker 沒碰測試檔", "PASS" if ok else "FAIL",
         f"{lead} 寫測試={'有' if test_write else '沒有'}、worker 寫測試檔={len(worker_tests)} 次")
 
-    markers = [
-        ("1 propose", first(lambda c: c["agent"] == lead)),
-        ("2 測試先寫", test_write),
-        ("3 規格審查", first(lambda c: c["agent"] == lead and c["tool"] == "subagent"
-                         and c["args"].get("name") == reviewer)),
-        ("4 鎖定測試", first(lambda c: shell_has(c, "--lock-tests"))),
-        ("5 寫工單", first(lambda c: is_write(c, s.order.name))),
-        ("6 派工", dispatch),
-        ("7 計畫閘門", first(lambda c: c["agent"] == worker and is_write(c, "tasks.md"))),
-        # acceptance = the lead's first real scope_check after dispatch; `--help` reads (learning the tool) do not count
-        ("8 驗收", first(lambda c: c["agent"] == lead and shell_has(c, "scope_check")
-                       and "--help" not in command_of(c) and (not dispatch or c["ms"] > dispatch["ms"]))),
-        # file names, not stems: is_write matches the end of the path (WO-101_GATE_VERDICT.md, RUN_SUMMARY.md)
-        ("9 裁決＋封存", first(lambda c: is_write(c, s.verdict.name if s.verdict else "GATE_VERDICT.md"))),
-        ("10 總結", first(lambda c: is_write(c, s.summary.name if s.summary else "RUN_SUMMARY.md"))),
-    ]
-    present = sorted(((name, c["ms"]) for name, c in markers if c), key=lambda x: x[1])
-    rows = [f"| 步驟 | {lead} 輪 | {reviewer} 輪 | {worker} 輪 |", "|---|---|---|---|"]
-    for i, (name, start) in enumerate(present):
-        end = present[i + 1][1] if i + 1 < len(present) else float("inf")
-        counts = {a: sum(1 for c in calls if c["top"] and c["agent"] == a and start <= c["ms"] < end)
-                  for a in (lead, reviewer, worker)}
-        rows.append(f"| {name} | {counts[lead]} | {counts[reviewer]} | {counts[worker]} |")
-    absent = [name for name, c in markers if not c]
-    rows.append("")
-    rows.append("沒在紀錄裡找到開頭的步驟：" + ("、".join(absent) if absent else "無"))
+    rows = rounds_table(calls, step_markers(calls, s, lead, reviewer, worker, dispatch, test_write),
+                        lead, reviewer, worker)
     rework = []
     first_ac = first(lambda c: c["agent"] == worker and shell_has(c, "unittest"))
     if first_ac:
