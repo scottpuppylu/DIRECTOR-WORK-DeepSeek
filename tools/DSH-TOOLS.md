@@ -58,7 +58,9 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 ## Kept upstream tools (platform-neutral)
 
 gate_check.py (2.2.1-ds.3: --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
-is a `~ WARN BASE_REF` note, --strict-base fails it; a failed fetch is said, never passed), scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line
+is a `~ WARN BASE_REF` note, --strict-base fails it; a failed fetch is said, never passed; --report-skeleton ORDER
+prints a TASK REPORT with the order's fields, hash and AC rows filled in plus the evidence / scope_check / --match
+commands, so a DSH worker does not read the checker's source to learn the format), scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line
 JSON decoding and the 2-real-word rule),
 trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit; PENDING_METHOD instead of PO_PAGE_URL),
 metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md), secret_mask.py, pause_ctl.py (no hook

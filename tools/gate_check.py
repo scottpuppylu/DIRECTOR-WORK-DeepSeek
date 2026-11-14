@@ -59,6 +59,11 @@ evidence and the product is still the Director's job (docs/02, docs/07).
              --evidence-dir when an AUTO row is PASS, or when the report's HEAD is not all 40 hex digits.
              The report's `ORDER: <file> REVISION n` line must name the order's REVISION; without a revision Strict
              fails and Standard notes it.
+  --report-skeleton ORDER [--repo DIR] [--evidence-dir DIR] [--out FILE]
+             2.2.1-ds.3: print a TASK REPORT for ORDER with what the order fixes filled in (TASK_ID, worker, model,
+             BASE, ORDER line, ORDER_SHA256, one ACCEPTANCE row per AC with the statuses its type allows) and
+             `<...>` for the rest, then the commands that finish the job: evidence_record.py run per CHECKS line,
+             scope_check.py, --match. --out writes the skeleton to a new file. An unfilled skeleton fails --report
   --hash FILE  print the SHA-256 that ORDER_SHA256 compares (line endings counted as LF) and the DISPATCH line to log
   --preflight REPORT ORDER
              before moving a review made with an older version to this one: list, one `LACKS` line each, what the
@@ -1636,6 +1641,115 @@ def dated(kind, text):
     return m.group(m.lastindex or 0) if m else None
 
 
+def order_value(text, key):
+    """The value of an order's `KEY = value` header line, or None."""
+    m = re.search(rf"^[ \t]*{re.escape(key)}[ \t]*=[ \t]*(.+?)[ \t]*$", text, re.M)
+    return m.group(1) if m else None
+
+
+def shell_quote(part):
+    """A command part as a worker types it in pwsh or bash: quoted when it holds anything but plain path characters."""
+    return part if re.fullmatch(r"[\w./:=@+,-]+", part) else '"' + part.replace('"', '\\"') + '"'
+
+
+def report_skeleton(order_path, repo=None, evidence_dir=None):
+    """(skeleton, commands) for `--report-skeleton` (2.2.1-ds.3): a TASK REPORT with everything the order already
+    fixes filled in (TASK_ID, MODEL, BASE, ORDER line, ORDER_SHA256, one ACCEPTANCE row per AC with its allowed
+    statuses) and `<...>` where the worker writes; and the commands that finish the job (evidence per AC from the
+    order's CHECKS, scope_check, --match). In the WO-101 DSH run the worker spent about 12 steps reading this tool's
+    source to learn the format; the skeleton replaces that. A skeleton left unfilled fails --report (placeholders)."""
+    path = pathlib.Path(order_path)
+    data = path.read_bytes()
+    text = data.decode("utf-8-sig", errors="replace")
+    digest = order_hash(data)
+    ids, _ = order_identity(text, path)
+    wo = order_key(ids) or path.stem
+    acs = ac_table(text)
+    checks = order_checks(text) or {}
+    worker = order_value(text, "PRIMARY_WORKER") or ""
+    named = re.search(r"「([^」]+)」", worker)
+    worker = named.group(1) if named else "<worker 名稱>"
+    model = order_value(text, "MODEL / EFFORT") or ""
+    model_parts = [part.strip() for part in re.split(r"[（(]", model)[0].split("/")]
+    model = (f"{model_parts[0]} (EFFORT {model_parts[1]})" if len(model_parts) > 1 and model_parts[0] and model_parts[1]
+             else "<MODEL (EFFORT ...)>")
+    base = BASE_SHA.search(re.split(r"\s+#", order_value(text, "BASE_REF") or "")[0])
+    base = base.group("sha") if base else "<BASE commit>"
+    branch, head, clean = "<分支>", "<HEAD 40 位>", "<yes|no>"
+    root = pathlib.Path(repo or ".")
+    code, out = base_git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if code == 0:
+        branch = out
+    strict = (order_value(text, "GOVERNANCE") or "").split()[:1] == ["Strict"]
+    lines = [
+        "# TASK REPORT",
+        "",
+        "```text",
+        f"<一句話結論：{wo} 完成／未完成什麼>",
+        "",
+        f"TASK_ID / WORKER / MODEL / BRANCH / BASE / HEAD / WORKTREE_CLEAN: {wo} / {worker} / {model} / {branch} / "
+        f"{base} / {head} / {clean}",
+        f"ORDER: {path.name} REVISION {order_revision(text)}",
+        f"ORDER_SHA256: {digest}",
+        "SESSION_ID: <DSH session id，沒有就刪這行>",
+        "RESULT: <PASS | PARTIAL | BLOCKED | FAIL>",
+        "  ENGINEERING: <改了什麼、commit、檔數>",
+        "  PRODUCT（成品）: <行為對上規格／驗收的哪幾條>",
+        "  PERFORMANCE: <或 N/A：原因>",
+        "  STABILITY: <既有功能有沒有動到>",
+        "DONE:",
+        "- <完成項目，附證據路徑>",
+        "TESTS:",
+    ]
+    for ac in acs:
+        lines.append(f"- {ac} `{' '.join(map(shell_quote, checks[ac]))}`：<結果>" if ac in checks
+                     else f"- {ac} <怎麼驗、結果>")
+    lines += [
+        "SCOPE_CHECK: <貼 scope_check.py 的最後一行>",
+        "EVIDENCE: <evidence_record 的 .json 路徑，逗號分隔；沒有寫 NONE: 原因>",
+        f"AGENT_NAME: {worker}",
+        "RAN:",
+        "- `<實際跑過的指令，一行一個>` exit=<N> at=<HH:MM>",
+        "ACCEPTANCE:",
+        "| ID | 實際 | 證據 | 狀態 |",
+        "|---|---|---|---|",
+    ]
+    for ac, row in acs.items():
+        kind = (row.get("type") or "AUTO").strip().upper()
+        allowed = " / ".join(AC_STATUSES.get(kind, AC_STATUSES["AUTO"]))
+        proof = "<evidence .json 檔名>" if kind == "AUTO" else "<證據路徑>"
+        lines.append(f"| {ac} | <實際結果> | {proof} | <{allowed}> |")
+    lines += [
+        "UNVERIFIED: <NONE 或沒驗到的項目>",
+        "KNOWN_ISSUES: <NONE 或已知問題>",
+        "FAILED_ATTEMPTS: <NONE 或試過失敗的方法>",
+        "PACKS: NONE",
+        "DECISIONS_NEEDED: <NONE 或要總監決定的事>",
+        "NEXT: <下一步>",
+        "```",
+        "",
+    ]
+    director = path.resolve().parent.parent
+    evidence = pathlib.Path(evidence_dir).resolve() if evidence_dir else director / "evidence"
+    tools = pathlib.Path(__file__).resolve().parent
+    py = "python -I -X utf8"
+    cwd = root.resolve().as_posix()
+    order = path.resolve().as_posix()
+    commands = [f"# {wo}: run these after the last commit (tick every task before that commit, so the evidence "
+                "is recorded at the HEAD the report names)"]
+    for ac in acs:
+        if ac in checks:
+            commands.append(f"{py} {(tools / 'evidence_record.py').as_posix()} run --out-dir {evidence.as_posix()} "
+                            f"--order {order} --cwd {cwd} --label {ac} -- " + " ".join(map(shell_quote, checks[ac])))
+    commands.append(f"{py} {(tools / 'scope_check.py').as_posix()} --order {order} --repo {cwd} "
+                    "--candidate <git rev-parse HEAD>")
+    report = director / "reports" / f"{wo}_TASK_REPORT.md"
+    commands.append(f"{py} {(tools / 'gate_check.py').as_posix()} --match {report.as_posix()} {order} "
+                    f"--evidence-dir {evidence.as_posix()} --repo {cwd}"
+                    + (" --candidate <git rev-parse HEAD> --dispatch-log <DIRECTOR_LOG.md>" if strict else ""))
+    return "\n".join(lines), commands
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for kind in CHECKS:
@@ -1659,6 +1773,10 @@ def main():
                     "are read from (default: the record file's folder)")
     ap.add_argument("--strict-base", action="store_true", help="with --order: a BASE_REF commit that is missing or behind "
                     "the remote branch, or a fetch that fails, fails (default: a WARN note)")
+    ap.add_argument("--report-skeleton", metavar="ORDER", help="print a TASK REPORT skeleton for ORDER (order fields, "
+                    "hash and one ACCEPTANCE row per AC filled in) and the commands that finish the job (2.2.1-ds.3)")
+    ap.add_argument("--out", metavar="FILE", help="with --report-skeleton: write the skeleton to FILE (refused when FILE "
+                    "exists) and print only the commands")
     ap.add_argument("--warn", action="store_true", help="report problems as WARN and exit 0")
     ap.add_argument("--since", metavar="YYYY-MM-DD", help="skip files dated before this day")
     a = ap.parse_args()
@@ -1676,6 +1794,29 @@ def main():
         ap.error("--order-history works with --match")
     if a.order_history and not pathlib.Path(a.order_history).is_dir():
         ap.error(f"--order-history: folder not found: {a.order_history}")
+    if a.out and not a.report_skeleton:
+        ap.error("--out works with --report-skeleton")
+    if a.report_skeleton:
+        if jobs or a.hash or a.brief or a.preflight:
+            ap.error("--report-skeleton runs alone (with --repo, --evidence-dir and --out)")
+        if not pathlib.Path(a.report_skeleton).is_file():
+            ap.error(f"--report-skeleton: file not found: {a.report_skeleton}")
+        if a.evidence_dir and not pathlib.Path(a.evidence_dir).is_dir():
+            ap.error(f"--evidence-dir: folder not found: {a.evidence_dir}")
+        skeleton, commands = report_skeleton(a.report_skeleton, a.repo, a.evidence_dir)
+        if a.out:
+            target = pathlib.Path(a.out)
+            if target.exists():
+                print(f"FAIL report-skeleton {target}\n  - the file exists; not overwritten")
+                return 1
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(skeleton, encoding="utf-8")
+            print(f"SKELETON {target} (fill every <...>, then run the last command)")
+        else:
+            print(skeleton)
+            print("=== COMMANDS (not part of the report) ===")
+        print("\n".join(commands))
+        return 0
     missing = [path for path in a.hash if not pathlib.Path(path).is_file()]
     for path in a.hash:
         if path in missing:

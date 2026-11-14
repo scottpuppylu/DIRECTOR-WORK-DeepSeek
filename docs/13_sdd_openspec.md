@@ -120,9 +120,41 @@ npm install --prefix "%LOCALAPPDATA%/dw-ds-tools/openspec-1.16.0" --ignore-scrip
   - 工單完整路徑另起一行寫，不要放在 ORDER 行。
 - **GATE_VERDICT 的 F 節（停止狀態）必填**：空白或缺節，`gate_check.py --verdict` 會判不過。最少寫 `NO MERGE / NO PUSH / NO FINAL ACCEPTANCE`。
 
+## 省 token（ds.3）
+
+WO-101 實機一次用了約 829 萬 token（lead 430 萬／49 步、worker 373 萬／48 步、規格審查 26 萬／5 步）。量測方法和每一項的數字在 ds.3 的 `TOKEN_ANALYSIS.md`（工作資料夾，不進 repo），重點：
+
+- DSH **每一步都把整段對話重送一次**。固定部分（系統提示、`run_code` 說明、卡片說明）約 46K token／步，佔全部的一半以上；所以**步數**是最大的成本，其次是早期讀進來、之後每步都重送的大段輸出。
+- worker 約 12 步在讀 `gate_check.py`／`report_vs_audit.py` 原始碼學報告格式；lead 約 13 步在試 provider、讀 `--help`、讀裁決的解析程式。這些都能用下面的規則省掉。
+
+規則（lead 和 worker 都照做）：
+
+1. **一個階段一個 `run_code`**：探索（工單、規格、測試、git 狀態一次讀完）、commit＋錄證據＋scope_check、驗收（scope_check＋`--match`＋`verify --rerun`＋讀報告＋看 diff）各寫成一個 `run_code`，不要一個指令一步。
+2. **不讀工具原始碼、不跑 `--help`**：要用的指令都在下表；報告格式用 `gate_check.py --report-skeleton` 產生，不要從原始碼反推。
+3. **只印需要的**：長輸出只留最後幾行（例：`... | Select-Object -Last 20`）；讀檔只讀要的段落。
+4. **tasks.md 全部打勾後才 commit，最後一個 commit 之後才錄證據**：先 commit 再補勾會讓工作樹變髒，得 amend、重錄證據、重寫報告（WO-101 多花 5 步）。
+5. **子代理一次開對**：`provider` 照上一節直接寫，不要先試。
+6. **RUN_SUMMARY 不寫 token 數**：用量由總監事後用 `dsh_usage.py`／`verify_dsh_run.py` 從紀錄算；lead 不用自己查。
+7. worker 不必自己跑 `dsh_audit.py`／`report_vs_audit.py`：`RAN` 行照實際指令逐字抄（不要縮寫），對紀錄是總監的事。
+
+| 誰 | 什麼時候 | 指令（`PY` = `python -I -X utf8`，`T` = DW-DS 的 `tools/`） |
+|---|---|---|
+| 總監 | 寫完工單 | `PY T/gate_check.py --order <工單> --repo <專案>` |
+| 總監 | 鎖測試 | `PY T/sdd_gate.py --lock-tests <測試檔> --repo <專案>` |
+| 總監 | 派工 | `PY T/gate_check.py --hash <工單>`（印出的 `DISPATCH` 行寫進 DIRECTOR_LOG） |
+| 總監 | 核准計畫 | `PY T/sdd_gate.py --plan-hash <tasks.md> --order <工單>`（印出的 `PLAN_APPROVED` 行寫進 DIRECTOR_LOG） |
+| worker | 開工 | `PY T/gate_check.py --report-skeleton <工單> --repo <專案> --out <報告路徑>`：寫好報告骨架，並印出錄證據、scope_check、`--match` 的完整指令，照順序跑 |
+| 總監 | 驗收 | `PY T/scope_check.py --order <工單> --repo <專案> --candidate <commit>`；`PY T/gate_check.py --match <報告> <工單> --evidence-dir <證據> --dispatch-log <DIRECTOR_LOG> --repo <專案>`；每條 AC `PY T/evidence_record.py verify --rerun --order <工單> --dispatch-log <DIRECTOR_LOG> --repo <專案> --candidate <commit> <紀錄檔>` |
+| 總監 | 裁決 | `PY T/gate_check.py --verdict <裁決> --match <報告> <工單> --candidate <commit> --repo <專案>` |
+| 總監 | 事後驗證 | `PY T/verify_dsh_run.py --config <設定>`（設定格式見 `templates/VERIFY_DSH_RUN.json`） |
+
+預估（同一個 clamp 任務，方法見 `TOKEN_ANALYSIS.md`）：照規則 1～7 做，約 340 萬 token（−59%；S 取 42K～49K、推理內容算不算重送，結果都在 −58%～−60%）。這是用 WO-101 的實際各步大小推算的，**還沒有實機重跑驗證**。
+
+PO 選做：系統提示裡約 61K 字元是卡片元件說明（`## 可用组件`、`## 卡片的 JSON Schema`、`## Schema Snippets` 等段，約 19.5K token／步）。DIRECTOR-WORK 的流程不用卡片；如果 DSH 能在設定裡關掉這組卡片說明，再省約 1 成（預估 −70%）。DW-DS 不改 `~/.dsh`，要不要關由 PO 決定。
+
 ## 已知限制
 
-- DSH 實機（deepseek-flash）照本流程跑過一張工單（WO-101 clamp，2026-11-14）：PO 只送出一段 prompt，總監照 `_work/ds2-openspec/VERIFY.md` 驗證，34/34 過（D08 的誤判修正後）。只跑過這一張，其他題目還沒驗。
+- DSH 實機（deepseek-flash）照本流程跑過一張工單（WO-101 clamp，2026-11-14）：PO 只送出一段 prompt，總監驗證 34/34 過（D08 的誤判修正後；ds.3 起用 `tools/verify_dsh_run.py` 重跑，結果相同）。只跑過這一張，其他題目還沒驗；ds.3 的省 token 規則也還沒實機跑過。
 - `openspec validate` 只查格式（每條 Requirement 有 Scenario、delta 標題對），不查規格內容對不對。
 - worker 仍然改得動規格和測試檔；工具做的是事後查出（`FORBIDDEN`＋`TESTS_LOCKED` 雜湊＋`PLAN_APPROVED` 雜湊），不是事前擋住（DSH 沒有 hook）。
 - 大小上限算的是最後結果的行數，搬檔案、重排格式也會算進去；真的需要大改就拆工單或由總監在 DIRECTOR_LOG 寫理由後調開關。

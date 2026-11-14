@@ -1,5 +1,7 @@
 # TASK REPORT（一個 gate 一則，一次寫完整）
 
+省事的寫法（2.2.1-ds.3）：`python -I -X utf8 tools/gate_check.py --report-skeleton <工單> --repo <專案> --out <報告路徑>` 會照工單把 TASK_ID、MODEL、BASE、ORDER、ORDER_SHA256 和每條 AC 一列先填好，並印出錄證據、scope_check、`--match` 的完整指令；只要把 `<...>` 換成實際內容。不用讀工具原始碼學格式。
+
 ```text
 首行：<一句話結論>
 TASK_ID / WORKER / MODEL / BRANCH / BASE / HEAD / WORKTREE_CLEAN(yes|no)

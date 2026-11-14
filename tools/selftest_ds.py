@@ -34,6 +34,8 @@ Runs, on this machine and offline:
               a failed fetch says it did not compare (--strict-base: FAIL)
   verify_dsh_run_unit 2.2.1-ds.3: tools/test_verify_dsh_run.py: the 11 D08 peek cases of WO-101, config / order
               settings, and a synthetic project run (--no-dsh) with a clean, a test-editing and a wrong worker branch
+  report_skeleton 2.2.1-ds.3: gate_check --report-skeleton fills the order's fields, hash and one row per AC; left
+              unfilled it fails --report; filled with the evidence its printed commands record, it passes --match
   release_execute 2.2.1-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
               push and tag verified with ls-remote, the release step stops on a non-GitHub remote, a rerun skips
   sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
@@ -55,6 +57,7 @@ import os
 import pathlib
 import py_compile
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -971,6 +974,82 @@ def release_scan(tmp):
     require(proc.returncode == 0 and "STEP scan: OK" in text_of(proc),
             "a clean change (noreply / .invalid emails, DIRECTOR/ only named in text) did not pass: " + tail(text_of(proc)))
     return "%d private kinds stopped, no secret printed, clean change passes" % len(cases)
+
+
+@test
+def report_skeleton(tmp):
+    """ds.3 token saving: gate_check --report-skeleton fills what the order fixes; left as is it fails --report; filled
+    in with the evidence its own printed commands record, it passes --match (and its scope_check command passes)."""
+    python = shutil.which("python")
+    if shutil.which("git") is None or python is None:
+        raise Skip("git or python is not on PATH")
+    root = tmp / "skeleton"
+    repo = root / "demo"
+    write(repo / "calc.py", "def add(a, b):\n    return 0\n")
+    write(repo / "test_calc.py", "import unittest\nfrom calc import add\n\n\nclass T(unittest.TestCase):\n"
+          "    def test_add(self):\n        self.assertEqual(add(1, 2), 3)\n")
+    rgit(repo, "init", "-q")
+    rgit(repo, "config", "user.email", "selftest@example.invalid")
+    rgit(repo, "config", "user.name", "Selftest")
+    rgit(repo, "config", "core.autocrlf", "false")
+    rgit(repo, "add", "-A")
+    rgit(repo, "commit", "-q", "-m", "base")
+    base = rgit(repo, "rev-parse", "HEAD")
+    check = ["python", "-B", "-I", "-m", "unittest", "discover", "-s", ".", "-p", "test_*.py"]
+    order = write(root / "DIRECTOR" / "orders" / "WO-8-add.md", "\n".join([
+        "# WO-8 — skeleton selftest", "**fix add**", "", "```text",
+        "ISSUED_BY      = 總監 2026-11-14 09:00", "REVISION       = 1", "TRACES_TO      = NONE",
+        "PRIMARY_WORKER = 子代理「w8」（DSH）", "MODEL / EFFORT = deepseek-flash / high（理由：小改動）",
+        "FALLBACK       = 同名子代理續談", "GOVERNANCE     = Standard", f"BASE_REF       = main @ {base}",
+        "```", "", "```text", "SCOPE:", "- calc.py", "FORBIDDEN:", "- test_calc.py", "```", "",
+        "| ID | 類型 | 要求 | 驗證方法 | 預期 |", "|---|---|---|---|---|",
+        "| AC-1 | AUTO | add returns the sum | `python -B -I -m unittest discover -s . -p \"test_*.py\"` | exit 0 |",
+        "| AC-2 | REVIEW | the code reads well | 總監看 diff | 好讀 |", "",
+        "```text", "CHECKS:", "- AC-1: " + json.dumps(check), "```", "",
+        "- DELIVERABLES: one commit", "- STOP_RULES: 同一根因 1 輪沒進展就停", ""]))
+    # this test is about the report, not SDD: the order's folder config turns the spec and locked-test rules off
+    write(root / "DIRECTOR" / "director_work.json",
+          json.dumps({"schema_version": 1, "sdd": {"require_spec_for_standard": False, "tests_first": False}}) + "\n")
+    write(repo / "calc.py", "def add(a, b):\n    return a + b\n")
+    rgit(repo, "commit", "-q", "-am", "WO-8: add returns the sum")
+    head = rgit(repo, "rev-parse", "HEAD")
+    report = root / "DIRECTOR" / "reports" / "WO-8_TASK_REPORT.md"
+    proc = run_tool("gate_check", "--report-skeleton", order, "--repo", repo, "--out", report)
+    out = text_of(proc)
+    require(proc.returncode == 0 and report.is_file(), "skeleton not written: " + tail(out))
+    skeleton = report.read_text(encoding="utf-8")
+    for want in ("WO-8 / w8 / deepseek-flash (EFFORT high) / ", f"/ {base} / <HEAD 40 位>", "ORDER: WO-8-add.md REVISION 1",
+                 "| AC-1 | <實際結果> | <evidence .json 檔名> | <PASS / FAIL / BLOCKED / UNVERIFIED> |",
+                 "| AC-2 | <實際結果> | <證據路徑> | <READY_FOR_REVIEW / FAIL / BLOCKED / UNVERIFIED> |"):
+        require(want in skeleton, "skeleton lacks " + want)
+    again = run_tool("gate_check", "--report-skeleton", order, "--repo", repo, "--out", report)
+    require(again.returncode == 1 and "not overwritten" in text_of(again), "an existing report was overwritten")
+    raw = run_tool("gate_check", "--report", report)
+    require(raw.returncode == 1 and "placeholder left" in text_of(raw), "an unfilled skeleton passed --report")
+    commands = [line for line in out.splitlines() if line.startswith("python ")]
+    require(len(commands) == 3, "expected evidence + scope_check + match commands, got: " + tail(out))
+    require(" ".join(check) in commands[0].replace('"test_*.py"', "test_*.py"), "evidence command is not the CHECKS one")
+    ran = run_prog(shlex.split(commands[0]), cwd=repo)
+    require(ran.returncode == 0, "the printed evidence command failed: " + tail(text_of(ran)))
+    record = sorted((root / "DIRECTOR" / "evidence").glob("*.json"))[-1]
+    scope = run_prog(shlex.split(commands[1].replace("<git rev-parse HEAD>", head)), cwd=repo)
+    scope_line = (text_of(scope).strip().splitlines() or [""])[-1]
+    require(scope.returncode == 0 and scope_line.startswith("SCOPE_CHECK: PASS"),
+            "the printed scope_check command failed: " + tail(text_of(scope)))
+    filled = (skeleton.replace("<HEAD 40 位>", head).replace("<yes|no>", "yes")
+              .replace("<PASS | PARTIAL | BLOCKED | FAIL>", "PASS")
+              .replace("SCOPE_CHECK: <貼 scope_check.py 的最後一行>", scope_line)
+              .replace("<evidence .json 檔名>", record.name)
+              .replace("<PASS / FAIL / BLOCKED / UNVERIFIED>", "PASS")
+              .replace("<證據路徑>", "calc.py").replace("<READY_FOR_REVIEW / FAIL / BLOCKED / UNVERIFIED>", "READY_FOR_REVIEW")
+              .replace("<實際跑過的指令，一行一個>", "python -B -I -m unittest").replace("exit=<N> at=<HH:MM>", "exit=0 at=09:00"))
+    filled = "\n".join(line for line in filled.splitlines() if not line.startswith("SESSION_ID"))
+    filled = re.sub(r"<NONE[^<>\n]*>", "NONE", filled)
+    filled = re.sub(r"<[^<>\n]+>", "filled in", filled)
+    report.write_text(filled, encoding="utf-8")
+    match = run_prog(shlex.split(commands[2]), cwd=repo)
+    require(match.returncode == 0, "the filled skeleton failed --match: " + tail(text_of(match)))
+    return "skeleton -> unfilled FAIL, filled + printed commands -> scope PASS, --match OK"
 
 
 @test

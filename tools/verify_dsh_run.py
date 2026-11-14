@@ -644,11 +644,14 @@ def dsh_checks(s, out, ctx, sessions_root, cache_root):
         ("5 寫工單", first(lambda c: is_write(c, s.order.name))),
         ("6 派工", dispatch),
         ("7 計畫閘門", first(lambda c: c["agent"] == worker and is_write(c, "tasks.md"))),
-        ("8 驗收", first(lambda c: c["agent"] == lead and shell_has(c, "scope_check"))),
-        ("9 裁決＋封存", first(lambda c: is_write(c, "GATE_VERDICT"))),
-        ("10 總結", first(lambda c: is_write(c, "RUN_SUMMARY"))),
+        # acceptance = the lead's first real scope_check after dispatch; `--help` reads (learning the tool) do not count
+        ("8 驗收", first(lambda c: c["agent"] == lead and shell_has(c, "scope_check")
+                       and "--help" not in command_of(c) and (not dispatch or c["ms"] > dispatch["ms"]))),
+        # file names, not stems: is_write matches the end of the path (WO-101_GATE_VERDICT.md, RUN_SUMMARY.md)
+        ("9 裁決＋封存", first(lambda c: is_write(c, s.verdict.name if s.verdict else "GATE_VERDICT.md"))),
+        ("10 總結", first(lambda c: is_write(c, s.summary.name if s.summary else "RUN_SUMMARY.md"))),
     ]
-    present = [(name, c["ms"]) for name, c in markers if c]
+    present = sorted(((name, c["ms"]) for name, c in markers if c), key=lambda x: x[1])
     rows = [f"| 步驟 | {lead} 輪 | {reviewer} 輪 | {worker} 輪 |", "|---|---|---|---|"]
     for i, (name, start) in enumerate(present):
         end = present[i + 1][1] if i + 1 < len(present) else float("inf")
