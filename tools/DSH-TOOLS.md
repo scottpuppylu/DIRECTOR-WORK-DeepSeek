@@ -31,6 +31,8 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   PO_PENDING entry fields, the RESUME_STATE header and director_work.json. 2.2.1-ds.1 shadow checks (printed as
   `~ shadow:`; `--strict` makes them fail): an ID used twice, filled RESUME header values and a dated UPDATED line
   (gate_check --resume rule), director_work.json schema_version / mode / *_pattern regexes / po_pending_files types.
+  2.2.2-ds.3 (upstream 2.2.2 setup_check): RESUME_SIZE (the RESUME_STATE over resume.max_bytes / max_line_bytes) and
+  the resume / base_ref / release blocks of director_work.json, shadow too.
   `dsh_setup_check.py [--json] [--strict] DIR [DIR ...]`
   exit 0 no problems, 1 any problem, 2 usage error.
 - dsh_guard.py - advisory risky-command check (no hook; run it yourself): force push, push, delete, send / publish,
@@ -38,7 +40,8 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_guard.py --command "git push" [--mode remind|block] [--profile worker|director] [--pause-flag FILE]
   [--rules FILE] [--shell bash|powershell|cmd] [--cwd DIR] [--json]`
   exit 0 clean, 1 remind (default), 2 block / pause flag exists / rules unreadable.
-- release.py (2.2.2-ds.3) - release this repository in one pass: fetch, HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
+- release.py (2.2.2-ds.3) - release this repository in one pass: fetch, any modified or staged tracked file stops
+  (dry run too; VERSION and CHANGELOG are read from HEAD), HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
   BEHIND / DIVERGED; --merge merges into release/<version> with --no-ff and stops on conflicts), VERSION = CHANGELOG top
   and the tag sorts above every remote tag, selftest, a scan of everything about to go public, then push (no --force),
   annotated tag, `gh release create --verify-tag --latest`, each checked with ls-remote / gh release view. Dry run by
@@ -57,13 +60,17 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 
 ## Kept upstream tools (platform-neutral)
 
-gate_check.py (2.2.2-ds.3: --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
+gate_check.py (2.2.2-ds.3: --resume prints `~ shadow: RESUME_SIZE` over resume.max_bytes / max_line_bytes, --strict
+fails it; --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
 is a `~ WARN BASE_REF` note, --strict-base fails it; a failed fetch is said, never passed; --report-skeleton ORDER
 prints a TASK REPORT with the order's fields, hash and AC rows filled in plus the evidence / scope_check / --match
 commands, so a DSH worker does not read the checker's source to learn the format), scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line
 JSON decoding and the 2-real-word rule),
 trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit; PENDING_METHOD instead of PO_PAGE_URL),
-metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md), secret_mask.py, pause_ctl.py (no hook
+metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md; 2.2.2-ds.3 as upstream 2.2.2: --kind resume,
+several --file, --glob, --workstreams, one line per file and `SIZE: PASS|OVER|MISSING`), resume_archive.py
+(2.2.2-ds.3, upstream 2.2.2 unchanged: moves old RESUME_STATE sections word for word to RESUME_HISTORY_<YYYYMMDD>.md;
+dry-run by default, --execute backs up, verifies and restores on any failed check), secret_mask.py, pause_ctl.py (no hook
 reads the flag in DSH: workers check it themselves),
 audit_log.py (verify / head / cite / recover; append is unused in DSH), vocabulary.json, guard_rules.json (used by
 dsh_guard.py).

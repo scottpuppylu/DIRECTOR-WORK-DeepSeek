@@ -14,16 +14,16 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 | `dsh_usage.py` | 每 session 的 input/output/cacheRead/cacheWrite、最後 prompt tokens、context 使用率、effort/model、每日彙總 | `--out` 才寫 |
 | `dsh_audit.py` | 從 session 事件重建有雜湊鏈的動作紀錄，給 `report_vs_audit.py`／gate 審查用；`verify` 檢查鏈與錨點，`cite` 印報告要引的區段。2.2.1-ds.1 起第 1 行是 `kind=rebuild`（記來源 session 檔名、sha256、大小），工具呼叫從 seq 2 起 | `build` 寫一份 JSONL，不覆蓋舊的 |
 | `dsh_doctor.py` | 12 項環境檢查：Python、Node、DSH home、session log、投影快取、profile 模型/effort、沙箱/核准、git、工具/文件/範本齊不齊 | 不寫 |
-| `dsh_setup_check.py` | 建置完成的檢查：BOOTSTRAP 產出的 DIRECTOR 資料夾（必要檔案、PENDING_METHOD、PO_PENDING、RESUME_STATE 標頭、director_work.json）；2.2.1-ds.1 起另有 shadow 檢查（ID 重複、RESUME 標頭有值與 UPDATED 日期、director_work.json 欄位型別與 regex），印 `~ shadow:`，`--strict` 才算失敗 | 不寫 |
+| `dsh_setup_check.py` | 建置完成的檢查：BOOTSTRAP 產出的 DIRECTOR 資料夾（必要檔案、PENDING_METHOD、PO_PENDING、RESUME_STATE 標頭、director_work.json）；2.2.1-ds.1 起另有 shadow 檢查（ID 重複、RESUME 標頭有值與 UPDATED 日期、director_work.json 欄位型別與 regex），印 `~ shadow:`，`--strict` 才算失敗；2.2.2-ds.3 加 RESUME_STATE 大小（RESUME_SIZE）和 `resume`／`base_ref`／`release` 區塊的型別檢查 | 不寫 |
 | `dsh_guard.py` | 動手前的自律檢查：force push、push、刪除、送出/發布、付款、改設定、秘密、永遠禁止的 git/程序模式、PAUSE 旗標；預設只提醒 | 不寫 |
 | `sdd_gate.py` | ds.2 規格先行的膠水（OpenSpec 沒有的部分）：`gate_check.py`／`scope_check.py` 載入它來查 `SPEC_CHANGE`＋`openspec validate --strict --json`、`TESTS_LOCKED` 雜湊、`SPEC_REVIEW`／`PLAN_APPROVED` 紀錄、工單大小、STOP_RULES 輪數；CLI：`--lock-tests`、`--plan-hash`、`--which`（`docs/13`） | 不寫 |
-| `release.py` | 2.2.2-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ VERSION 與 CHANGELOG 最上段一致、tag 排序高於遠端所有 tag → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create`，每步用 ls-remote／`gh release view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
+| `release.py` | 2.2.2-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ 工作樹有沒 commit 的 tracked 檔就停 → VERSION 與 CHANGELOG（都從 HEAD 讀）最上段一致、tag 排序高於遠端所有 tag、`-ds.N` 高於遠端所有 `-ds.*` → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create`，每步用 ls-remote／`gh release view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
 | `verify_dsh_run.py` | 2.2.2-ds.3 DSH 試跑驗證器（由 ds.2 的 WO-101 `verify_run.py` 通用化）：R01–R21 看 repo（候選 commit、各階段改了哪些檔、鎖定測試雜湊、總監重跑測試與隱藏 oracle、openspec validate、gate_check、evidence 重跑、DIRECTOR_LOG），D01–D14 看 DSH session 紀錄（模型、寫入範圍、禁止動作、偷看隱藏測試、計畫閘門、測試先寫、report_vs_audit）。工單專屬的檔名、代理名、oracle 寫在設定檔（`templates/VERIFY_DSH_RUN.json`）；單元測試 `test_verify_dsh_run.py` | 只寫 `--out` 資料夾 |
 | `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對、SDD gate 正反案例） | 只寫暫存資料夾 |
 
 ## 上游保留（跨平台，已適配 DSH）
 
-- `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。ds.2：Standard／Strict 工單另查 SDD 規則（`--repo <專案>`、`--config director_work.json`）。2.2.2-ds.3：`--order` 先 `git fetch` 再比 BASE_REF 與遠端分支，落後或不存在印 `~ WARN BASE_REF`，`--strict-base` 判不過，fetch 失敗會明說沒比對。`--report-skeleton 工單 [--repo] [--out]` 印出照工單填好欄位、雜湊和每條 AC 一列的 TASK REPORT 骨架，以及錄證據、scope_check、`--match` 的完整指令（DSH worker 不用讀原始碼學格式；docs/13「省 token」）。
+- `gate_check.py`：檢查 RESUME_STATE／工單／TASK REPORT／裁決的欄位與用詞；`--match` 逐條對報告與工單 AC、`--evidence-dir` 核證據、`--hash` 印派工雜湊、`--verdict` 驗裁決。ds.2：Standard／Strict 工單另查 SDD 規則（`--repo <專案>`、`--config director_work.json`）。2.2.2-ds.3：`--order` 先 `git fetch` 再比 BASE_REF 與遠端分支，落後或不存在印 `~ WARN BASE_REF`，`--strict-base` 判不過，fetch 失敗會明說沒比對；`base_ref` 開關型別錯會印 note 並用預設（同上游 2.2.2）。`--resume` 檔案超過 `resume.max_bytes`／`resume.max_line_bytes`（預設 20480／4096）印 `~ shadow: RESUME_SIZE`，`--strict` 判不過。`--report-skeleton 工單 [--repo] [--out]` 印出照工單填好欄位、雜湊和每條 AC 一列的 TASK REPORT 骨架，以及錄證據、scope_check、`--match` 的完整指令（DSH worker 不用讀原始碼學格式；docs/13「省 token」）。
 - `scope_check.py`：比對實際改動與工單 SCOPE／FORBIDDEN。ds.2：Standard／Strict 工單另查大小上限（`OVERSIZE`）。
 - `evidence_record.py`：跑驗收指令，留下 exit code、輸出尾段、產物 SHA-256；`verify --rerun` 可重跑。
 - `report_vs_audit.py`：拿 RAN 與 TESTS／EVIDENCE／DONE 的指令對動作紀錄（DSH 包殼指令會先剝殼再比；比對不到就 FAIL，不會亂放行）。2.2.1：被截在 500 字的行會照 JSON 字串解回引號與反斜線，長的 Windows 路徑指令也對得上；單字比對至少要 2 個不是 `...`／`<名稱>` 的字；讀到 `kind=rebuild` 的紀錄會印一行 note。
@@ -31,7 +31,8 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 - `round_check.py`：修正輪數檢查（第 4 輪起要根因研究）。
 - `status_gen.py`：產生一條工作線的 `status.py`；總監版加待決帳計數、未結案工單、近 1 小時動作紀錄（已改吃 `po_pending`、無 pending_sends／processes）。
 - `metrics_report.py`：從 DIRECTOR 檔案數成效數字。
-- `memory_size_check.py`：指示鏈大小（預設找最近的 `AGENTS.md`，`--max-bytes 65536`）。
+- `memory_size_check.py`：指示鏈大小（預設找最近的 `AGENTS.md`，`--max-bytes 65536`）。2.2.2-ds.3（上游 2.2.2）：`--kind resume` 量 RESUME_STATE（整份 20480、單行 4096 bytes，`--config` 讀 `resume.*`），可給多個 `--file`、`--glob "<根>/**/RESUME_STATE*.md"` 或 `--workstreams ACTIVE_WORKSTREAMS.md`；一檔一行（OK／OVER、bytes、~token、最長行、可搬 bytes），最後 `SIZE: PASS|OVER|MISSING files=n over=n`，超過或找不到 exit 1，只讀。
+- `resume_archive.py`：2.2.2-ds.3（上游 2.2.2，原樣搬）把 RESUME_STATE 的舊段落原文搬到同資料夾 `RESUME_HISTORY_<YYYYMMDD>.md`，原處留索引。預設 dry-run；`--execute` 先寫 `.bak`，搬完驗證 (a) 歷史檔逐字含搬走的內容 (b) 留下的部分 sha256 不變、表頭仍四行 (c) 搬走＋留下＝原檔，任何一項不過就還原並 exit 1。近期只用筆數算（`resume.keep_recent`，預設 10，沒有 keep_days）；表頭、現況、保護標題、沒日期的段落不動（docs/06b「RESUME_STATE 瘦身」）。
 - `secret_mask.py`：把私鑰、token、API key、JWT、`password=` 這類值遮成 `[MASKED:種類]`。
 - `pause_ctl.py`：暫停開關（寫／移除 `<DIRECTOR>/PAUSE` 並記 LOG 一行）。
 - `audit_log.py`：動作紀錄格式的來源；DSH 只用它的 `verify`／`head`／`cite`／`recover`（`append` 是 Claude hook 用的，DSH 不呼叫）。

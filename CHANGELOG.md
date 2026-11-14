@@ -1,11 +1,22 @@
 # CHANGELOG — DeepSeek Harness 版
 
-本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.1（Claude Code／Claude Desktop 版，MIT）的移植。
+本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
 ## 2.2.2-ds.3（2026-11-14）
 
-ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的、DSH 試跑驗證器通用化，並根據 WO-101 實機紀錄的量測減少 DSH 的 token 用量。規則和工單格式沒有變；新的檢查預設只提示，不會讓舊工單判不過。
+ds.3 對應上游 2.2.2，是工具版：發版一次到位、派工前確認 BASE_REF 是最新的、DSH 試跑驗證器通用化、根據 WO-101 實機紀錄的量測減少 DSH 的 token 用量，並移植上游 2.2.2 的 RESUME_STATE 大小檢查和原文搬移工具。工單格式沒有變；新的檢查預設只提示，不會讓舊工單判不過。
+
+### 上游 2.2.2 移植：RESUME_STATE 大小（shadow）與 resume_archive.py
+- 問題：RESUME_STATE 每次續接都整份讀進 context，DSH 每一步又重送整段對話；表頭 `Before:` 鏈越接越長。上游實測一份 115,026 bytes（約 57,513 token），最長一行 32,699 bytes。
+- `memory_size_check.py --kind resume`：一次量多份（`--file` 多次、`--glob`、`--workstreams <ACTIVE_WORKSTREAMS.md>`），每檔一行（bytes、~token、最長行、可搬 bytes），最後一行 `SIZE: PASS|OVER|MISSING`；上限 20480 bytes、單行 4096（`director_work.json` 的 `resume.max_bytes`、`resume.max_line_bytes`）。只讀。單檔舊用法輸出不變，預設仍找最近的 `AGENTS.md`。
+- `gate_check.py --resume`：超過時印 `~ shadow: RESUME_SIZE ...`，exit code 不變；`--strict` 才判不過；`--config` 讀上限。
+- `dsh_setup_check.py`：RESUME_STATE 加大小檢查（shadow）；`director_work.json` 多查 `resume`、`base_ref`、`release` 區塊的型別；`sdd`／`resume`／`base_ref`／`release` 不再被誤報成「keys no tool reads」。
+- 新 `tools/resume_archive.py`（上游原樣）：「壓縮」只代表原文搬到同資料夾 `RESUME_HISTORY_<YYYYMMDD>.md`，原處留索引（日期、歷史檔、sha256）。近期只看筆數（`resume.keep_recent`，預設 10），沒有 keep_days；四行表頭仍四行，`Before:` 鏈保留現況和最新 10 筆、只搬更舊的尾段；現況、保護標題（`resume.protect_headings`）、沒有完整日期的段落都不動；順序或筆數看不清就不搬並印 shadow。預設 dry-run；`--execute` 先寫 `.bak`，搬完驗 (a) 歷史檔逐字含搬走的內容 (b) 留下的部分 sha256 不變 (c) 放回去等於原檔，任一項不過就還原並 exit 1。
+- `gate_check --order` 的 `base_ref` 讀法換成上游版：開關不是 true／false 會印 note 並用預設（以前靜默照用，字串 `"false"` 會被當成真）；設定檔先找工單資料夾再找上一層；BASE_REF 沒寫 commit 時不再印 note（和上游一樣，舊工單輸出不變）。
+- `release.py` 從上游 2.2.2 帶回：`main(argv)`、公開掃描多擋 `CLAUDE.local.md`／`.claude/settings.local.json`／Claude session 紀錄。兩邊的工作樹與版本規則本來就一致。
+- 文件：`docs/06` 的 gate_check 那一行加大小一句；細節在 `docs/06b`「RESUME_STATE 瘦身」和巡查第 4 步；`docs/02` 加「發版」一節；`templates/RESUME_STATE.md` 註明上限；`CHANGELOG-upstream.md` 附上游 2.2.2 段。逐檔差異和理由見 `DEEPSEEK-PORT.md` 第 12 節。
+- 只由各工作線自己跑 resume_archive（總監巡查時用 memory_size_check 量），不是每輪步驟。
 
 ### 工具
 - 新增 `tools/release.py`：發版一次跑完（fetch → 和遠端分支比落後／分岔 → VERSION＝CHANGELOG 最上面一段、版本比遠端所有 tag 新 → selftest → 公開掃描 → push → `ls-remote` 確認 → annotated tag → push tag → `ls-remote` 確認 → `gh release create --latest --verify-tag` → `gh release view`）。
@@ -47,11 +58,21 @@ ds.3 是工具版：發版一次到位、派工前確認 BASE_REF 是最新的�
 - `docs/13`：省 token 一節、已知限制改指 `verify_dsh_run.py`。
 - `BOOTSTRAP.md`：開線那一輪的 BASE_REF 提示，10.5 第 6 點（省 token、試跑驗證）。
 - `DEEPSEEK-PORT.md` 第 10 節：發版用 `release.py`；版本號規則 `<上游版本>-ds.<N>`，N 一直往上加。
-- `README.md`、`tools/README.md`、`tools/DSH-TOOLS.md`、`director_work.example.json`（`"release"`、`"base_ref"` 兩段）。
+- `README.md`、`tools/README.md`、`tools/DSH-TOOLS.md`、`director_work.example.json`（`"release"`、`"base_ref"`、`"resume"` 三段）。
+- `DEEPSEEK-PORT.md` 第 12 節：上游 2.2.2 逐檔比較與每個差異的理由。
 
 ### 驗證
-- `selftest_ds.py` 28/28 PASS（OpenSpec 1.16.0 實機），新增 6 項：`release_state`、`release_execute`、`release_scan`、`base_ref_fresh`、`report_skeleton`、`verify_dsh_run_unit`。2.2.1-ds.2 是 22/22。
+- `selftest_ds.py` 30/30 PASS（OpenSpec 1.16.0 實機），新增 8 項：`release_state`、`release_execute`、`release_scan`、`base_ref_fresh`、`report_skeleton`、`verify_dsh_run_unit`、`resume_size`、`resume_archive`（後兩項是上游 2.2.2 的測試案例改寫，含 11 個突變都被抓到）。2.2.1-ds.2 是 22/22。
 - `verify_dsh_run.py` 用 WO-101 設定：`VERIFY_DSH_RUN: PASS pass=34 fail=0 skip=0`。
+- 上游 A5 的 115,026 bytes RESUME_STATE 複本：`gate_check --resume` 多一行 `~ shadow: RESUME_SIZE 115026 bytes ... ~57513 tokens, longest line 1: 32699 bytes`，exit code 和 2.2.1-ds.2 相同（都是 1，原因是檔裡原有的 placeholder，不是大小），`--strict` 時大小變成問題；`resume_archive --execute` 115,026 → 57,472 bytes（少 57,554 bytes，約 28,777 token），19 段 60,162 bytes 原文搬到歷史檔，(a)(b)(c) 都過，搬後的檔和上游 A5 結果逐 byte 相同（sha256 68efb13b…）。
+- 每輪必讀：10,947 → 10,964 bytes（上限 11,000）。本版沒有新增每輪必讀的檔案或步驟：release.py 只在發版時跑，BASE_REF 只在派工時跑，resume_archive 只由各工作線自己跑。
+
+對齊初衷：
+1. 幫到誰：每次續接都整份讀 RESUME_STATE 的工作線（實測少讀一半）、派工的總監（從舊 commit 開工會先看到 WARN）、發版的人（從 HEAD 發、每步驗證）、DSH 的 worker（少讀原始碼、少走步）。依據：PO 2026-11-14 指示、WO-DS-003 REVISION 5、上游 WO-DW-222。
+2. 平台：全是本機命令列工具，只用標準庫；release.py 需要 git 和 gh。
+3. 服務：初衷 4（中斷不丟進度）：搬移是原文、可逐 byte 還原；初衷 5（成品要真的對）：發版從 HEAD；初衷 7（零成本）：額外花的少於省下的。
+4. 核心：每輪必讀 10,964 bytes，仍在 11,000 以內；新檢查先 shadow／WARN。
+5. 舊檔案和舊指令照樣能用；`memory_size_check` 單檔用法輸出不變。
 
 ## 2.2.1-ds.2（2026-11-14）
 

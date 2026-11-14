@@ -19,6 +19,13 @@
     "prefer_auto": true,
     "openspec_bin": null
   },
+  "_comment_resume": "2.2.2-ds.3 (upstream 2.2.2) RESUME_STATE size: max_bytes / max_line_bytes are read by gate_check --resume (shadow, --strict fails), dsh_setup_check and memory_size_check --kind resume. resume_archive.py never moves the newest keep_recent sections and Before: chain entries (by count, never by age; there is no keep_days) nor a section whose heading holds a protect_headings word (docs/06b).",
+  "resume": {
+    "max_bytes": 20480,
+    "max_line_bytes": 4096,
+    "keep_recent": 10,
+    "protect_headings": ["現況", "未結", "OPEN", "BLOCKED", "TODO", "待辦", "IN_FLIGHT", "DO_NOT_REPEAT"]
+  },
   "_comment_base_ref": "2.2.2-ds.3 gate_check.py --order compares the order's BASE_REF commit with the remote branch. check: run it; fetch: git fetch first (false = compare with the local copy, said in the output); strict: a stale or missing BASE_REF or a failed fetch fails (same as --strict-base).",
   "base_ref": {
     "check": true,

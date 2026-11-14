@@ -29,6 +29,15 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     po_pending_files a list of strings. Claude-only keys the DSH edition skips (window, plugins_off, hooks, ...) and
     keys no tool reads are noted.
 
+2.2.2-ds.3 (upstream 2.2.2 setup_check), shadow too:
+  - RESUME_STATE.md: at most resume.max_bytes (20480) and no line over resume.max_line_bytes (4096), RESUME_SIZE
+    otherwise (gate_check.py --resume's rule; limits from the director_work.json beside it)
+  - director_work.json: resume an object, max_bytes / max_line_bytes / keep_recent whole numbers above 0,
+    protect_headings a list of non-empty strings (an unknown resume key such as keep_days is only a note: recent
+    means by count); base_ref an object, check / fetch / strict true or false (gate_check --order); release an
+    object, remote / branch / title / tag_message / selftest non-empty strings, gh_repo owner/name or null
+    (release.py refuses an unknown release key, so it is a problem here too); sdd is known (sdd_gate.py checks it)
+
 Prints OK / FAIL per DIRECTOR with one "  - problem" line each, "  ~ shadow: ..." and "  ~ note" lines, then
   DSH_SETUP_CHECK: PASS|FAIL dirs=n problems=n
 (problems= counts the DIRECTOR folders that failed.)
@@ -56,7 +65,10 @@ ANY_ID = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*(.*)$")
 CONFIG_VERSION = 1
 CONFIG_MODES = ("general", "beginner")
 CONFIG_PATTERNS = ("trace_id_pattern", "po_item_pattern", "po_open_pattern")
-CONFIG_KEYS = ("schema_version", "mode", "po_pending_files") + CONFIG_PATTERNS
+CONFIG_KEYS = ("schema_version", "mode", "po_pending_files", "sdd", "resume", "base_ref", "release") + CONFIG_PATTERNS
+RESUME_CONFIG_KEYS = ("max_bytes", "max_line_bytes", "keep_recent", "protect_headings")  # 2.2.2-ds.3
+BASE_REF_KEYS = ("check", "fetch", "strict")  # 2.2.2-ds.3: gate_check --order BASE_REF freshness
+RELEASE_KEYS = ("remote", "branch", "title", "tag_message", "selftest", "gh_repo")  # 2.2.2-ds.3: release.py
 CLAUDE_ONLY_KEYS = ("window", "plugins_off", "hooks", "protect_director", "director_worktree", "backup_dir",
                     "skip_worktrees", "session_map", "pause_flag", "audit_log", "runtime_guard", "guard_review",
                     "guard_profile", "guard_mode")
@@ -238,6 +250,67 @@ def shadow_resume(text, notes):
     return [f"RESUME_STATE: {problem}" for problem in found if not problem.startswith("line ")]
 
 
+def neighbour(name):
+    """A tool module from this folder (one source for a rule)."""
+    spec = importlib.util.spec_from_file_location(f"dsh_setup_check_{name}", HERE / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def shadow_resume_size(path, notes):
+    """2.2.2-ds.3: RESUME_STATE.md over resume.max_bytes / max_line_bytes (gate_check's rule, limits from the
+    director_work.json beside it, else 20480 / 4096)."""
+    gate = gate_check()
+    size = gate.resume_size(path.read_bytes(), *gate.resume_limits_for(path, None, notes))
+    return [f"RESUME_STATE: {size}"] if size else []
+
+
+def config_blocks(data, notes):
+    """2.2.2-ds.3 (upstream 2.2.2 setup_check): the resume, base_ref and release blocks."""
+    problems = []
+
+    def say(message):
+        problems.append(f"director_work.json: {message}")
+    if "resume" in data:  # memory_size_check holds the rule
+        found = []
+        neighbour("memory_size_check").resume_settings(data, found)
+        problems += [note.rsplit("; ", 1)[0] for note in found]
+        if isinstance(data["resume"], dict):
+            odd = sorted(k for k in data["resume"] if k not in RESUME_CONFIG_KEYS and not k.startswith("_"))
+            if odd:
+                notes.append(f"director_work.json: resume keys no tool reads: {', '.join(odd)} (a typo?)")
+    if "base_ref" in data:
+        block = data["base_ref"]
+        if not isinstance(block, dict):
+            say(f"base_ref: an object with check / fetch / strict, got {block!r}")
+        else:
+            for key, value in block.items():
+                if key.startswith("_"):
+                    continue
+                if key not in BASE_REF_KEYS:
+                    notes.append(f"director_work.json: base_ref key no tool reads: {key} (a typo?)")
+                elif not isinstance(value, bool):
+                    say(f"base_ref.{key}: true or false, got {value!r}")
+    if "release" in data:
+        block = data["release"]
+        if not isinstance(block, dict):
+            say(f"release: an object, got {block!r}")
+        else:
+            for key, value in block.items():
+                if key.startswith("_"):
+                    continue
+                if key not in RELEASE_KEYS:
+                    say(f"release.{key}: release.py does not read it and refuses the config "
+                        f"(keys: {', '.join(RELEASE_KEYS)})")
+                elif key == "gh_repo":
+                    if value is not None and not (isinstance(value, str) and re.fullmatch(r"[\w.-]+/[\w.-]+", value)):
+                        say(f"release.gh_repo: owner/name or null, got {value!r}")
+                elif value is not None and not (isinstance(value, str) and value.strip()):
+                    say(f"release.{key}: a non-empty string, got {value!r}")
+    return problems
+
+
 def shadow_config(text, notes):
     """2.2.1-ds.1: the director_work.json keys the DSH tools read, with the right types."""
     try:
@@ -267,6 +340,7 @@ def shadow_config(text, notes):
             re.compile(value)
         except re.error as error:
             problems.append(f"director_work.json: {key}: not a valid regular expression ({error})")
+    problems += config_blocks(data, notes)
     skipped = sorted(key for key in data if key in CLAUDE_ONLY_KEYS)
     if skipped:
         notes.append(f"director_work.json: Claude-only keys the DSH edition does not read: {', '.join(skipped)}")
@@ -305,6 +379,8 @@ def check_director(folder, strict=False):
         path = folder / name
         if path.is_file():
             found = check(read_text(path), notes)
+            if name == "RESUME_STATE.md":
+                found += shadow_resume_size(path, notes)
             if strict:
                 problems += found
             else:

@@ -99,10 +99,11 @@
 | `round_check.py` | 修正輪數上限 |
 | `status_gen.py` | 狀態頁／狀態檔產生；**適配**：吃 `po_pending`、移除 pending_sends／processes／PO 頁 |
 | `metrics_report.py` | PURPOSE 五個數字 |
-| `memory_size_check.py` | 指示檔大小；**適配**：預設找最近的 `AGENTS.md`（不再寫死 `~/.claude`） |
+| `memory_size_check.py` | 指示檔大小；**適配**：預設找最近的 `AGENTS.md`（不再寫死 `~/.claude`）；2.2.2-ds.3 起照上游 2.2.2 多了 `--kind resume` 多檔模式（第 12 節） |
+| `resume_archive.py` | 2.2.2-ds.3：RESUME_STATE 舊段落原文搬到 `RESUME_HISTORY_<YYYYMMDD>.md`（上游 2.2.2 原樣） |
 | `secret_mask.py` | 機密遮罩 |
 | `pause_ctl.py` | 暫停旗標與程序檢查（重資源排程用）；**適配**（2.2.1-ds.1 才真的改；2.2.0-ds.1 寫了但檔案沒動）：說明改成 DSH 沒有 hook、旗標要 worker 自己讀（`pause_ctl.py status` 或 `dsh_guard.py --pause-flag`）、總監審查時核對 |
-| `audit_log.py` | hash chain 的 verify／head／cite／recover��append 是 hook 用，DSH 不用） |
+| `audit_log.py` | hash chain 的 verify／head／cite／recover（append 是 hook 用，DSH 不用） |
 | `vocabulary.json` | worker 可填的狀態用詞 |
 
 **新增（DeepSeek Harness 版）**
@@ -187,7 +188,7 @@
 
 ## 9. 已知限制
 
-- **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；DeepSeek 版改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes。這是平台名詞與限制的必要說明，不是新增規則；DSH 版沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
+- **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；DeepSeek 版改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes；2.2.2-ds.3 搬上游 2.2.2 的 RESUME 大小那一句後是 10,964 bytes（06 變 1,998）。這是平台名詞與限制的必要說明，不是新增規則；DSH 版沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
 - 移植版本對應上游：2.2.1-ds.1、2.2.1-ds.2 對應上游 2.2.1（上游 2.2.1 只改工具，沒有改規則文件）；2.2.2-ds.3 對應上游 2.2.2。版本號規則見第 10 節第 5 點；上游之後的規則變更要手動跟（見第 10 節）。
 - 用量與動作紀錄依賴 DSH session 檔格式（`session.v4.jsonl.zstd`）；DSH 升版改格式時要更新 `dsh_usage.py`／`dsh_audit.py`。
 - 模型只有 deepseek-flash；沒有任何「換更強模型」的選項，只能用 effort 與拆工。
@@ -213,3 +214,28 @@
 - 規格先行（SDD）：Standard／Strict 工單要有 OpenSpec 變更、鎖定的驗收測試、Standard 也做規格審查、計畫閘門、≤3 檔約 200 行、停止規則 1 輪（`docs/13`）。
 - 理由：上游的品質靠 Opus 的判斷力與 Claude Desktop 機制；DSH 版的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以把判斷前移到派工前。
 - 跟上游同步時，`docs/02` 的「規格先行」一節、`templates/WORK_ORDER.md` 的 `SPEC_CHANGE`／`TESTS_LOCKED`／計畫閘門、`tools/sdd_gate.py` 和 `gate_check.py`／`scope_check.py` 的 ds.2 呼叫點以本版為準；上游改到同一段時手動合併。
+
+## 12. 上游 2.2.2 移植（2.2.2-ds.3）：逐檔比較
+
+來源：上游 tag `v2.2.2`（`v2.2.2^{}` = db1728b），用 `git show v2.2.2:<檔>` 讀，沒有切上游 checkout 的分支。上游規格是 WO-DW-222 REVISION 5：RESUME_STATE 大小檢查、原文搬移工具，以及從本版 ds.3 移植回去的 `release.py` 和 BASE_REF 檢查。
+
+| 檔案 | 和上游 2.2.2 的關係 | 差異與理由 |
+|---|---|---|
+| `tools/resume_archive.py` | 原樣搬（逐 byte 相同） | 無差異。它只讀寫 RESUME_STATE 和同資料夾的歷史檔，跟平台無關。 |
+| `tools/memory_size_check.py` | 上游 2.2.2 全檔，改 1 處 | 不帶 `--file`／`--glob`／`--workstreams` 時，預設找最近的 `AGENTS.md`；上游找 `~/.claude/projects/.../MEMORY.md`。理由：DSH 每次呼叫載入的是 `AGENTS.md`，這是 2.2.0-ds.1 起本版就有的適配，2.2.2 照留。多檔模式、`--kind resume`、`resume.*` 設定和上游相同。 |
+| `tools/gate_check.py` | 搬入上游的 `size_tool`、`resume_size`、`resume_limits_for`（逐字相同）、`--strict`；`base_config` 換成上游版 | `base_ref_problems` 的主體和上游相同，只差說明字串。另有 3 點差異： |
+| | | (1) `--repo` 的預設：本版是目前資料夾，上游是工單所在資料夾。理由：本版的 `--repo` 也是 ds.2 SDD 規則找 `openspec/` 和鎖定測試的專案資料夾，兩種用途要指向同一個 checkout。 |
+| | | (2) `--config` 同時是 SDD（`sdd`）、`base_ref` 和 `--resume` 的設定檔；上游只用於後兩者。理由：本版從 ds.2 起就有 `--config`。 |
+| | | (3) 有兩處改成和上游一樣，舊行為因此改變：BASE_REF 沒寫 commit 時，從印 note 改成不印（上游的理由：舊工單的輸出不變）；`base_ref` 開關不是 true／false 時，從靜默忽略改成印 note 並用預設值。舊做法的毛病：字串 `"false"` 會被當成真值。設定檔也從只找工單上一層，改成先找工單資料夾、再找上一層。 |
+| `tools/release.py` | 本版 ds.3 是來源，上游 2.2.2 是移植版 | 兩邊的規則一致：版本從 HEAD 讀、工作樹有沒 commit 的改動就停（演練也停）、`-<label>.N` 只能往上加。這次從上游搬回 3 點：`main(argv=None)`（測試可在同一個程序裡跑）、BOM 寫成 `"﻿"`、公開掃描多擋 `CLAUDE.local.md`／`.claude/settings.local.json`／Claude session 紀錄（本 repo 也會被 Claude Code session 編輯）。留著不同、而且有理由的：預設 title／tag_message／selftest 指令（`tools/selftest_ds.py`）；私人路徑多擋 `_work/`、`AGENTS.local.md`、DSH session 檔；工作樹檢查用 `git diff --name-only HEAD`（上游用 `git status --porcelain`），兩者對 modified／staged 的判定相同；停下時的說明文字不同：本版在 VERSION 也沒 commit 時印 HEAD 的版本，上游印工作樹和 HEAD 兩邊的版本。 |
+| `tools/dsh_setup_check.py` | 對應上游 `setup_check.py`，本版自己的檢查檔 | 搬入上游 2.2.2 新增的 3 項：RESUME_STATE 大小（shadow）、`resume`／`base_ref`／`release` 區塊型別、未知鍵只印 note（例如 `keep_days`）。另外把 `sdd`、`resume`、`base_ref`、`release` 加進已知鍵；以前這幾個會被誤報成「keys no tool reads」。 |
+| `director_work.example.json` | 加 `resume` 區塊（值和上游相同） | 本版用 `_comment_*` 分段說明，不像上游寫成一個 `_comment`。另有本版自己的 `sdd` 區塊；`release` 的 title／selftest 是本版的值。 |
+| `docs/06_resume_lossless.md` | 只搬上游改的那一句 | gate_check 那一行加「和大小（超過照 docs/06b 把舊紀錄原文搬走，近期不動）」；恢復段刪「（包括 PO 手動停止後再繼續）」（目標行已含 PO 手動停止）。每輪必讀 10,947 → 10,964 bytes（上限 11,000），比上游多 17 bytes，因為本版的「機制」那一行內容不同，沒法照上游縮。 |
+| `docs/06b_on_demand_procedures.md` | 加巡查第 4 步和「RESUME_STATE 瘦身」一節 | 內容同上游。DSH 用語：巡查叫工作線瘦身用 `send_message`；多寫一句「DSH 每一步都重送整段對話」說明為什麼大小很重要，並註明 `dsh_setup_check.py` 也會印。 |
+| `docs/02_work_orders_gates.md` | 加「發版」一節（上游 2.2.2 新增） | 多寫 `-ds.N` 規則（指向第 10 節），以及掃描會擋 `_work/`。BASE_REF 那一行 ds.3 已經有了，和上游同義。 |
+| `templates/RESUME_STATE.md` | 加 1 行註解 | 指向 `docs/06b`（細節在那裡）；上游指向 `docs/06`。 |
+| `templates/WORK_ORDER.md` | 不動 | BASE_REF 的註解 ds.3 已經改過，和上游同義。 |
+| `tools/selftest_ds.py` | 不是上游 `selftest.py`（本版不搬上游 selftest，見第 7 節） | 把上游 `test_resume_size_222`／`test_resume_archive_222` 的案例改寫成 `resume_size`、`resume_archive` 兩項，固定資料和突變（mutation）相同。`setup_shadow` 加 6 個 shadow 案例和 2 個 note；`release_scan` 加 Claude 本機設定檔案例；`base_ref_fresh` 加「開關型別錯」案例。上游 `test_release_222`／`test_base_ref_222` 的內容，本版 ds.3 的 `release_*`、`base_ref_fresh` 早就有。 |
+| `tools/README.md`、`tools/DSH-TOOLS.md`、`CHANGELOG*.md` | 本版自己的寫法 | 照本版格式補上述工具的說明；`CHANGELOG-upstream.md` 附上游 2.2.2 那一段（原文）。 |
+
+沒搬的：無。上游 2.2.2 的每項變更都在上表。

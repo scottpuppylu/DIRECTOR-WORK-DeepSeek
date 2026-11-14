@@ -20,7 +20,8 @@ Runs, on this machine and offline:
   matching_221  2.2.1-ds.1: report_vs_audit matches() on 21 cut / backslash / quote / launcher / wildcard cases
               in process, two of them through the CLI, and 6 mutations of the matcher that must each get a case wrong
   setup_shadow  2.2.1-ds.1: dsh_setup_check shadow lines (PO IDs, RESUME values, director_work.json keys) stay
-              notes without --strict and fail with it; a clean folder passes --strict
+              notes without --strict and fail with it; a clean folder passes --strict. 2.2.2-ds.3: RESUME_SIZE and
+              the resume / base_ref / release blocks too; the example config is clean
   audit_rebuild 2.2.1-ds.1: dsh_audit.chain_lines writes the kind=rebuild first line, dsh_audit verify accepts the
               chain and report_vs_audit reads it with a note (no DSH session log needed)
   release_state 2.2.2-ds.3: release.py dry run on temp bare repos: BEHIND and DIVERGED stop, --merge predicts the
@@ -35,6 +36,12 @@ Runs, on this machine and offline:
   base_ref_fresh 2.2.2-ds.3: gate_check --order fetches and compares BASE_REF with origin/main in a temp clone:
               up to date is confirmed, 1 behind is a WARN note (--strict-base: FAIL), a missing commit is noted,
               a failed fetch says it did not compare (--strict-base: FAIL)
+  resume_size   2.2.2-ds.3 (upstream 2.2.2): memory_size_check --kind resume with several --file, --glob,
+              --workstreams, movable bytes, a config key of the wrong type; gate_check --resume shadow, --strict and
+              limits from director_work.json / --config; the example's resume block; 2 size-rule mutations
+  resume_archive 2.2.2-ds.3 (upstream 2.2.2): resume_archive.py by count only (keep_recent; no keep_days): newest
+              sections and Before: entries stay, protected / undated / unclear-order parts stay, dry-run writes
+              nothing, --execute backs up and verifies (a) (b) (c), a failed check restores; 9 mutations caught
   verify_dsh_run_unit 2.2.2-ds.3: tools/test_verify_dsh_run.py: the 11 D08 peek cases of WO-101, config / order
               settings, a synthetic project run (--no-dsh) with a clean, a test-editing and a wrong worker branch,
               and the D13 step markers (acceptance is not a --help read, verdict / summary found by file name)
@@ -716,7 +723,25 @@ SHADOW_CASES = [
      lambda old: old.replace('"trace_id_pattern": "^(B|DD|OD)-\\\\d+$"', '"trace_id_pattern": "^(B|DD"'),
      "trace_id_pattern: not a valid regular expression"),
     ("po_pending_files as one string", "director_work.json",
-     lambda old: old.replace('[\n  "PO_PENDING.md"\n ]', '"PO_PENDING.md"'), "po_pending_files: a list")]
+     lambda old: old.replace('[\n  "PO_PENDING.md"\n ]', '"PO_PENDING.md"'), "po_pending_files: a list"),
+    # 2.2.2-ds.3 (upstream 2.2.2 setup_check): RESUME_STATE size, the resume / base_ref / release blocks
+    ("an oversized RESUME_STATE", "RESUME_STATE.md",
+     lambda old: old + "- 2026-11-01 filler line\n" * 1000, "RESUME_STATE: RESUME_SIZE"),
+    ("resume keep_recent 0", "director_work.json",
+     lambda old: old.replace('"schema_version": 1', '"schema_version": 1, "resume": {"keep_recent": 0}'),
+     "resume.keep_recent: a whole number above 0"),
+    ("resume max_bytes as text", "director_work.json",
+     lambda old: old.replace('"schema_version": 1', '"schema_version": 1, "resume": {"max_bytes": "20480"}'),
+     "resume.max_bytes: a whole number above 0"),
+    ("base_ref strict as text", "director_work.json",
+     lambda old: old.replace('"schema_version": 1', '"schema_version": 1, "base_ref": {"strict": "yes"}'),
+     "base_ref.strict: true or false"),
+    ("a release key release.py refuses", "director_work.json",
+     lambda old: old.replace('"schema_version": 1', '"schema_version": 1, "release": {"remot": "origin"}'),
+     "release.remot: release.py does not read it"),
+    ("release gh_repo without owner", "director_work.json",
+     lambda old: old.replace('"schema_version": 1', '"schema_version": 1, "release": {"gh_repo": "director-work"}'),
+     "release.gh_repo: owner/name or null")]
 
 
 @test
@@ -740,17 +765,26 @@ def setup_shadow(tmp):
                 "%s: with --strict expected exit 1 and a problem with %r: %s" % (name, said, tail(text_of(hard))))
     notes = shadow_fixture(tmp / "shadow-notes" / "DIRECTOR")
     data = json.loads((notes / "director_work.json").read_text(encoding="utf-8"))
-    data.update(window=250000, colour="blue")
+    data.update(window=250000, colour="blue", sdd={}, resume={"keep_days": 3}, base_ref={"strct": True})
     write(notes / "director_work.json", json.dumps(data, indent=1) + "\n")
     write(notes / "PO_PENDING.md", (notes / "PO_PENDING.md").read_text(encoding="utf-8")
           .replace("CREATED: 2026-11-13 10:00\n", "") + "\nID: CH-003\nSTATUS: open\n")
     proc = run_tool("dsh_setup_check", "--strict", notes)
     text = text_of(proc)
+    require("keys no tool reads: colour (a typo?)" in text and "sdd" not in text.split("keys no tool reads: ")[-1],
+            "sdd is a key the DSH tools read: " + tail(text))
     for said in ("Claude-only keys the DSH edition does not read: window", "keys no tool reads: colour",
+                 "resume keys no tool reads: keep_days", "base_ref key no tool reads: strct",
                  "ACT-002 (line", "no CREATED line", "`ID: CH-003` is not OD-xx / ACT-xx"):
         require(said in text, "expected the note %r: %s" % (said, tail(text)))
     require(proc.returncode == 0, "notes alone failed --strict: " + tail(text))
-    return "clean PASS --strict, %d cases shadow then FAIL --strict, 5 notes" % len(SHADOW_CASES)
+    example = load_tool("dsh_setup_check")
+    notes_found = []
+    problems = example.shadow_config((TOOLS.parent / "director_work.example.json").read_text(encoding="utf-8"),
+                                     notes_found)
+    require(problems == [] and notes_found == [], "director_work.example.json is not clean for dsh_setup_check: "
+            "%s %s" % (problems, notes_found))
+    return "clean PASS --strict, %d cases shadow then FAIL --strict, 7 notes, example config clean" % len(SHADOW_CASES)
 
 
 @test
@@ -954,6 +988,11 @@ def base_ref_fresh(tmp):
     proc, text = sdd_run(repo, order("origin/main @ " + sha), env, "--strict-base")
     require(proc.returncode == 1 and "  - BASE_REF: %s is 1 commit(s) behind" % sha in text,
             "--strict-base did not fail a stale BASE_REF: " + tail(text))
+    write(repo / "director_work.json", '{"base_ref": {"strict": "yes"}}')
+    proc, text = sdd_run(repo, order("origin/main @ " + sha), env)
+    require(proc.returncode == 0 and "base_ref.strict: true or false, got 'yes'; false used" in text
+            and "WARN BASE_REF" in text, "a base_ref switch of the wrong type was not a note: " + tail(text))
+    (repo / "director_work.json").unlink()
     proc, text = sdd_run(repo, order("origin/main @ deadbee"), env)
     require(proc.returncode == 0 and "WARN BASE_REF: commit deadbee does not exist" in text,
             "a BASE_REF commit that does not exist was not noted: " + tail(text))
@@ -980,6 +1019,7 @@ def release_scan(tmp):
         ("DIRECTOR file", {"DIRECTOR/RESUME_STATE.md": "x\n"}, None, "a DIRECTOR/ file"),
         ("_work file", {"_work/x/out.txt": "x\n"}, None, "a _work/ file"),
         ("session file", {"logs/session.v4.jsonl.zstd": "x\n"}, None, "a DSH session file"),
+        ("Claude local settings", {".claude/settings.local.json": "{}\n"}, None, ".claude/settings.local.json"),
         ("author email", {"b.txt": "x\n"}, "bob@" + "example.com", "author: email bob@" + "example.com")]
     for number, (name, files, email, said) in enumerate(cases):
         rgit(work, "switch", "-q", "-c", "case-%d" % number, "origin/main")
@@ -1083,6 +1123,293 @@ def verify_dsh_run_unit(tmp):
     ran = re.search(r"Ran (\d+) test", text_of(proc))
     require(proc.returncode == 0 and ran, "test_verify_dsh_run.py failed: " + tail(text_of(proc)))
     return "%s unit tests (D08 peek cases, settings, synthetic run)" % ran.group(1)
+
+
+RESUME_OK = ("PROGRESS: 1\nDOING: 2\nNEXT_STEP: 3\nCOMMS: NONE\n\n# RESUME_STATE\n"
+             "UPDATED: 2026-11-14 03:00 +08:00\n")
+
+
+class _Out:
+    """stdout for an in-process main(): the tools call sys.stdout.reconfigure."""
+    def __init__(self):
+        self.parts = []
+
+    def write(self, text):
+        self.parts.append(text)
+        return len(text)
+
+    def flush(self):
+        pass
+
+    def reconfigure(self, **_):
+        pass
+
+
+def call_main(module, *args):
+    import contextlib
+    out = _Out()
+    with contextlib.redirect_stdout(out):
+        try:
+            code = module.main([str(a) for a in args])
+        except SystemExit as stop:
+            code = stop.code
+    return code, "".join(out.parts)
+
+
+def expect_tool(name, tool, code, *args, says=(), lacks=()):
+    """Run a tool; require its exit code, every text in says and none in lacks."""
+    proc = run_tool(tool, *args)
+    out = text_of(proc)
+    says = [says] if isinstance(says, str) else says
+    lacks = [lacks] if isinstance(lacks, str) else lacks
+    require(proc.returncode == code, "%s: exit %s, expected %s: %s" % (name, proc.returncode, code, tail(out)))
+    for text in says:
+        require(text in out, "%s: expected %r: %s" % (name, text, tail(out)))
+    for text in lacks:
+        require(text not in out, "%s: did not expect %r: %s" % (name, text, tail(out)))
+    return out
+
+
+@test
+def resume_size(tmp):
+    """2.2.2-ds.3 (upstream 2.2.2): memory_size_check --kind resume (several --file, --glob, --workstreams, movable
+    bytes, a config key of the wrong type), gate_check --resume shadow / --strict / limits from config, the example
+    config, and two mutations of the size rule."""
+    folder = tmp / "resume_size"
+    good = write(folder / "a" / "RESUME_STATE.md", RESUME_OK)
+    big = write(folder / "a" / "deep" / "RESUME_STATE_big.md", RESUME_OK + "- 2026-11-01 filler line\n" * 1000)
+    long_line = write(folder / "long.md", RESUME_OK.replace("DOING: 2", "DOING: " + "x" * 5000))
+    m = "memory_size_check"
+    expect_tool("a good RESUME_STATE", m, 0, "--kind", "resume", "--file", good,
+                says=["OK   ", "(limit 20480)", "movable 0 bytes", "SIZE: PASS files=1 over=0"], lacks="OVER")
+    expect_tool("an oversized RESUME_STATE", m, 1, "--kind", "resume", "--file", big,
+                says=["OVER ", "over: size", "resume_archive.py", "SIZE: OVER files=1 over=1"])
+    expect_tool("one line over 4096 bytes", m, 1, "--kind", "resume", "--file", long_line,
+                says=["longest line 2: 5007 bytes (limit 4096)", "over: line", "SIZE: OVER files=1 over=1"],
+                lacks="over: size")
+    expect_tool("two files, one over", m, 1, "--kind", "resume", "--file", good, "--file", big,
+                says=["OK   ", "OVER ", "SIZE: OVER files=2 over=1"])
+    expect_tool("--glob reaches subfolders", m, 1, "--kind", "resume", "--glob",
+                str(folder / "**" / "RESUME_STATE*.md"), says="SIZE: OVER files=2 over=1")
+    expect_tool("--glob with no match is missing", m, 1, "--kind", "resume", "--glob", str(folder / "nope" / "*.md"),
+                says=["NO_MATCH", "SIZE: MISSING files=0 over=0 missing=1"])
+    registry = write(folder / "ACTIVE_WORKSTREAMS.md",
+                     "# 工作線\n\n| 工作線 | RESUME_STATE | 狀態 |\n|---|---|---|\n| A | " + BT + "a/RESUME_STATE.md" + BT
+                     + " | open |\n| B | a/deep/RESUME_STATE_big.md | open |\n| C | NONE | closed |\n| D | <path> | new |\n")
+    expect_tool("--workstreams reads the RESUME column", m, 1, "--kind", "resume", "--workstreams", registry,
+                says="SIZE: OVER files=2 over=1", lacks=["missing", "<path>"])
+    write(registry, registry.read_text(encoding="utf-8") + "| E | gone/RESUME_STATE.md | open |\n")
+    expect_tool("--workstreams, a registered file that is gone", m, 1, "--kind", "resume", "--workstreams", registry,
+                says=["NOT_FOUND", "missing=1"])
+    config = write(folder / "cfg.json", '{"resume": {"max_bytes": "big", "max_line_bytes": 20}}')
+    expect_tool("a config key of the wrong type is a note, the default is used", m, 1, "--kind", "resume", "--config",
+                config, "--file", good,
+                says=["resume.max_bytes: a whole number above 0, got 'big'; 20480 used", "(limit 20)", "over: line"])
+    expect_tool("--config needs --kind resume", m, 2, "--config", config, "--file", good, "--file", big)
+    expect_tool("one --file alone keeps the old report", m, 0, "--file", good, says="OK   RESUME_STATE.md:",
+                lacks="SIZE:")
+    g = "gate_check"
+    expect_tool("gate_check: a small RESUME_STATE has no size note", g, 0, "--resume", good, lacks="RESUME_SIZE")
+    expect_tool("gate_check: oversized is a shadow note, exit unchanged", g, 0, "--resume", big,
+                says=["shadow: RESUME_SIZE", " tokens, longest line"])
+    expect_tool("gate_check: --strict fails on it", g, 1, "--strict", "--resume", big, says="  - RESUME_SIZE",
+                lacks="shadow: RESUME_SIZE")
+    expect_tool("gate_check: an over-long line is a shadow note", g, 0, "--resume", long_line,
+                says="longest line 2: 5007 bytes (limit 4096); over: line")
+    write(folder / "a" / "director_work.json", '{"resume": {"max_bytes": 50}}')
+    expect_tool("gate_check: limits from the director_work.json beside it", g, 0, "--resume", good,
+                says="RESUME_SIZE %d bytes (limit 50)" % len(good.read_bytes()))
+    expect_tool("gate_check: --config wins", g, 0, "--resume", good, "--config", config, says="(limit 20); over: line")
+    expect_tool("gate_check: --strict needs --resume", g, 2, "--strict", "--order", good)
+    real = load_tool("memory_size_check")
+    notes = []
+    example = json.loads((TOOLS.parent / "director_work.example.json").read_text(encoding="utf-8"))
+    got = real.resume_settings(example, notes)
+    require(notes == [] and got == {"max_bytes": 20480, "max_line_bytes": 4096, **real.KEEP_DEFAULTS}
+            and got["keep_recent"] == 10 and "keep_days" not in got,
+            "the example's resume block does not read clean with the defaults: %s %s" % (got, notes))
+    for value, name in (('{"resume": {"keep_recent": 0}}', "keep_recent 0"),
+                        ('{"resume": {"keep_recent": true}}', "keep_recent true"),
+                        ('{"resume": {"protect_headings": "OPEN"}}', "protect_headings a string"),
+                        ('{"resume": 5}', "resume a number")):
+        notes = []
+        got = real.resume_settings(json.loads(value), notes)
+        require(len(notes) == 1 and got["keep_recent"] == 10 and got["max_bytes"] == 20480
+                and got["protect_headings"][0] == "現況", "%s: expected one note and the defaults: %s %s" % (name, got, notes))
+    survived = []
+    for name, swaps, args in [
+            ("no line limit", [('    if max_line_bytes is not None and facts["longest_bytes"] > max_line_bytes:\n',
+                                "    if False:\n")], ("--kind", "resume", "--file", long_line)),
+            ("no size limit", [('    over = ["size"] if facts["bytes"] > max_bytes else []\n', "    over = []\n")],
+             ("--kind", "resume", "--file", big))]:
+        if call_main(mutated("memory_size_check", swaps), *args)[0] == 1:
+            survived.append(name)
+    require(not survived, "these size-rule mutations were not caught: %s" % survived)
+    return "memory_size_check 11 cases, gate_check 7 cases, example config, 2 mutations killed"
+
+
+ARCHIVE_FIXTURE = (
+    "PROGRESS: 進度 1 Before: p1 Before: p2 Before: p3\n"
+    "DOING: (11-14 10:00) now Before: (11-14 09:00) e1 Before: (11-13 20:00) e2 Before: (11-12 10:00) e3 "
+    "Before: (11-10 10:00) e4 Before: (11-09 10:00) e5\n"
+    "NEXT_STEP: (11-14 10:00) next Before: (11-14 09:00) n1 Before: no time n2 Before: (11-20 10:00) n3\n"
+    "COMMS: NONE\n"
+    "\n# RESUME_STATE — T1\nUPDATED: 2026-11-14 10:00 +08:00\nORDER: x\n"
+    "\n## 現況\n- 2026-11-01 current thing\n"
+    "\n## 紀錄\n- 2026-11-01 old a\n- 2026-11-02 old b\n  continued b\n- 2026-11-05 old c\n- 2026-11-12 recent one\n"
+    "- 2026-11-13 recent two\n- no date item\n- 2026-11-01 BLOCKED: waiting on x\n")
+ARCHIVE_MARKERS = ["current thing", "old a", "old b", "old c", "recent one", "recent two", "no date item", "BLOCKED",
+                   "p1", "p2", "p3", "e1", "e2", "e3", "e4", "e5", "n1", "n2", "n3"]
+# (name, keep_recent, the markers whose text moves). Count only (PO 2026-11-14 10:13): no keep_days.
+ARCHIVE_CASES = [
+    ("newest 2 stay, older parts and chain entries move", 2, ["old a", "old b", "old c", "p3", "e3", "e4", "e5"]),
+    ("newest 1", 1, ["old a", "old b", "old c", "recent one", "p2", "p3", "e2", "e3", "e4", "e5"]),
+    ("newest 4: only the oldest section and chain entry", 4, ["old a", "e5"]),
+    ("fewer parts than keep_recent: nothing moves", 10, [])]
+ARCHIVE_PROTECT = ["現況", "未結", "OPEN", "BLOCKED", "TODO", "待辦", "IN_FLIGHT", "DO_NOT_REPEAT"]
+
+
+def archive_moved(module, keep_recent, text=ARCHIVE_FIXTURE):
+    import datetime
+    settings = {"max_bytes": 20480, "max_line_bytes": 4096, "keep_recent": keep_recent,
+                "protect_headings": list(ARCHIVE_PROTECT)}
+    result = module.plan(text.encode("utf-8"), settings, datetime.date(2026, 11, 14), [])
+    return [m for m in ARCHIVE_MARKERS if any(m in u["text"] for u in result["moved"])], result
+
+
+def archive_wrong(module):
+    """Names of the ARCHIVE_CASES a resume_archive module gets wrong (a crash is a wrong answer). Every case also
+    needs the NEXT_STEP line (its chain order is unclear) unchanged and the header still the four lines."""
+    wrong = []
+    for name, keep_recent, want in ARCHIVE_CASES:
+        try:
+            got, result = archive_moved(module, keep_recent)
+            lines = result["new_text"].splitlines()
+            if got != want or lines[2] != ARCHIVE_FIXTURE.splitlines()[2] \
+                    or [line.split(":")[0] for line in lines[:4]] != ["PROGRESS", "DOING", "NEXT_STEP", "COMMS"]:
+                wrong.append(name)
+        except Exception:
+            wrong.append(name)
+    try:  # same day as the last one kept: the order is unclear, both stay
+        _, result = archive_moved(module, 1, "A: x\n\n## log\n- 2026-11-01 t1\n- 2026-11-05 t2\n- 2026-11-05 t3\n")
+        if [u["text"] for u in result["moved"]] != ["- 2026-11-01 t1\n"]:
+            wrong.append("same day as the last one kept")
+    except Exception:
+        wrong.append("same day as the last one kept")
+    try:  # an empty Before: entry: the count is unclear, the whole line stays
+        text = "PROGRESS: a Before: b Before: Before: c\nDOING: x\nNEXT_STEP: y\nCOMMS: z\n"
+        _, result = archive_moved(module, 1, text)
+        if result["moved"] or result["new_text"] != text or not any("is empty, the count is unclear" in n
+                                                                      for n in result["notes"]):
+            wrong.append("an empty Before: entry")
+    except Exception:
+        wrong.append("an empty Before: entry")
+    return wrong
+
+
+ARCHIVE_MUTATIONS = [
+    ("no keep_recent for sections", [('        if cut is None or unit["date"] >= cut:\n', "        if cut is None:\n")]),
+    ("same day as the last kept moves", [('        if cut is None or unit["date"] >= cut:\n',
+                                         '        if cut is None or unit in newest[:keep_recent]:\n')]),
+    ("no protected heading", [("        elif protect_word(heading, words):\n", "        elif False:\n")]),
+    ("no protected word", [("            if word:\n", "            if False:\n")]),
+    ("undated parts move", [("word, date = protect_word(part_text, words), latest_date(part_text)\n",
+                             "word, date = protect_word(part_text, words), latest_date(part_text) or "
+                             "datetime.date(2000, 1, 1)\n")]),
+    ("an empty chain entry moves", [("    if empty:\n", "    if False:\n")]),
+    ("no keep_recent for chains", [("    cut = starts[keep_recent]  #", "    cut = starts[0]  #")]),
+    ("an unclear chain order moves", [("        if why is None and later > earlier:\n", "        if False:\n")])]
+ARCHIVE_BREAK = ("        path.write_bytes(new_raw)\n", "        path.write_bytes(new_raw.replace(b'now', b'NOW'))\n")
+
+
+@test
+def resume_archive(tmp):
+    """2.2.2-ds.3 (upstream 2.2.2): resume_archive.py moves old parts word for word, by count only; protected and
+    undated parts stay, an unclear chain order keeps the whole line, the header stays four lines, dry-run writes
+    nothing, --execute writes a .bak and verifies (a) (b) (c), a failed check restores the file and the history;
+    8 keep-rule mutations and a no-restore mutation are caught."""
+    folder = tmp / "resume_archive"
+    folder.mkdir(parents=True)
+    wrong = archive_wrong(load_tool("resume_archive"))
+    require(not wrong, "resume_archive gets these keep cases wrong: %s" % wrong)
+    target = folder / "RESUME_STATE.md"
+    target.write_bytes(ARCHIVE_FIXTURE.encode("utf-8"))
+    original = target.read_bytes()
+    r = "resume_archive"
+    common = ("--keep-recent", "2", "--today", "2026-11-14")
+    expect_tool("dry-run lists the moves", r, 0, target, *common,
+                says=["dry-run, nothing written", "MOVE lines 14-14", "MOVE lines 15-16", "MOVE lines 17-17",
+                      "MOVE header PROGRESS Before: entries 3-3", "MOVE header DOING Before: entries 3-5",
+                      "KEEP lines 11-11", "protected heading (現況)", "no full date (order unclear, stays)",
+                      "protected word (BLOCKED)", "recent (newest 2 dated)",
+                      "shadow: RESUME_HEADER line 3 NEXT_STEP: Before: entry 3 is dated after entry 1, the order is unclear",
+                      "shadow: RESUME_ORDER 1 part(s)", "ARCHIVE: DRY_RUN movable=5"], lacks="keep_days")
+    require(target.read_bytes() == original and sorted(p.name for p in folder.iterdir()) == ["RESUME_STATE.md"],
+            "dry-run wrote something: %s" % sorted(p.name for p in folder.iterdir()))
+    expect_tool("--keep-days is gone (count only)", r, 2, target, "--keep-days", "3")
+    expect_tool("--execute moves and verifies", r, 0, target, "--execute", *common,
+                says=["VERIFY (a) OK", "VERIFY (b) OK", "the header is still the same four lines", "VERIFY (c) OK",
+                      "  SHA lines 11-11 sha256=", "ARCHIVE: DONE moved=5"])
+    new = target.read_text(encoding="utf-8")
+    history = folder / "RESUME_HISTORY_20261114.md"
+    backups = sorted(folder.glob("RESUME_STATE.md.*.bak"))
+    history_text = history.read_text(encoding="utf-8") if history.exists() else ""
+    old = ARCHIVE_FIXTURE.splitlines(keepends=True)
+    moved = [old[13], old[14] + old[15], old[16], "Before: p3",
+             "Before: (11-12 10:00) e3 Before: (11-10 10:00) e4 Before: (11-09 10:00) e5"]
+    require(len(backups) == 1 and backups[0].read_bytes() == original, "the .bak is not the original: %s" % backups)
+    require(all(part in history_text for part in moved), "the history lacks a moved part: " + tail(history_text))
+    require(not any(part in new for part in moved) and new.count("> RESUME_ARCHIVED:") == 3
+            and new.count("[RESUME_ARCHIVED:") == 2, "moved parts or indexes wrong: " + tail(new))
+    kept = [old[2], old[3], old[10], old[17], old[18], old[19], old[20], "".join(old[5:8])]
+    require(all(part in new for part in kept), "a recent, protected, undated part or the unclear chain changed: "
+            + tail(new))
+    lines = new.splitlines()
+    require(lines[1].startswith("DOING: (11-14 10:00) now Before: (11-14 09:00) e1 Before: (11-13 20:00) e2 "
+                                "[RESUME_ARCHIVED: 3 older entries | 11-12 | RESUME_HISTORY_20261114.md | sha256=")
+            and lines[1].endswith("]")
+            and lines[0].startswith("PROGRESS: 進度 1 Before: p1 Before: p2 [RESUME_ARCHIVED: 1 older entries | ? | "),
+            "the chain did not keep its newest 2 entries with an index: " + "\n".join(lines[:4]))
+    expect_tool("the header still passes gate_check", "gate_check", 0, "--resume", target)
+    rebuilt = new
+    for part in re.findall(r"<!-- RESUME_ARCHIVE .*? -->\n(.*?)<!-- /RESUME_ARCHIVE -->\n", history_text, re.S):
+        found = re.search(r"\[RESUME_ARCHIVED: [^\]]*\]|^> RESUME_ARCHIVED: .*\n", rebuilt, re.M)
+        if found:
+            back = part.rstrip("\n") if found.group(0).startswith("[") else part
+            rebuilt = rebuilt[:found.start()] + back + rebuilt[found.end():]
+    require(rebuilt == ARCHIVE_FIXTURE, "history put back at the indexes is not the original: " + tail(rebuilt))
+    expect_tool("a second run has nothing to move", r, 0, target, "--execute", *common, says="ARCHIVE: NOTHING_TO_MOVE")
+    require(target.read_text(encoding="utf-8") == new and len(list(folder.glob("*.bak"))) == 1,
+            "the second run changed something")
+    expect_tool("a missing file", r, 2, folder / "nope.md", says="NOT_FOUND")
+    latin = folder / "latin.md"
+    latin.write_bytes(b"PROGRESS: \xe9\n")
+    expect_tool("not UTF-8 is not read", r, 2, latin, "--execute", says="NOT_UTF8")
+    require(latin.read_bytes() == b"PROGRESS: \xe9\n", "a not-UTF-8 file was touched")
+    for name, history_before in (("a new history", None), ("an existing history", "# old history\n")):
+        case = folder / ("restore_%d" % len(name))
+        case.mkdir()
+        file = case / "RESUME_STATE.md"
+        file.write_bytes(original)
+        hist = case / "RESUME_HISTORY_20261114.md"
+        if history_before:
+            write(hist, history_before)
+        code, out = call_main(mutated("resume_archive", [ARCHIVE_BREAK]), file, "--execute", *common)
+        require(code == 1 and "ARCHIVE: FAIL restored=yes" in out and "VERIFY FAIL" in out
+                and file.read_bytes() == original
+                and (hist.read_text(encoding="utf-8") == history_before if history_before else not hist.exists())
+                and len(list(case.glob("*.bak"))) == 1, "a failed check did not restore (%s): %s" % (name, tail(out)))
+    case = folder / "no_restore"
+    case.mkdir()
+    (case / "RESUME_STATE.md").write_bytes(original)
+    no_restore = mutated("resume_archive", [ARCHIVE_BREAK, ("        path.write_bytes(backup.read_bytes())\n",
+                                                           "        pass\n")])
+    require("restored=yes" not in call_main(no_restore, case / "RESUME_STATE.md", "--execute", *common)[1],
+            "a resume_archive that does not restore still said restored=yes")
+    survived = [name for name, swaps in ARCHIVE_MUTATIONS if not archive_wrong(mutated("resume_archive", swaps))]
+    require(not survived, "these keep-rule mutations get no case wrong: %s" % survived)
+    return "%d keep cases, dry-run / execute / verify / restore, %d mutations killed" % (
+        len(ARCHIVE_CASES) + 2, len(ARCHIVE_MUTATIONS) + 1)
 
 
 def main(argv=None):

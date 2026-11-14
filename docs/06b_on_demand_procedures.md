@@ -25,6 +25,7 @@ PO 手動停止後再讓它繼續，也要先完整跑一次這個程序：停�
 1. 唯讀收集：跑機制檢查腳本（下面「機制要能重建」）和 `status.py`；讀本機待決帳 `PO_PENDING.md`、`DIRECTOR_LOG.md` 最後 30 行（找還沒處理完的 PO 指示）、`ACTIVE_WORKSTREAMS.md`、`list_agents()` 的狀態。`ask_user_question` 的回覆在對話裡，收到就貼回 `ANSWER`；恢復時另做「恢復程序」第 1、2 步，對照各子代理的狀態。
 2. 處理待決帳：照 `PO_PENDING.md` 的 `ANSWER` 套用 PO 的回覆，同輪執行或派工並關閉；未能完成寫續辦紀錄（`docs/03`）。
 3. 檢查腳本報缺的才重建；補發被中斷的工單或決定。
+4. 巡查時（2.2.2-ds.3）量一次所有工作線的 RESUME_STATE：`tools/memory_size_check.py --kind resume --workstreams <DIRECTOR>/ACTIVE_WORKSTREAMS.md`（或 `--glob "<根>/**/RESUME_STATE*.md"`），只讀。OVER 的工作線，由總監用 `send_message` 叫它照下面「RESUME_STATE 瘦身」做；巡查本身不搬檔。
 
 **合併工具呼叫**（題 5）：第 1 步的本機檔案和檢查腳本用同一個唯讀呼叫讀完（在 `run_code` 裡批次 read／grep，或跑一支 status 腳本），逐項印出來源和成功 / 失敗，讀不到的那一項照實列出，不當成「沒有新事」。PO 的回覆以對話和 `PO_PENDING.md` 為準，不用計數或本機副本代替；worker 狀態只在恢復或要採取行動時才查。
 
@@ -78,6 +79,17 @@ PO 手動停止後再讓它繼續，也要先完整跑一次這個程序：停�
 - 排程要 DSH 開著、連網；停機後只送最近一次；背景 job 在重開機或關 app 後會消失，所以恢復鏈要有一條不依賴 session 記憶的路（DIRECTOR 的檔案＋排程）。
 - 各 worker 收到 RESUMED 後自己讀檔接續；總監不替別人讀它的檔案。
 - 有限用量時唯一的取捨是**順序**：恢復後先恢復 P0 和 gate 收尾的工作線。
+
+### RESUME_STATE 瘦身（2.2.2-ds.3，同上游 2.2.2）
+
+RESUME_STATE 每次續接都整份讀進 context；DSH 每一步都重送整段對話，太大就是每步多花 token。上限是整份 20 KiB、單行 4 KiB（`director_work.json` 的 `resume.max_bytes`、`resume.max_line_bytes`）。`gate_check.py --resume` 超過時印 `~ shadow: RESUME_SIZE`，加 `--strict` 才判不過；`dsh_setup_check.py` 對 DIRECTOR 的 RESUME_STATE 也印同一行（shadow）。
+
+- 「壓縮」在這裡只代表**原文搬移**：舊內容一字不改搬到同資料夾的 `RESUME_HISTORY_<YYYYMMDD>.md`，RESUME_STATE 在原處留一行索引（段落開頭、日期、歷史檔名、sha256）。不刪、不摘要、不改寫。
+- **永遠不動**：四行表頭（仍是四行）、有 `UPDATED:` 的現況段、標題或開頭含 `resume.protect_headings` 的段落（預設 現況／未結／OPEN／BLOCKED／TODO／待辦／IN_FLIGHT／DO_NOT_REPEAT）、最近 `resume.keep_recent` 筆紀錄（預設 10）。**近期只用筆數算，不用日期算**（PO 2026-11-14）：一般段落用裡面的完整日期排先後，最新 10 筆不動，和第 10 筆同一天的也不動（同一天分不出先後）。沒有完整日期的段落排不出先後，不動並印 `~ shadow: RESUME_ORDER`。
+- 表頭的 `Before:` 鏈：`Before:` 本身就是新到舊的順序，每行保留現況文字和最新 10 筆，更舊的原文搬走，行尾留 `[RESUME_ARCHIVED: ...]`，表頭仍是四行。某一筆是空的（筆數不明），或 `(MM-DD HH:MM)` 開頭顯示後面的比前面的新（順序不明），整行不動並印 `~ shadow: RESUME_HEADER`。新寫的 `Before:` 請用 `(MM-DD HH:MM)` 開頭，順序才查得到。
+- 做法（工作線自己做）：先 `python -I -X utf8 tools/resume_archive.py <RESUME_STATE.md>`（dry-run，只列可搬 / 保護的段落和搬後 bytes / token），看過再加 `--execute`。`--execute` 先寫 `.bak`，搬完驗證 (a) 歷史檔逐字含搬走的內容 (b) 留下的部分 sha256 不變、表頭仍是四行 (c) 搬走＋留下＝原檔；任何一項不過就從 `.bak` 還原並 exit 1。`.bak` 不刪。
+- 全部可搬的都搬完仍超過上限時，工具印 `~ shadow: RESUME_SIZE protected part over limit`，保護段落不動，交總監人工判斷（例如請工作線把已結案的現況文字改寫短，那是工作線自己的編輯，不是工具做的）。
+- 舊的 RESUME_STATE 照樣能讀：沒有超過上限的不用改；歷史檔是一般 Markdown，需要時再讀。
 
 ### 刪檔之前
 

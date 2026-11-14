@@ -24,7 +24,8 @@ Steps, in order; each prints `STEP <name>: OK | FAIL | SKIP | PLAN ...`, and a F
   selftest   the selftest command exits 0 (default `python -I -X utf8 tools/selftest_ds.py`)
   scan       <remote>/<branch>..HEAD, everything that goes public: paths (DIRECTOR/, _work/, AGENTS.local.md, DSH
              session files), added lines (secret formats from secret_mask.py, key = value secrets with a real-looking
-             value, email addresses other than noreply and *.invalid, <drive>:/Users/<name> paths), commit messages and commit
+             value, email addresses other than noreply and *.invalid, <drive>:/Users/<name> paths; 2.2.2-ds.3 also upstream's
+             CLAUDE.local.md, .claude/settings.local.json and Claude session transcripts), commit messages and commit
              author / committer emails. gitleaks runs too when it is on PATH (not required)
   push       git push <remote> HEAD:refs/heads/<branch> (never --force), then ls-remote must equal HEAD
   tag        git tag -a v<version> on HEAD, git push <remote> refs/tags/v<version> (one tag, never --tags), then
@@ -59,7 +60,12 @@ VERSION_SHAPE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.(\d+))?$")
 PRIVATE_PATHS = [(re.compile(r"(^|/)DIRECTOR/"), "a DIRECTOR/ file (project state, never public)"),
                  (re.compile(r"(^|/)_work/"), "a _work/ file (scratch work, never public)"),
                  (re.compile(r"(^|/)AGENTS\.local\.md$"), "AGENTS.local.md (local instructions)"),
-                 (re.compile(r"(^|/)\.dsh/|session\.v\d+\.jsonl|\.jsonl\.zstd$"), "a DSH session file")]
+                 (re.compile(r"(^|/)\.dsh/|session\.v\d+\.jsonl|\.jsonl\.zstd$"), "a DSH session file"),
+                 # 2.2.2-ds.3: upstream 2.2.2's Claude local files too (this repository is also edited from Claude Code)
+                 (re.compile(r"(^|/)CLAUDE\.local\.md$"), "CLAUDE.local.md (local instructions)"),
+                 (re.compile(r"(^|/)\.claude/settings\.local\.json$"), ".claude/settings.local.json (local settings)"),
+                 (re.compile(r"(^|/)\.claude/projects/|(^|/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                             r"\.jsonl$"), "a Claude session transcript")]
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 USER_PATH = re.compile(r"(?i)\b[A-Z]:(?:[\\/]|\\\\)+Users(?:[\\/]|\\\\)+")
 REAL_VALUE = re.compile(r"^[A-Za-z0-9/+_=.-]{12,}$")
@@ -474,14 +480,14 @@ class Release:
         self.step("release", "OK", f"{data.get('url')} (draft={data.get('isDraft')})")
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", default=".", help="the repository to release (default: current folder)")
     ap.add_argument("--config", help="director_work.json with an optional \"release\" object")
     ap.add_argument("--version", help="the version to release (default: the VERSION file)")
     ap.add_argument("--merge", action="store_true", help="when HEAD and the remote branch diverged, merge into release/<version>")
     ap.add_argument("--execute", action="store_true", help="change the remote (default: dry run)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
     repo = pathlib.Path(a.repo).resolve()
     try:

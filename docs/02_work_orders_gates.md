@@ -73,6 +73,12 @@
   - 2.2 起還要能核對成品本身：再寫 `entry_sha256` 和 `manifest`（manifest 檔的路徑），檔案放在驗收紀錄檔旁邊（或用 `--artifact-root` 指定）。檔不見、內容變了、一則回覆用在兩份成品，都算綁不到；沒寫這兩欄的舊紀錄顯示「成品待核對」。同一 commit 有多份成品時，報告寫 `CANDIDATE_ID:` 指定是哪一份。
   - 裁決可以選填 `ORDER_SHA256:` 和 `REPORT_SHA256:`。之後檔案被改，`--match` 會印 `~ VERDICT_RECORD`。
 
+### 發版（2.2.2-ds.3，同上游 2.2.2）
+
+- 用 `python -I -X utf8 tools/release.py`：先 dry run，乾淨再加 `--execute`。它從 HEAD 讀 VERSION 和 CHANGELOG，工作樹有沒 commit 的改動就停並印下一步；遠端主線比本機新就停（落後），分岔要 `--merge` 另開 `release/<版本>`；版本要比遠端所有 tag 新，`-ds.N` 要比遠端所有 `-ds.*` tag 的 N 大（`DEEPSEEK-PORT.md` 第 10 節）；selftest 和公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）過了才 push、打 annotated tag、建 GitHub Release（Latest），每步用 ls-remote／`gh release view` 驗。細節見 `tools/README.md`。
+- 有 PR 和 CI 時照順序：PR → CI 全綠 → merge → 在 merge 後的主線 commit 跑 `release.py`，這時 push 是 SKIP，只打 tag 和建 Release。CI 沒全綠不發版。
+- push、tag、Release 都要 PO 核准（`docs/08`）；release.py 不代替核准。
+
 ### 重資源排程（有總管時）
 
 - 用到共用重資源的工作，先送 `TEST REQUEST`（`templates/TEST_REQUEST.md`），等 `GO`，結束送 `DONE <內容> <實際分鐘>`；超時 10 分鐘以上要說明原因和新 ETA。
