@@ -12,7 +12,7 @@
 
 | 步 | 誰 | 做什麼 | 留下什麼 |
 |---|---|---|---|
-| 1 | 總監（或總監開的規格子代理） | `openspec new change <名稱>`，寫 `proposal.md`、`specs/<能力>/spec.md`（每條 Requirement 至少一個 `#### Scenario:`）；需要時寫 `design.md`。不寫 `tasks.md`。 | `openspec/changes/<名稱>/` |
+| 1 | 總監（或總監開的規格子代理） | `openspec new change <名稱>`，寫 `proposal.md`、`specs/<能力>/spec.md`（每條 Requirement 至少一個 `#### Scenario:`；逐項想過 `templates/WORK_ORDER.md` E 節的邊界與壓力清單，用得到的各寫一個 Scenario，需求寫「不當掉」時至少一個用極端輸入，2.2.3-ds.3）；需要時寫 `design.md`。不寫 `tasks.md`。 | `openspec/changes/<名稱>/` |
 | 2 | 總監 | `openspec validate <名稱> --strict` 通過 | — |
 | 3 | 總監（或測試子代理） | **測試先寫**：照 Scenario 寫驗收測試，和規格一起 commit 到 BASE_REF；`python -I -X utf8 tools/sdd_gate.py --lock-tests <測試檔> --repo <專案>` 印出 `TESTS_LOCKED:` 貼進工單；`CHECKS:` 寫跑這些測試的指令（AUTO 優先） | 工單 `TESTS_LOCKED`、`CHECKS` |
 | 4 | 總監 | 寫工單：`SPEC_CHANGE = openspec/changes/<名稱>`；一張 ≤3 個檔、約 200 行（超過就拆）；`FORBIDDEN` 加上 `openspec/changes/<名稱>/specs/**`、`openspec/changes/<名稱>/proposal.md` 和鎖定的測試檔；`STOP_RULES` 寫「同一根因 1 輪沒進展就停」 | 工單 |

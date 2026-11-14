@@ -70,8 +70,12 @@ gate_check.py (2.2.2-ds.3: --resume prints `~ shadow: RESUME_SIZE` over resume.m
 fails it; --order fetches and compares the BASE_REF commit with the remote branch; stale or missing
 is a `~ WARN BASE_REF` note, --strict-base fails it; a failed fetch is said, never passed; --report-skeleton ORDER
 prints a TASK REPORT with the order's fields, hash and AC rows filled in plus the evidence / scope_check / --match
-commands, so a DSH worker does not read the checker's source to learn the format), scope_check.py, evidence_record.py, report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line
-JSON decoding and the 2-real-word rule),
+commands, so a DSH worker does not read the checker's source to learn the format), scope_check.py, evidence_record.py (2.2.3-ds.3 as upstream 2.2.3: a CHECKS
+line may start bare `git`, read-only subcommands only - diff show log status rev-parse ls-files cat-file; anything else
+is NOT_RUN, exit 2), report_vs_audit.py (DSH wrapped-command matching; 2.2.1 cut-line JSON decoding and the 2-real-word
+rule; 2.2.3-ds.3 as upstream 2.2.3: statements split at new line ; && ||, a ``` block under RAN is one claim, at= ends
+at the time, one run per listed AC ID, abbreviated claims skip options, shadow WARNs for a RAN line with no command and
+for SCOPE_CHECK PASS before the agent's last commit),
 trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit; PENDING_METHOD instead of PO_PAGE_URL),
 metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md; 2.2.2-ds.3 as upstream 2.2.2: --kind resume,
 several --file, --glob, --workstreams, one line per file and `SIZE: PASS|OVER|MISSING`), resume_archive.py

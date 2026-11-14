@@ -19,6 +19,16 @@ Runs, on this machine and offline:
               the DSH PTC form a report's friendly RAN line has to match, plus one negative case
   matching_221  2.2.1-ds.1: report_vs_audit matches() on 21 cut / backslash / quote / launcher / wildcard cases
               in process, two of them through the CLI, and 6 mutations of the matcher that must each get a case wrong
+  matching_223  2.2.3-ds.3 (upstream 2.2.3, L-052 / L-054): report_vs_audit splits statements (new line ; && ||),
+              reads a ``` block under RAN, ends at= at the time, leaves a full-width note out, needs one run per listed
+              AC ID, lets an abbreviated claim skip options and match short words (x..., a bare name, 同上), matches 3
+              words at the end of a cut line, calls an exit of a statement that is not the last "not checkable", and
+              prints shadow WARNs (a RAN line with no command, SCOPE_CHECK PASS before the agent's last commit):
+              15 matcher cases, 14 CLI runs, the same in process, 16 mutations killed
+  evidence_git_223 2.2.3-ds.3 (upstream 2.2.3, L-055): evidence_record --rerun lets git run for read-only
+              subcommands only (diff show log status rev-parse ls-files cat-file); push / commit / reset / checkout,
+              no subcommand, an option before it and --output / --ext-d / --textconv are refused; git_argv turns
+              off pager, replace refs, fsmonitor, optional locks, external diff and textconv; 4 mutations killed
   setup_shadow  2.2.1-ds.1: dsh_setup_check shadow lines (PO IDs, RESUME values, director_work.json keys) stay
               notes without --strict and fail with it; a clean folder passes --strict. 2.2.2-ds.3: RESUME_SIZE and
               the resume / base_ref / release blocks too; the example config is clean
@@ -938,6 +948,235 @@ def matching_221(tmp):
     survived = [name for name, swaps in RVA_MUTATIONS if not rva_wrong(mutated("report_vs_audit", swaps), audit)]
     require(not survived, "these matcher mutations get no case wrong, so the cases do not test them: %s" % survived)
     return "%d cases in process, 2 CLI, %d mutations killed" % (len(RVA_221_CASES), len(RVA_MUTATIONS))
+
+
+# 2.2.3-ds.3: upstream 2.2.3 report_vs_audit (L-052, L-054); the cases are upstream selftest.py test_report_vs_audit_223
+RVA_MULTI = "python -m unittest tests.test_calc -v\ngit status --short"
+RVA_EVIDENCE = "python tools/evidence_record.py run --order D:/w/orders/wo-9.md --label {} -- python -m unittest tests.test_a"
+RVA_GATE = "python tools/gate_check.py --hash D:/w/orders/wo-003-expression.md"
+RVA_SCOPE = "python tools/scope_check.py --candidate 427fcef0123456789abcdef --base main"
+RVA_CUT = "python tools/build_all.py --mode full --target alpha " + "--x " * 140
+# (name, tool, command in the log, claimed command, should match) for matches() in process
+RVA_223_CASES = [
+    ("statements in order", "Bash", RVA_MULTI, "python -m unittest tests.test_calc -v; git status --short", True),
+    ("statements out of order", "Bash", RVA_MULTI, "git status --short; python -m unittest tests.test_calc -v", False),
+    ("&& ends a statement like a new line", "Bash", "git status --short && python -m unittest tests.test_calc -v",
+     "git status --short\npython -m unittest tests.test_calc -v", True),
+    ("words do not run across a statement end", "Bash", RVA_MULTI, "tests.test_calc -v git status", False),
+    ("a claim with ... skips log options", "Bash", RVA_EVIDENCE.format("AC-1"), "evidence_record.py run --label AC-1 ...",
+     True),
+    ("a full claim does not skip log options", "Bash", RVA_EVIDENCE.format("AC-1"), "evidence_record.py run --label AC-1",
+     False),
+    ("x... matches a word that starts with x", "Bash", RVA_SCOPE, "scope_check.py --candidate 427fcef...", True),
+    ("x... with another start", "Bash", RVA_SCOPE, "scope_check.py --candidate 9999abc...", False),
+    ("a bare name matches a file name that starts with it", "Bash", RVA_GATE, "gate_check.py --hash wo-003 ...", True),
+    ("a bare name must end at - _ or .", "Bash", RVA_GATE, "gate_check.py --hash wo-00 ...", False),
+    ("a CJK-only word (同上) skips words", "Bash", RVA_GATE, "gate_check.py --hash 同上", True),
+    ("同上 with one real word proves nothing", "Bash", RVA_GATE, "gate_check.py 同上", False),
+    ("3 claim words reach the end of a cut line", "Bash", RVA_CUT, "build_all.py --mode full ... out.txt", True),
+    ("2 claim words at the end of a cut line are not enough", "Bash", RVA_CUT, "build_all.py --mode ... out.txt", False),
+    ("a line that is not cut does not match past its end", "Bash", "python tools/build_all.py --mode full --target alpha",
+     "build_all.py --mode full ... out.txt", False)]
+# log rows: (minute, agent, command, kind, status); session S1, 2026-11-14 03:MM UTC
+RVA_223_ROWS = [
+    (1, "w1", RVA_MULTI, "result", "ok"),
+    (5, "w1", RVA_EVIDENCE.format("AC-1"), "result", "ok"),
+    (6, "w1", RVA_EVIDENCE.format("AC-2"), "result", "ok"),
+    (10, "w1", RVA_GATE, "failure", "error"),
+    (20, "w1", RVA_GATE, "result", "ok"),
+    (30, "w1", RVA_SCOPE, "result", "ok"),
+    (40, "w1", "git -C D:/w commit -m fix", "result", "ok")]
+RVA_223_LOGS = {
+    "late_commit": RVA_223_ROWS + [(50, "w2", "git commit -m other", "result", "ok")],
+    "checked": RVA_223_ROWS + [(45, "w1", RVA_SCOPE, "result", "ok"), (50, "w2", "git commit -m other", "result", "ok")]}
+# (name, report body after SESSION_ID: S1, log, exit, says, lacks)
+RVA_223_RUNS = [
+    ("two statements in one claim", "RAN: `python -m unittest tests.test_calc -v; git status --short` exit=0\n",
+     "late_commit", 0, ["seq 1 at", "PASS claims=1 ok=1"], []),
+    ("a ``` block under RAN is one claim", "RAN:\n```\npython -m unittest tests.test_calc -v\ngit status --short\n```"
+     " exit=0\n", "late_commit", 0, ["PASS claims=1 ok=1"], []),
+    ("an unclosed ``` block is no claim", "RAN:\n```\ngit status --short\n", "late_commit", 0,
+     ["REPORT_VS_AUDIT: NONE claims=0"], []),
+    ("exit of a statement that is not the last: not checkable", "RAN: `python -m unittest tests.test_calc` exit=1\n",
+     "late_commit", 0, ["not checkable: seq 1 goes on with other statements", "PASS claims=1 ok=1"], []),
+    ("exit of the last statement is still checked", "RAN: `git status --short` exit=1\n", "late_commit", 1,
+     ["exit=1, but the log says ok (seq 1)"], ["not checkable"]),
+    ("at= ends at the time; the nearest run is shown", "RAN: `tools/gate_check.py --hash wo-003 ...` at=03:12（重跑）\n",
+     "late_commit", 0, ["`: seq 4 at", "PASS claims=1 ok=1"], []),
+    ("a full-width note in the claim is left out", "RAN: `python -m unittest tests.test_calc -v（第二次）` exit=0\n",
+     "late_commit", 0, ["PASS claims=1 ok=1"], []),
+    ("AC-1/AC-2 needs one run per ID", "RAN: `evidence_record.py run ... --label AC-1/AC-2` exit=0\n", "late_commit", 0,
+     ["seq 2, 3 at", "PASS claims=1 ok=1"], []),
+    ("AC-1/2 is the same list", "RAN: `evidence_record.py run ... --label AC-1/2` exit=0\n", "late_commit", 0,
+     ["seq 2, 3 at"], []),
+    ("AC-1..AC-3 names the missing ID", "RAN: `evidence_record.py run ... --label AC-1..AC-3` exit=0\n", "late_commit",
+     1, ["`evidence_record.py run ... --label AC-3`: not run in session S1"], ["AC-1`: not run", "AC-2`: not run"]),
+    ("a RAN line with no `command` is a shadow WARN", "RAN:\n- 三支鎖定測試 sha256 比對\n", "late_commit", 0,
+     ["WARN ran: a RAN line with no `command`", "三支鎖定測試", "REPORT_VS_AUDIT: NONE"], []),
+    ("SCOPE_CHECK PASS before the agent's last commit: shadow WARN",
+     "SCOPE_CHECK: PASS\nRAN: `scope_check.py --candidate 427fcef...` exit=0\n", "late_commit", 0,
+     ["WARN scope_check:", "agent w1 committed last at seq 7", "its last scope_check.py run is seq 6",
+      "(shadow, exit code unchanged)", "PASS claims=1 ok=1"], []),
+    ("scope_check after the agent's last commit: no WARN (another agent's commit does not count)",
+     "SCOPE_CHECK: PASS\nRAN: `scope_check.py --candidate 427fcef...` exit=0\n", "checked", 0, ["PASS claims=1 ok=1"],
+     ["WARN scope_check"]),
+    ("no SCOPE_CHECK PASS line: no WARN", "RAN: `scope_check.py --candidate 427fcef...` exit=0\n", "late_commit", 0,
+     ["PASS claims=1 ok=1"], ["WARN scope_check"])]
+# (name, swaps, checked by the runs instead of the matcher cases); each anchor must occur once in report_vs_audit.py
+RVA_223_MUTATIONS = [
+    ("no statement split", [('SEPARATOR = re.compile(r"\\r?\\n|\\r|;|&&|\\|\\|")', 'SEPARATOR = re.compile(r"(?!)")')],
+     False),
+    ("no option skip", [('            if not found and short and log[li].startswith("-"):\n',
+                         "            if False:\n")], False),
+    ("no x... prefix", [("        return log_word.startswith(found.group(1)) or base.startswith(found.group(1))\n",
+                         "        return False\n")], False),
+    ("no bare-name prefix", [('    return base.startswith(claim_word) and len(base) > len(claim_word) and '
+                              'base[len(claim_word)] in "-_."\n', "    return False\n")], False),
+    ("no CJK placeholder", [('PLACEHOLDER = re.compile(r"^[\\u2e80', 'PLACEHOLDER = re.compile(r"^(?!)[\\u2e80')],
+     False),
+    ("no cut-end match", [("            found = cut and long_enough and n >= CUT_WORDS  #",
+                           "            found = False  #")], False),
+    ("cut-end match from 2 words", [("CUT_WORDS = 3  #", "CUT_WORDS = 2  #")], False),
+    ("no ``` block", [('        if field == "RAN" and FENCE.match(line) and not FIELD.match(line):\n',
+                       "        if False:\n")], True),
+    ("no not-checkable exit", [('    return not hits or ";" in have[hits[-1] + 1:]\n', "    return False\n")], True),
+    ("at= takes the note too", [('AT = re.compile(r"\\bat=([^\\s（(，,；;]+)")', 'AT = re.compile(r"\\bat=(\\S+)")')],
+     True),
+    ("the last run, not the nearest", [("reverse=True)  # nearest last", "reverse=False)  # nearest last")], True),
+    ("no note strip", [('    words = re.split(r"(\\s+)", ANNOTATION.sub(" ", command).strip())\n',
+                        '    words = re.split(r"(\\s+)", command.strip())\n')], True),
+    ("no ID list", [("        if ids:\n", "        if False:\n")], True),
+    ("no RAN WARN", [("                loose.append(rest.strip())\n", "                pass\n")], True),
+    ("scope WARN for any agent", [('        pool = [e for e in mine if e.get("agent_id") == agent]\n',
+                                   "        pool = mine\n")], True),
+    ("scope WARN never", [("    if later:\n", "    if True:\n")], True)]
+
+
+def rva223_matches_wrong(module, audit):
+    return [name for name, tool, command, claim, want in RVA_223_CASES
+            if bool(module.matches({"command": claim}, {"tool": tool, "input": audit.summary({"command": command})})) != want]
+
+
+def rva223_wrong(name, code, says, lacks, got, out):
+    return got != code or any(s not in out for s in says) or any(s in out for s in lacks)
+
+
+def rva223_runs_wrong(module, reports, logs):
+    wrong = []
+    for (name, _, log, code, says, lacks), report in zip(RVA_223_RUNS, reports):
+        try:
+            got, out = call_main(module, "--report", report, "--log", logs[log], "--utc-offset", "+00:00")
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            wrong.append("%s: crashed %s" % (name, type(error).__name__))
+            continue
+        if rva223_wrong(name, code, says, lacks, got, out):
+            wrong.append(name)
+    return wrong
+
+
+@test
+def matching_223(tmp):
+    audit = load_tool("audit_log")
+    require(audit.summary({"command": RVA_CUT}).endswith("\u2026"), "the RVA_CUT log line is not cut, so it tests nothing")
+    folder = tmp / "rva223"
+    logs = {}
+    for log_name, rows in RVA_223_LOGS.items():
+        prev, out = audit.GENESIS, []
+        for seq, (minute, agent, command, kind, status) in enumerate(rows, 1):
+            entry = {"seq": seq, "ts": "2026-11-14T03:%02d:00.000+00:00" % minute, "session_id": "S1",
+                     "agent_id": agent, "tool": "Bash", "tool_use_id": "t%d" % seq,
+                     "input": audit.summary({"command": command}), "kind": kind, "result": {"status": status},
+                     "duration_ms": None, "prev": prev}
+            entry["hash"] = audit.digest(entry)
+            prev = entry["hash"]
+            out.append(audit.canonical(entry))
+        logs[log_name] = write(folder / (log_name + ".jsonl"), "".join(line + "\n" for line in out))
+    reports = [write(folder / ("r%d.md" % n), "SESSION_ID: S1\n" + body) for n, (_, body, *_) in enumerate(RVA_223_RUNS)]
+    cli = []
+    for (name, _, log, code, says, lacks), report in zip(RVA_223_RUNS, reports):
+        proc = run_tool("report_vs_audit", "--report", report, "--log", logs[log], "--utc-offset", "+00:00")
+        if rva223_wrong(name, code, says, lacks, proc.returncode, text_of(proc)):
+            cli.append("%s (exit %s): %s" % (name, proc.returncode, tail(text_of(proc), 300)))
+    require(not cli, "report_vs_audit CLI gets these 2.2.3 runs wrong: %s" % cli)
+    real = load_tool("report_vs_audit")
+    wrong = rva223_matches_wrong(real, audit)
+    require(not wrong, "report_vs_audit gets these 2.2.3 matcher cases wrong: %s" % wrong)
+    wrong = rva223_runs_wrong(real, reports, logs)
+    require(not wrong, "report_vs_audit in process gets these 2.2.3 runs wrong: %s" % wrong)
+    survived = []
+    for name, swaps, by_runs in RVA_223_MUTATIONS:
+        module = mutated("report_vs_audit", swaps)
+        if not (rva223_runs_wrong(module, reports, logs) if by_runs else rva223_matches_wrong(module, audit)):
+            survived.append(name)
+    require(not survived, "these 2.2.3 mutations get no case wrong, so the cases do not test them: %s" % survived)
+    return "%d matcher cases, %d CLI runs (+ in process), %d mutations killed" % (
+        len(RVA_223_CASES), len(RVA_223_RUNS), len(RVA_223_MUTATIONS))
+
+
+# 2.2.3-ds.3: upstream 2.2.3 evidence_record --rerun read-only git (L-055); the commands of upstream selftest.py
+# test_trusted_isolation, checked on check_program / git_argv in process (evidence_record.py is upstream's file)
+GIT_READ_ONLY = [["git", "diff", "--exit-code", "HEAD~1", "--", "payload.txt"], ["git", "status", "--porcelain"],
+                 ["git", "rev-parse", "HEAD"], ["git", "ls-files"], ["git", "log", "--oneline", "-1"],
+                 ["git", "show", "--stat", "HEAD"], ["git", "cat-file", "-e", "HEAD"],
+                 ["C:/Program Files/Git/cmd/git.exe", "status"]]
+GIT_REFUSED = [
+    (["git", "push", "origin", "main"], "'push', which is not a read-only git subcommand"),
+    (["git", "commit", "--allow-empty", "-m", "x"], "'commit', which is not a read-only git subcommand"),
+    (["git", "reset", "--hard", "HEAD~1"], "'reset', which is not a read-only git subcommand"),
+    (["git", "checkout", "other"], "'checkout', which is not a read-only git subcommand"),
+    (["git"], "which is not a read-only git subcommand"),
+    (["git", "-c", "diff.external=x", "diff"], "before the subcommand"),
+    (["git", "diff", "--output=out.txt"], "'--output=out.txt', which writes a file"),
+    (["git", "diff", "--ext-d"], "which writes a file or runs a program"),
+    (["git", "cat-file", "--textconv", "HEAD:payload.txt"], "which writes a file"),
+    (["/usr/bin/git", "commit", "-m", "x"], "which is not a read-only git")]
+GIT_MUTATIONS = [
+    ("git takes the normal program rule", [("    if is_git(command):\n        return read_only_git(command)\n", "")]),
+    ("any subcommand", [("    if sub not in READ_ONLY_GIT:\n", "    if False:\n")]),
+    ("no write-option check", [('    bad = [arg for arg in command[2:] if writes(arg.split("=", 1)[0])]\n',
+                                "    bad = []\n")]),
+    ("no cut-short option", [("any(option.startswith(name) for option in GIT_WRITE_OPTIONS)",
+                              "name in GIT_WRITE_OPTIONS")])]
+
+
+def git_rule_wrong(module):
+    wrong = []
+    for command in GIT_READ_ONLY:
+        try:
+            module.check_program(command)
+        except module.Refused as why:
+            wrong.append("%s refused: %s" % (" ".join(command), why))
+    for command, says in GIT_REFUSED:
+        try:
+            module.check_program(command)
+            wrong.append("%s allowed" % " ".join(command))
+        except module.Refused as why:
+            if says not in str(why):
+                wrong.append("%s: %s" % (" ".join(command), why))
+    return wrong
+
+
+@test
+def evidence_git_223(tmp):
+    module = load_tool("evidence_record")
+    wrong = git_rule_wrong(module)
+    require(not wrong, "evidence_record read-only git rule gets these wrong: %s" % wrong)
+    argv = module.git_argv(["git", "diff", "--exit-code", "HEAD"])
+    for flag in ("--no-pager", "core.useReplaceRefs=false", "core.fsmonitor=false", "--no-optional-locks",
+                 "--no-ext-diff", "--no-textconv"):
+        require(flag in argv, "git_argv lacks %s: %s" % (flag, argv))
+    require(argv.index("diff") < argv.index("--no-ext-diff") and argv[-2:] == ["--exit-code", "HEAD"],
+            "git_argv puts the options in the wrong place: %s" % argv)
+    require("--no-ext-diff" not in module.git_argv(["git", "status"]), "git_argv adds diff options to git status")
+    try:
+        module.check_program(["hostname"])
+        require(False, "a bare program name other than git was allowed")
+    except module.Refused as why:
+        require("a bare name the PATH would resolve" in str(why), "bare name refused for another reason: %s" % why)
+    survived = [name for name, swaps in GIT_MUTATIONS if not git_rule_wrong(mutated("evidence_record", swaps))]
+    require(not survived, "these read-only git mutations get no case wrong: %s" % survived)
+    return "%d allowed, %d refused, git_argv flags, %d mutations killed" % (
+        len(GIT_READ_ONLY), len(GIT_REFUSED), len(GIT_MUTATIONS))
 
 
 def shadow_fixture(folder):

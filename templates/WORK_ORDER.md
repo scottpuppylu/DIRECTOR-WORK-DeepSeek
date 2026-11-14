@@ -79,6 +79,16 @@ CHECKS:
 - `REVIEW`：要有人看成品。開工前寫明誰看、從哪個角度看、看多大範圍、看哪些常識閘門項目（docs/07）。reviewer 用 `subagent` 開；DSH 子代理預設拿到完整工具集，不能只給讀取工具，所以 review 的範圍靠工單指示＋總監事後用 `dsh_audit.py` 核對（docs/07）。worker 最多填 `READY_FOR_REVIEW`。
 - `PO`：PO 保留的判定，例如最終驗收。worker 和總監都只填 `PENDING_PO`。同一個 commit 給 PO 看兩份以上成品時，報告寫 `CANDIDATE_ID: <PO_ACCEPTANCE 的 candidate_id>`（2.2）。
 - 接手演練、要用 `metrics_report --run --compare` 比較的工單：run 資料夾的 `run.json` 要寫 `sampling` 標記（`complete`、`scenario`），否則比較結果是 UNKNOWN（2.2，`tools/README.md`）。
+- 邊界與壓力清單（2.2.3，L-048）：寫 AUTO 條件時逐項想過，用得到的寫成 AC 或測試案例：
+  - 遞迴／巢狀深度（例如 1000 層括號）
+  - 輸入長度（空字串、極長輸入）
+  - 重複的一元運算子或符號（`--5`、`+++`、`((((`）
+  - 極大數字、溢位、除以零
+  - 不是字串的輸入（None、數字、list）
+  - Unicode 與全形字元（全形數字、全形運算子）
+  - 錯誤訊息不漏出程式語言的原生訊息（traceback、RecursionError）或英文訊息，照工單規定的語言與格式
+  - 需求寫「不當掉／不崩潰」時，至少一條 AC 用極端輸入驗證（例如上面的深度或長度）
+  - Standard／Strict（OpenSpec，2.2.3-ds.3）：用得到的每一項在 `specs/<能力>/spec.md` 寫成一個 `#### Scenario:`（WHEN 極端輸入，THEN 預期的結果或錯誤訊息），鎖定測試照 Scenario 寫；需求寫「不當掉」時，至少一個 Scenario 用極端輸入
 - 選用的 `追溯` 欄（加在表的最後一欄）：這條 AC 驗證 TRACES_TO 的哪些編號，例如 `DD-03`；沒有寫 `—`。不加這欄也照樣通過；加了之後 `trace_report.py` 每個編號一列，不必猜哪條 AC 服務哪個需求。
 
 - 驗收優先寫 `AUTO`（ds.2）：能用指令判定的就不要寫成 REVIEW／PO。

@@ -20,6 +20,8 @@ rules:
     - Every requirement has at least one "#### Scenario:" with WHEN / THEN that a test can check.
     - Every requirement sentence contains SHALL or MUST in English, also in zh-TW text (validate --strict refuses it otherwise).
     - Write the behaviour, not the implementation.
+    - 'Go through the boundary and stress list of templates/WORK_ORDER.md section E (nesting depth, input length, repeated unary operators or symbols, huge numbers / overflow / division by zero, non-string input, Unicode and full-width characters, error text without the native or English messages of the language) and write each item that applies as its own "#### Scenario:" (WHEN the extreme input, THEN the expected result or error).'
+    - 'When a requirement says the program must not crash, at least one Scenario uses an extreme input (for example 1000 nested brackets or a very long input).'
     - A new capability's "## Purpose" is at least 50 characters (about two zh-TW sentences); --strict refuses a shorter one after archive.
   tasks:
     - The implementer writes tasks.md and hands it to the Director before any code; wait for PLAN_APPROVED.

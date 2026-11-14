@@ -27,6 +27,7 @@ RAN: （選用）一行一個實際跑過的指令：- `指令` exit=N at=HH:MM
   總監用 report_vs_audit.py 拿 RAN 和 TESTS / EVIDENCE / DONE 裡的 selftest、Unity、Blender、雜湊指令
   對動作紀錄（--log <dsh_audit.py 產生的紀錄>）；沒有動作紀錄時記 UNKNOWN，不當成通過或失敗
   長指令若被動作紀錄截斷（dsh_audit input 最多 500 字），在被截斷處用 ... 表示尾端；完整指令寫在 TESTS
+  自寫腳本和暫存輸出放 WORK_DIR，不放 scratchpad 或系統暫存資料夾（算工作區外，總監重跑不到；docs/02）
 ACCEPTANCE: 工單 E 節每條一列，不增不減。狀態：AUTO 填 PASS / FAIL / BLOCKED / UNVERIFIED；
   REVIEW 最多填 READY_FOR_REVIEW；PO 只填 PENDING_PO。AUTO 填 PASS 時證據欄寫 evidence_record 的 .json 檔名。
   交件前跑 gate_check.py --match 本報告 工單 --evidence-dir 證據資料夾

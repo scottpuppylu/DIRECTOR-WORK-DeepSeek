@@ -5,7 +5,7 @@
 
 ## 2.2.3-ds.3（2026-11-14）
 
-對應上游 2.2.3。這一版要讓 OpenSpec 規格層下次一定會被用上，並帶入 WO-DS-004 試驗（DSH 和 Claude 同一需求各跑一次）學到的事。版本號是 PO 指定的：上游段從 2.2.2 升到 2.2.3，ds 序號維持 3；`release.py` 的版本規則因此改成比「(上游版本, ds 序號)」整組（總監裁定，見「工具修正」）。
+對應上游 2.2.3（DW commit 4f6c9e6）。這一版要讓 OpenSpec 規格層下次一定會被用上，並帶入 WO-DS-004 試驗（DSH 和 Claude 同一需求各跑一次）學到的事。版本號是 PO 指定的：上游段從 2.2.2 升到 2.2.3，ds 序號維持 3；`release.py` 的版本規則因此改成比「(上游版本, ds 序號)」整組（總監裁定，見「工具修正」）。
 
 ### OpenSpec CLI 自動偵測（試驗：本機有 CLI，規格層卻被關掉）
 - 試驗裡 req-only 專案的 `sdd.openspec_bin` 是 null，本機其實裝好了 openspec 1.16.0，DSH lead 以「無網路、不能裝」自己寫 DD 把 `require_spec_for_*` 關掉，規格層完全沒用上。
@@ -17,10 +17,17 @@
 - 冒煙驗證（不是 DSH 試驗、不用額度）：全新的暫存專案、不設 `OPENSPEC_BIN`，照 BOOTSTRAP 跑 setup_check → bootstrap_repo（寫設定、init、exclude）→ 寫一個最小 change → `gate_check --order` 實際跑 `openspec validate --strict` 通過 → 拿掉 Scenario 後判不過 → 放回又通過，16 步全過。
 
 ### 試驗心得
-- `templates/SPEC_REVIEW.md` 第 10 項：**逐一重算字面期望值**，每個寫成一行放進「重算」段並存進審查紀錄，不一致是 P0（試驗：`2 + 3 * (4 - 1)` 被寫成 9，審查沒抓到）。
+- **邊界與壓力清單**（上游 2.2.3 L-048，文字照搬）：`templates/WORK_ORDER.md` E 節 8 行（深度、長度、重複符號、極大數字／溢位／除以零、非字串、Unicode／全形、錯誤訊息不漏原生或英文訊息；需求寫「不當掉」至少一條極端輸入的 AC），DS 多一行 OpenSpec 寫法：用得到的每一項在 `specs/` 寫成一個 `#### Scenario:`（WHEN 極端輸入，THEN 預期結果或錯誤訊息），需求寫「不當掉」至少一個 Scenario 用極端輸入。`templates/openspec_config.yaml` 的 specs 規則加同樣兩條（實測 openspec 1.16.0 `instructions specs` 會把它們交給 agent），`docs/13` 流程第 1 步同步。
+- `templates/SPEC_REVIEW.md`：新第 7 項（上游第 7 項原文：清單沒涵蓋、需求寫「不當掉」卻沒有極端輸入的 AC 算 P1；DS 加一句 Scenario 也照算），原第 7～9 項改成第 8～10 項。第 11 項**逐一重算字面期望值**改成上游第 8 項的寫法：手算、不看被測程式，每個值一行「測試名｜期望值｜怎麼算的｜相符 / 不符 / 算不出」；DS 另外連 Scenario、AC 的寫死期望值一起算，「不符」是 P0（試驗：`2 + 3 * (4 - 1)` 被寫成 9，審查沒抓到）。總監第 2 步照上游第 3 步（L-049）：重算表寫進審查紀錄，有「不符」或「算不出」就不鎖。
 - 工單改版同步：`gate_check.py --order` 對 REVISION ≥2 的工單提示同步 BRIEF.md、WORK_DIR/tasks.md、WORK_DIR/RESUME_STATE.md；WORK_DIR 裡比工單舊的那兩個檔印 `~ shadow: REVISION_SYNC`（不影響結果）。`docs/02`、`templates/WORK_ORDER.md` 同步（試驗：工單改到 rev2，tasks.md 還寫 9）。
 - `.memsearch/`（DSH 的記憶索引）由 `bootstrap_repo.py` 自動排除（試驗裡 lead 要自己補 DD-11）。
-- （B3 邊界與壓力清單、B9 上游 2.2.3 移植：等 DW 2.2.3 commit 後補上）
+
+### 上游 2.2.3 移植（L-052～L-055）
+- `report_vs_audit.py` 照上游 2.2.3 三方合併（DS 只多保留 DSH 重建紀錄的說明和 note）：換行、`;`、`&&`、`||` 切段，多段主張對得到多行腳本；`RAN:` 下 ``` 包的一段算一個主張；`at=` 只取時間、全形備註不比；`AC-1/AC-2`、`AC-1/2`、`AC-1..AC-3` 每個編號各要一筆；省略的主張（`...`、`427fcef...`、「同上」）可跳過選項；被截的行 3 個詞對到行尾也算；顯示最接近 `at=` 的那筆；後面還跑了別段的印 `not checkable` 算 OK。兩種 shadow WARN（exit code 不變）：`RAN:` 一行沒有 `` `指令` ``；`SCOPE_CHECK: PASS` 但做事的 agent 最後一次 commit 之後沒再跑 `scope_check.py`。
+  - 用 WO-DS-004 的封存輸入重跑（只讀，輸出在 WORK_DIR）：DSH 報告 FAIL 6 → PASS 11/11；Claude 報告 FAIL 2（剩下兩筆紀錄裡確實沒有），和 DW 2.2.3 的結果相同。
+- `evidence_record.py` 和上游 2.2.3 逐位元相同：`verify --rerun` 的 CHECK 可以寫裸 `git`，只限唯讀子指令（diff、show、log、status、rev-parse、ls-files、cat-file）；子指令前的選項、其他子指令、會寫檔或執行程式的選項（縮寫也算）照樣 `NOT_RUN`、exit 2。在 `--repo` 頂層跑，關掉 replace 物件、fsmonitor、pager、optional locks、外部 diff、textconv，跑完照舊重讀 repo。
+- `docs/02`：暫存檔放 WORK_DIR，不放 scratchpad 或系統暫存資料夾（L-053）；「AC 用 git」一段（唯讀 git，或改用 TESTS_LOCKED sha256）。`templates/TASK_REPORT.md` 的 RAN 段提醒一句。`tools/README.md`、`tools/DSH-TOOLS.md` 同步。
+- 不搬：上游 `selftest.py` 的案例（DS 用自己的 `selftest_ds.py`，見「驗證」）。
 
 ### 工具修正
 - `verify_dsh_run.py` D06：改看每個寫入動作的目標（cmdlet 路徑參數、重新導向、.NET File、node fs、rm／mv／cp，變數照腳本自己的字串展開），`tools.*(...)` 用括號配對剝除（跳過字串、樣板字串、regex、註解）；解不出目標時退回舊規則。ds.3 重跑原本誤判 FAIL，現在 34/34。
@@ -31,14 +38,14 @@
 ### token（只用 WO-DS-004 的現有紀錄，沒有新跑）
 - DSH 一次 20.60M，lead 佔 14.39M（159 步，output 0.9%）。lead 的大項：自己的推理和呼叫重送 24.9%、系統提示 17.5%、規則包文件 10.9%、工具原始碼和 `--help` 8.5%、同一檔重讀 3.7%。
 - 本版改了兩條規則：BOOTSTRAP 第 1 步「每支工具只讀一次，之後不重讀、不跑 `--help`，用法查 `tools/DSH-TOOLS.md`」（重讀加 `--help` 約 0.76M）；`docs/13`「省 token」第 8 條「讀過的檔不整份重讀」（其他檔重讀約 0.20M）。合計上限約 0.96M（lead 的 6.7%），要下次實機才知道實際省多少。
-- 每輪必讀的 bytes：`docs/01`、`03`、`06`、`08` 合計 10,964，本版沒改；AGENTS 總監段落範本 2,360 → 2,601（＋241，「規格層」一行，估計約多 0.02%）。
+- 每輪必讀的 bytes：`docs/01`、`03`、`06`、`08` 合計 10,964，本版沒改（B3、B9 只改範本、`docs/02`、`docs/13`，寫工單、審規格、交件時才讀）；AGENTS 總監段落範本 2,360 → 2,601（＋241，「規格層」一行，估計約多 0.02%）。
 
 ### 下一版
 - BOOTSTRAP 的讀檔清單分成「建置必讀」和「用到再讀」，或讓短上下文的子代理讀完回摘要：規則包文件佔 lead 的 10.9%，但會改變 lead 的讀法，要實機驗證不漏規則才改。
 - 改檔用 `edit` 只送改的段落、不整份重寫：lead 自己的推理和呼叫重送佔 24.9%，其中有整份工單、初衷卡的內容，還沒量過。
 
 ### 驗證
-- `selftest_ds.py` 30 → 35 項（新增 `sdd_cli_lookup`、`sdd_cli_setup`、`sdd_spec_off_gate`、`revision_sync`、`bootstrap_repo`；`setup_shadow`、`report_skeleton`、`release_state` 更新），設與不設 `OPENSPEC_BIN` 各跑一次都全過；不設時 `sdd_real_openspec` 從第 3 層找到真的 CLI。
+- `selftest_ds.py` 30 → 37 項（新增 `sdd_cli_lookup`、`sdd_cli_setup`、`sdd_spec_off_gate`、`revision_sync`、`bootstrap_repo`；上游 2.2.3 移植的 `matching_223`（15 個比對案例、14 次 CLI 執行、16 個 mutation 都被抓到，案例取自上游 selftest）和 `evidence_git_223`（8 個允許、10 個拒跑、git_argv 的旗標、4 個 mutation）；`setup_shadow`、`report_skeleton`、`release_state` 更新），設與不設 `OPENSPEC_BIN` 各跑一次都全過；不設時 `sdd_real_openspec` 從第 3 層找到真的 CLI。
 - `verify_dsh_run.py` 對 ds.3 重跑 34/34；`test_verify_dsh_run.py` 33/33。
 
 ## 2.2.2-ds.3（2026-11-14）
