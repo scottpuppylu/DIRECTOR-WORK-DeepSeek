@@ -38,6 +38,13 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_guard.py --command "git push" [--mode remind|block] [--profile worker|director] [--pause-flag FILE]
   [--rules FILE] [--shell bash|powershell|cmd] [--cwd DIR] [--json]`
   exit 0 clean, 1 remind (default), 2 block / pause flag exists / rules unreadable.
+- release.py (2.2.1-ds.3) - release this repository in one pass: fetch, HEAD vs <remote>/<branch> (UP_TO_DATE / AHEAD /
+  BEHIND / DIVERGED; --merge merges into release/<version> with --no-ff and stops on conflicts), VERSION = CHANGELOG top
+  and the tag sorts above every remote tag, selftest, a scan of everything about to go public, then push (no --force),
+  annotated tag, `gh release create --verify-tag --latest`, each checked with ls-remote / gh release view. Dry run by
+  default. Glue over git and gh: release-please / semantic-release need CI and conventional commits (see CHANGELOG).
+  `release.py [--repo DIR] [--config FILE] [--version X] [--merge] [--execute]`
+  exit 0 dry run clean or release done, 1 a step failed (a NEXT: line says what to do), 2 cannot run.
 - selftest_ds.py - offline smoke tests of this toolchain (help, usage, audit + report, setup fixture, generated status,
   doctor, guard, gate hash, evidence record, report matching). `selftest_ds.py [--verbose] [--keep]`
   exit 0 all pass (SKIP is not a failure), 1 any FAIL.

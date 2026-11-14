@@ -23,6 +23,14 @@ Runs, on this machine and offline:
               notes without --strict and fail with it; a clean folder passes --strict
   audit_rebuild 2.2.1-ds.1: dsh_audit.chain_lines writes the kind=rebuild first line, dsh_audit verify accepts the
               chain and report_vs_audit reads it with a note (no DSH session log needed)
+  release_state 2.2.1-ds.3: release.py dry run on temp bare repos: BEHIND and DIVERGED stop, --merge predicts the
+              conflicted file, AHEAD plans push / tag / release, a version below a remote tag and a VERSION that
+              differs from the CHANGELOG top stop; version_key orders 2.2.0-ds.2 below 2.2.1-ds.1
+  release_scan  2.2.1-ds.3: release.py public scan stops an API key, a key = value secret, a private email, a
+              <drive>:/Users path, DIRECTOR/ / _work/ / session files and a private author email, never prints a secret;
+              noreply / .invalid emails and DIRECTOR/ named in text pass
+  release_execute 2.2.1-ds.3: release.py --merge --execute on a temp bare origin: merge --no-ff into release/<v>,
+              push and tag verified with ls-remote, the release step stops on a non-GitHub remote, a rerun skips
   sdd_*       ds.2 SDD gate through gate_check.py / scope_check.py with a stand-in openspec CLI (OPENSPEC_BIN=<.py>):
               a valid Standard order passes; SPEC_CHANGE = NONE on Standard, a change that fails validate, a missing
               CLI, an edited locked test, STOP_RULES over 1 round, a changed approved plan, a missing SPEC_REVIEW /
@@ -53,7 +61,7 @@ TIMEOUT = 240
 BT = chr(96)
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
-             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate")
+             "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release")
 TESTS = []
 
 
@@ -766,6 +774,153 @@ def audit_rebuild(tmp):
     bad = run_tool("dsh_audit", "verify", "--log", broken)
     require(bad.returncode != 0, "dsh_audit verify accepted an edited line")
     return "rebuild line 1, verify OK, edited line refused, report note shown"
+
+
+def rgit(repo, *args):
+    proc = run_prog(["git", "-C", repo] + list(args))
+    require(proc.returncode == 0, "git %s: %s" % (" ".join(map(str, args)), tail(text_of(proc))))
+    return proc.stdout.strip()
+
+
+def release_clone(origin, folder, email="selftest@example.invalid"):
+    rgit(folder.parent, "clone", "-q", "-c", "core.autocrlf=false", origin, folder.name)  # before checkout: LF stays LF
+    rgit(folder, "config", "user.email", email)
+    rgit(folder, "config", "user.name", "selftest")
+    return folder
+
+
+def release_commit(work, version, files=None, top=None):
+    """A release commit: VERSION, a CHANGELOG with <top or version> on top, and any extra files."""
+    write(work / "VERSION", version + "\n")
+    write(work / "CHANGELOG.md", "# CHANGELOG\n\n## %s（2026-11-14）\n\n- notes for %s\n\n## 1.0.0\n\n- first\n"
+          % (top or version, version))
+    for name, text in (files or {}).items():
+        write(work / name, text)
+    rgit(work, "add", "-A")
+    rgit(work, "commit", "-q", "-m", "release " + version)
+
+
+def release_origin(tmp, name):
+    """A bare origin with main at 1.0.0 and tag v1.0.0, a config whose selftest is trivial, and a first clone."""
+    base = tmp / name
+    base.mkdir(parents=True)
+    rgit(base, "init", "-q", "--bare", "-b", "main", "origin.git")
+    origin = base / "origin.git"
+    seed = release_clone(origin, base / "seed")
+    write(seed / "a.txt", "base\n")
+    release_commit(seed, "1.0.0")
+    rgit(seed, "push", "-q", "origin", "HEAD:refs/heads/main")
+    rgit(seed, "tag", "-a", "v1.0.0", "-m", "v1.0.0")
+    rgit(seed, "push", "-q", "origin", "refs/tags/v1.0.0")
+    config = write(base / "director_work.json", json.dumps({"release": {"selftest": "python -I -c pass"}}) + "\n")
+    return origin, base, config
+
+
+@test
+def release_state(tmp):
+    module = load_tool("release")
+    key = module.version_key
+    require(key("2.2.0-ds.2") < key("v2.2.1-ds.1") < key("2.2.1-ds.2") < key("2.2.1") < key("2.10.0-ds.1"),
+            "release.version_key orders 2.2.0-ds.2 / 2.2.1-ds.1 / 2.2.1-ds.2 / 2.2.1 / 2.10.0-ds.1 wrong")
+    origin, base, config = release_origin(tmp, "rel-state")
+    late = release_clone(origin, base / "late")  # cloned before the remote moves on: BEHIND, then DIVERGED
+    other = release_clone(origin, base / "other")
+    write(other / "a.txt", "theirs\n")
+    rgit(other, "commit", "-q", "-am", "remote work")
+    rgit(other, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+    def release(work, *extra):
+        proc = run_tool("release", "--repo", work, "--config", config, *extra)
+        return proc.returncode, text_of(proc)
+
+    code, out = release(late)
+    require(code == 1 and "BEHIND 1" in out and "NEXT: git merge --ff-only" in out and "RELEASE: FAIL" in out,
+            "a branch behind origin/main was not stopped as BEHIND: " + tail(out))
+    release_commit(late, "1.1.0", {"a.txt": "mine\n"})
+    code, out = release(late)
+    require(code == 1 and "DIVERGED ahead 1 / behind 1" in out and "--merge" in out,
+            "a diverged branch without --merge was not stopped as DIVERGED: " + tail(out))
+    code, out = release(late, "--merge")
+    require(code == 0 and "STEP state: PLAN DIVERGED" in out and "1 conflicted file(s): a.txt" in out
+            and "PLAN git switch -c release/1.1.0" in out, "--merge dry run did not predict the a.txt conflict: " + tail(out))
+    ahead = release_clone(origin, base / "ahead")
+    release_commit(ahead, "1.1.0")
+    code, out = release(ahead)
+    require(code == 0 and "AHEAD 1" in out and "PLAN git push origin HEAD:refs/heads/main" in out
+            and "PLAN git tag -a v1.1.0" in out and "RELEASE: DRY_RUN 3 remote step(s)" in out,
+            "a branch ahead of origin/main did not plan push, tag and release: " + tail(out))
+    low = release_clone(origin, base / "low")
+    release_commit(low, "0.9.0-ds.5")
+    code, out = release(low)
+    require(code == 1 and "does not sort above the remote tag(s) v1.0.0" in out,
+            "a version below a remote tag was not stopped: " + tail(out))
+    mismatch = release_clone(origin, base / "mismatch")
+    release_commit(mismatch, "1.2.0", top="1.1.0")
+    code, out = release(mismatch)
+    require(code == 1 and "VERSION is 1.2.0 but the first CHANGELOG.md heading is 1.1.0" in out,
+            "VERSION different from the CHANGELOG top was not stopped: " + tail(out))
+    return "BEHIND, DIVERGED (+ --merge conflict a.txt), AHEAD, version order and CHANGELOG mismatch"
+
+
+@test
+def release_execute(tmp):
+    origin, base, config = release_origin(tmp, "rel-exec")
+    late = release_clone(origin, base / "late")
+    other = release_clone(origin, base / "other")
+    write(other / "b.txt", "theirs\n")
+    rgit(other, "add", "b.txt")
+    rgit(other, "commit", "-q", "-m", "remote work")
+    rgit(other, "push", "-q", "origin", "HEAD:refs/heads/main")
+    release_commit(late, "1.1.0")
+    proc = run_tool("release", "--repo", late, "--config", config, "--merge", "--execute")
+    out = text_of(proc)
+    head = rgit(late, "rev-parse", "HEAD")
+    require("merged into release/1.1.0" in out and rgit(late, "rev-parse", "--abbrev-ref", "HEAD") == "release/1.1.0",
+            "--merge --execute did not merge into release/1.1.0: " + tail(out))
+    require(len(rgit(late, "rev-list", "--parents", "-n", "1", "HEAD").split()) == 3, "the release merge is not --no-ff")
+    require("STEP push: OK ls-remote main = " + head in out and "STEP tag: OK v1.1.0^{} = " + head in out,
+            "push / tag did not verify with ls-remote: " + tail(out))
+    require(proc.returncode == 1 and "cannot tell the GitHub repository" in out,
+            "the release step on a non-GitHub remote did not stop with a clear reason: " + tail(out))
+    require(rgit(origin, "rev-parse", "main") == head and rgit(origin, "rev-parse", "v1.1.0^{commit}") == head,
+            "the bare origin does not have main and v1.1.0 at the merge")
+    again = text_of(run_tool("release", "--repo", late, "--config", config, "--execute"))
+    require("STEP push: SKIP" in again and "STEP tag: SKIP" in again and "UP_TO_DATE" in again,
+            "a rerun did not skip what was already done: " + tail(again))
+    return "merge --no-ff into release/1.1.0, push and tag verified, rerun skips them"
+
+
+@test
+def release_scan(tmp):
+    origin, base, config = release_origin(tmp, "rel-scan")
+    work = release_clone(origin, base / "work")
+    secret = "sk-" + "A1b2" * 6
+    cases = [  # (name, files, author email, text that must show up)
+        ("api key", {"conf.py": 'KEY = "%s"\n' % secret}, None, "openai_key"),
+        ("key = value secret", {"conf.ini": "api_key = " + "Zx9q" * 4 + "\n"}, None, "secret_assignment"),
+        ("private email", {"README.md": "mail alice@" + "example.com\n"}, None, "email alice@" + "example.com"),
+        ("user path", {"notes.md": "see C:" + "/Users/alice/notes.txt\n"}, None, "user_path"),
+        ("DIRECTOR file", {"DIRECTOR/RESUME_STATE.md": "x\n"}, None, "a DIRECTOR/ file"),
+        ("_work file", {"_work/x/out.txt": "x\n"}, None, "a _work/ file"),
+        ("session file", {"logs/session.v4.jsonl.zstd": "x\n"}, None, "a DSH session file"),
+        ("author email", {"b.txt": "x\n"}, "bob@" + "example.com", "author: email bob@" + "example.com")]
+    for number, (name, files, email, said) in enumerate(cases):
+        rgit(work, "switch", "-q", "-c", "case-%d" % number, "origin/main")
+        rgit(work, "config", "user.email", email or "selftest@example.invalid")
+        release_commit(work, "1.1.0", files)
+        proc = run_tool("release", "--repo", work, "--config", config)
+        out = text_of(proc)
+        require(proc.returncode == 1 and "STEP FAIL:" in out and "must not go public" in out and said in out,
+                "%s: the public scan did not stop it with %r: %s" % (name, said, tail(out)))
+        require(secret not in out and "Zx9q" * 4 not in out, "%s: the scan printed a secret value" % name)
+    rgit(work, "switch", "-q", "-c", "clean", "origin/main")
+    rgit(work, "config", "user.email", "selftest@example.invalid")
+    release_commit(work, "1.1.0", {"README.md": "mail 1+me@users.noreply.github.com or me@example.invalid; "
+                                               "DIRECTOR/RESUME_STATE.md is named in docs\n"})
+    proc = run_tool("release", "--repo", work, "--config", config)
+    require(proc.returncode == 0 and "STEP scan: OK" in text_of(proc),
+            "a clean change (noreply / .invalid emails, DIRECTOR/ only named in text) did not pass: " + tail(text_of(proc)))
+    return "%d private kinds stopped, no secret printed, clean change passes" % len(cases)
 
 
 def main(argv=None):

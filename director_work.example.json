@@ -18,5 +18,14 @@
     "stop_after_rounds": 1,
     "prefer_auto": true,
     "openspec_bin": null
+  },
+  "_comment_release": "2.2.1-ds.3 tools/release.py (optional; these are the defaults). title: {version} is filled in. selftest: a command line run in the repo. gh_repo: owner/name, null = from the remote URL.",
+  "release": {
+    "remote": "origin",
+    "branch": "main",
+    "title": "v{version} — DIRECTOR-WORK DeepSeek Harness 版",
+    "tag_message": "v{version}",
+    "selftest": "python -I -X utf8 tools/selftest_ds.py",
+    "gh_repo": null
   }
 }

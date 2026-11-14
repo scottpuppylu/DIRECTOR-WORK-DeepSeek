@@ -17,6 +17,7 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 | `dsh_setup_check.py` | 建置完成的檢查：BOOTSTRAP 產出的 DIRECTOR 資料夾（必要檔案、PENDING_METHOD、PO_PENDING、RESUME_STATE 標頭、director_work.json）；2.2.1-ds.1 起另有 shadow 檢查（ID 重複、RESUME 標頭有值與 UPDATED 日期、director_work.json 欄位型別與 regex），印 `~ shadow:`，`--strict` 才算失敗 | 不寫 |
 | `dsh_guard.py` | 動手前的自律檢查：force push、push、刪除、送出/發布、付款、改設定、秘密、永遠禁止的 git/程序模式、PAUSE 旗標；預設只提醒 | 不寫 |
 | `sdd_gate.py` | ds.2 規格先行的膠水（OpenSpec 沒有的部分）：`gate_check.py`／`scope_check.py` 載入它來查 `SPEC_CHANGE`＋`openspec validate --strict --json`、`TESTS_LOCKED` 雜湊、`SPEC_REVIEW`／`PLAN_APPROVED` 紀錄、工單大小、STOP_RULES 輪數；CLI：`--lock-tests`、`--plan-hash`、`--which`（`docs/13`） | 不寫 |
+| `release.py` | 2.2.1-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ VERSION 與 CHANGELOG 最上段一致、tag 排序高於遠端所有 tag → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create`，每步用 ls-remote／`gh release view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
 | `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對、SDD gate 正反案例） | 只寫暫存資料夾 |
 
 ## 上游保留（跨平台，已適配 DSH）
