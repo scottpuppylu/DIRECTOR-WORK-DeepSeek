@@ -19,7 +19,7 @@
 - **工單大小**：一張工單最後結果最多 3 個檔、約 200 行（新增＋刪除）；超過就拆。`scope_check.py` 印 `OVERSIZE` 並判越界（頂層 `order_limits`）。
 - **計畫閘門**：worker 第一步只交 `<WORK_DIR>/<WO>/PLAN.md`（`- [ ] 1.1 …`），總監核准後在 `DIRECTOR_LOG` 寫 `PLAN_APPROVED <WO> sha=<64>`（`safety_gate.py --plan-hash` 印），worker 才可以寫程式；交件時 PLAN.md 只准比核准版多打勾，而且要全部勾完（`plan_gate`）。
 - **停止規則**：同一根因 **1 輪**沒進展就停並回報（`stop_after_rounds`；Claude 版 2 輪）。
-- **不得自行關閉**：lead 要對 Standard／Strict 關掉上面任一開關，先在 PO_PENDING 寫一項等 PO 回答；沒有 PO 的答覆，`gate_check.py --order` 判不過（`docs/13`「誰能關」）。
+- **不得自行關閉**：lead 要對 Standard／Strict 關掉上面任一開關，或把 `stop_after_rounds` 調高到超過 1，先在 PO_PENDING 寫一項等 PO 回答；沒有 PO 的答覆，`gate_check.py --order` 判不過（`docs/13`「誰能關」）。`prefer_auto` 只是提示，關掉只印 note。
 - **驗收**：優先寫可自動判定的 AUTO 條件；REVIEW／PO 只留給真的要人看的。
 
 ### 工單

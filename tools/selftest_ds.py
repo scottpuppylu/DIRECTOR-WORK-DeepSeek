@@ -554,7 +554,8 @@ def safety_dir(tmp, name, safety=None, legacy=None):
 def safety_tests_locked_225(tmp):
     """2.2.5-ds.5 B1 (A4c; was sdd_tests_locked of ds.2): TESTS_LOCKED and STOP_RULES without OpenSpec: an edited
     locked test FAILs, a Standard order without TESTS_LOCKED FAILs, STOP_RULES 2 輪 FAILs, safety.stop_after_rounds=2
-    relaxes it, and an old sdd.stop_after_rounds=2 still counts with 「請搬到 safety」."""
+    relaxes it only with the PO's answer (總監 ruling 2026-11-15: raising it loosens the gate), and an old
+    sdd.stop_after_rounds=2 still counts with 「請搬到 safety」."""
     repo, lock = wo_fixture(tmp, "safety_tests")
     proc, text = wo_run(repo, wo_text(lock))
     require(proc.returncode == 0 and "OK   order" in text, "a locked, unchanged test was refused: " + tail(text))
@@ -566,14 +567,23 @@ def safety_tests_locked_225(tmp):
     require(proc.returncode == 1 and "TESTS_LOCKED: missing" in text, "no TESTS_LOCKED did not FAIL: " + tail(text))
     stop, stext = wo_run(repo, wo_text("NONE", stop="2"))
     require(stop.returncode == 1 and "STOP_RULES: allows 2 rounds" in stext, "STOP_RULES 2 輪 did not FAIL: " + tail(stext))
-    _, config = safety_dir(tmp, "safety_rounds", safety={"stop_after_rounds": 2})
+    director, config = safety_dir(tmp, "safety_rounds", safety={"stop_after_rounds": 2})
+    raised, rtext = wo_run(repo, wo_text("NONE", stop="2"), "--config", config)
+    require(raised.returncode == 1 and "safety.stop_after_rounds is raised to 2 (default 1)" in rtext
+            and "STOP_RULES: allows" not in rtext, "stop_after_rounds=2 without the PO's answer passed: " + tail(rtext))
+    write(director / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: raise stop_after_rounds to 2?\n"
+          "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER: a) yes\n")
     relaxed, rtext = wo_run(repo, wo_text("NONE", stop="2"), "--config", config)
-    require(relaxed.returncode == 0, "safety.stop_after_rounds=2 did not relax the rule: " + tail(rtext))
-    _, old = safety_dir(tmp, "safety_rounds_old", legacy={"stop_after_rounds": 2})
+    require(relaxed.returncode == 0 and "the PO answered it" in rtext,
+            "stop_after_rounds=2 with the PO's answer did not relax the rule: " + tail(rtext))
+    old_dir, old = safety_dir(tmp, "safety_rounds_old", legacy={"stop_after_rounds": 2})
+    write(old_dir / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: raise stop_after_rounds to 2?\n"
+          "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER: a) yes\n")
     legacy, ltext = wo_run(repo, wo_text("NONE", stop="2"), "--config", old)
     require(legacy.returncode == 0 and "sdd.stop_after_rounds 照讀，請搬到 safety" in ltext,
             "an old sdd.stop_after_rounds was not read with 請搬到 safety: " + tail(ltext))
-    return "edited test FAILs; no TESTS_LOCKED FAILs; STOP_RULES 2 輪 FAILs; safety switch relaxes; old sdd key read + WARN"
+    return ("edited test FAILs; no TESTS_LOCKED FAILs; STOP_RULES 2 輪 FAILs; raised to 2 FAILs without the PO, "
+            "relaxes with the PO's answer; old sdd key read + WARN")
 
 
 @test
@@ -648,16 +658,18 @@ def spec_review_224(tmp):
 
 @test
 def safety_switch_off_225(tmp):
-    """2.2.5-ds.5 B1 (A4c; the 2.2.3-ds.3 require_spec rule moved to the safety switches): a safety switch turned off
-    for a Standard/Strict order FAILs gate_check --order until a PO_PENDING entry naming it is answered; the same for
-    an old sdd.<switch>; Direct orders are not asked."""
+    """2.2.5-ds.5 B1 (A4c; the 2.2.3-ds.3 require_spec rule moved to the safety switches): a safety gate loosened
+    for a Standard/Strict order (a switch off, or stop_after_rounds raised above 1) FAILs gate_check --order until a
+    PO_PENDING entry naming it is answered; the same for an old sdd.<switch>; prefer_auto off is only a note (a hint,
+    not a gate; 總監 ruling 2026-11-15); Direct orders are not asked."""
     repo, lock = wo_fixture(tmp, "safety_off")
-    for key, value in (("tests_first", False), ("plan_gate", False), ("spec_review_for_standard", False),
-                       ("stop_after_rounds", 0), ("prefer_auto", False)):
-        director, config = safety_dir(tmp, "safety_off_" + key, safety={key: value})
+    for key, value, state in (("tests_first", False, "is off"), ("plan_gate", False, "is off"),
+                              ("spec_review_for_standard", False, "is off"), ("stop_after_rounds", 0, "is off"),
+                              ("stop_after_rounds", 2, "is raised to 2 (default 1)")):
+        director, config = safety_dir(tmp, f"safety_off_{key}_{value}", safety={key: value})
         proc, text = wo_run(repo, wo_text(lock), "--config", config)
-        require(proc.returncode == 1 and f"safety.{key} is off for a Standard order" in text
-                and "may not turn a safety gate off" in text, f"{key} off passed without the PO: " + tail(text))
+        require(proc.returncode == 1 and f"safety.{key} {state} for a Standard order" in text
+                and "may not loosen a safety gate" in text, f"{key}={value} passed without the PO: " + tail(text))
         write(director / "PO_PENDING.md", f"ID: OD-1\nSTATUS: open\nQUESTION: turn {key} off?\n"
               "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER:\n")
         proc, text = wo_run(repo, wo_text(lock), "--config", config)
@@ -666,6 +678,14 @@ def safety_switch_off_225(tmp):
               "OPTIONS: a) yes b) no\nRECOMMENDED: b\nSOURCE: lead\nANSWER: a) yes\n")
         proc, text = wo_run(repo, wo_text(lock), "--config", config)
         require(proc.returncode == 0 and "the PO answered it" in text, f"{key}: the PO's answer did not allow it: " + tail(text))
+    _, config = safety_dir(tmp, "safety_off_prefer_auto", safety={"prefer_auto": False})
+    proc, text = wo_run(repo, wo_text(lock).replace("| AC-1 | AUTO |", "| AC-1 | REVIEW |"), "--config", config)
+    require(proc.returncode == 0 and "safety.prefer_auto is off" in text and "a hint, not a gate" in text
+            and "no AUTO criterion" not in text, "prefer_auto off was not just a note: " + tail(text))
+    for value in (1, True):
+        _, config = safety_dir(tmp, f"safety_rounds_{value}", safety={"stop_after_rounds": value})
+        proc, text = wo_run(repo, wo_text(lock), "--config", config)
+        require(proc.returncode == 0 and "stop_after_rounds" not in text, f"stop_after_rounds={value} was held: " + tail(text))
     director, config = safety_dir(tmp, "safety_off_legacy", legacy={"tests_first": False, "openspec_bin": None})
     proc, text = wo_run(repo, wo_text(lock), "--config", config)
     require(proc.returncode == 1 and "safety.tests_first is off" in text and "sdd.tests_first 照讀，請搬到 safety" in text,
@@ -675,7 +695,8 @@ def safety_switch_off_225(tmp):
     strict = safety_dir(tmp, "safety_off_strict", safety={"spec_review_for_standard": False})[1]
     proc, text = wo_run(repo, wo_text(lock, governance="Strict"), "--config", strict)
     require(proc.returncode == 0, "spec_review_for_standard off held a Strict order: " + tail(text))
-    return "5 switches: off FAILs, open PO entry FAILs, answered passes; old sdd switch counts; Direct / Strict review ok"
+    return ("4 gates off + stop_after_rounds raised: FAIL, open PO entry FAILs, answered passes; prefer_auto off a note; "
+            "old sdd switch counts; Direct / Strict review ok")
 
 
 @test
@@ -719,8 +740,9 @@ SAFETY_MUTATIONS = [
                                         "        elif False:")]),
     ("plan hash not compared", [("    elif plan_hash(plan) != sha.group(1).lower():", "    elif False:")]),
     ("PLAN_APPROVED not required", [("    if not approved:\n", "    if not approved:\n        return problems\n")]),
-    ("switch may be turned off", [("        if not is_off(config.get(key)):\n            continue\n",
+    ("switch may be turned off", [("        how = loosening(key, config.get(key))\n        if how is None:\n            continue\n",
                                    "        continue\n")]),
+    ("stop_after_rounds may be raised", [("            return \"raised\"\n", "            return None\n")]),
     ("old sdd switch not read", [("        config.update(moved)\n", "")]),
 ]
 
@@ -744,7 +766,8 @@ def safety_mutations_225(tmp):
         bad = [module.order_problems(order, None, edited.parent, cfg, notes),
                module.match_problems(order, ["WO-7"], review + f"PLAN_APPROVED WO-7 sha={other_plan}\n", repo, cfg, []),
                module.match_problems(order, ["WO-7"], review, repo, cfg, []),
-               module.order_problems(order, None, repo, dict(cfg, tests_first=False), [])]
+               module.order_problems(order, None, repo, dict(cfg, tests_first=False), []),
+               module.order_problems(order, None, repo, dict(cfg, stop_after_rounds=2), [])]
         old_cfg = module.load_config(None, path)[0]
         bad.append(["read"] if old_cfg.get("tests_first") is False else [])
         return any(not problems for problems in bad)
@@ -752,7 +775,8 @@ def safety_mutations_225(tmp):
     require(not wrong_with(good), "the real safety_gate.py lets a bad case through")
     survived = [name for name, swaps in SAFETY_MUTATIONS if not wrong_with(mutated("safety_gate", swaps))]
     require(not survived, "these safety mutations get nothing wrong: %s" % survived)
-    return "%d mutations killed (locked hash, plan hash, PLAN_APPROVED, switch off, old sdd switch)" % len(SAFETY_MUTATIONS)
+    return ("%d mutations killed (locked hash, plan hash, PLAN_APPROVED, switch off, rounds raised, old sdd switch)"
+            % len(SAFETY_MUTATIONS))
 
 
 @test

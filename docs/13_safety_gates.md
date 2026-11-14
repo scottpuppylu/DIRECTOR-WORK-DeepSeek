@@ -47,8 +47,8 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 | 規格審查：要有 `SPEC_REVIEW <WO> tokens=… issues=… adopted=…` 整行。沒給 `--dispatch-log` 也查：工單所在 DIRECTOR 的 DIRECTOR_LOG.md，或 `reviews/` 下檔名有工單編號和 SPEC_REVIEW 的檔。找不到就**判不過**；行裡缺 tokens／issues／adopted 印 note | `gate_check.py --match` | 交件時 | `spec_review_for_standard`（Strict 一律要） |
 | 計畫閘門：DIRECTOR_LOG 要有 `PLAN_APPROVED <WO> sha=<64>`；`<WORK_DIR>/<WO>/PLAN.md` 和核准的版本比，只准多打勾，交件時要全部勾完（只有 `[x]` 算完成）；找不到 PLAN.md 也**判不過** | `gate_check.py --match --dispatch-log` | 交件時 | `plan_gate` |
 | STOP_RULES 允許的輪數不能超過 1 | `gate_check.py --order` | 派工前 | `stop_after_rounds` |
-| 至少一條 AUTO 驗收（只提示） | `gate_check.py --order` | 派工前 | `prefer_auto` |
-| 安全開關不得自行關閉：上面任一開關對 Standard／Strict 設成 `false`（或 0），要有 PO 的答覆；還在 open 或沒寫就**判不過**（下一節） | `gate_check.py --order` | 派工前 | — |
+| 至少一條 AUTO 驗收（只提示，不是閘門；關掉只印 note） | `gate_check.py --order` | 派工前 | `prefer_auto` |
+| 安全閘門不得自行放寬：對 Standard／Strict 把 `tests_first`、`plan_gate`、`spec_review_for_standard` 設成 `false`，或把 `stop_after_rounds` 設成 0／`false`、調高到超過 1，要有 PO 的答覆；還在 open 或沒寫就**判不過**（下一節） | `gate_check.py --order` | 派工前 | — |
 | 工單大小：最後結果最多 3 個檔、200 行（新增＋刪除）；測試檔（`test_*.py`、`*_test.py`、`tests/` 下）算檔數，行數另算，最多 400 | `scope_check.py` | 交件時 | 頂層 `"order_limits"`：`max_files_per_order`、`max_lines_per_order`、`max_test_lines_per_order`（0＝關） |
 | 受保護的測試只准新增：`TESTS_LOCKED` 的檔和頂層 `"protected_tests"` 列的檔 | `scope_check.py`、`gate_check.py --match` | 交件時 | `"protected_tests"` |
 
@@ -77,9 +77,9 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 
 WO-DS-004 試驗：DSH lead 自己寫一筆 DD，把保護關掉，整層規則沒用上。所以：
 
-- **lead 不得自行關閉安全開關。** 要對 Standard／Strict 關掉任一開關，先在 PO_PENDING 寫一項（寫明開關名稱、理由、建議），等 PO 回答。
+- **lead 不得自行關閉或放寬安全閘門。** 要對 Standard／Strict 關掉 `tests_first`、`plan_gate`、`spec_review_for_standard`，或把 `stop_after_rounds` 設成 0／`false`、調高到超過 1（例如 2），先在 PO_PENDING 寫一項（寫明開關名稱、理由、建議），等 PO 回答。
 - PO 答應後（STATUS answered／closed，有 ANSWER），`gate_check.py --order` 才會放行，只印 note。沒寫、或還是 open，`--order` 判不過。
-- `stop_after_rounds` 調高（例如 2）不算關閉；設成 0 才算。
+- `prefer_auto` 只是提示，不是閘門：設成 `false` 不用 PO 答覆，`--order` 只印一行 note。
 
 ## 舊設定檔的 `"sdd"` 區塊
 

@@ -12,10 +12,11 @@ OpenSpec and stay, under the top-level "safety" block of director_work.json (all
                                    only differ from the approved one by ticked boxes, and every task is ticked
   spec_review_for_standard   true  a Standard order needs its SPEC_REVIEW too (Strict always does)
   stop_after_rounds          1     STOP_RULES of a Standard/Strict order may not allow more rounds than this
-  prefer_auto                true  a note when a Standard/Strict order has no AUTO criterion
+  prefer_auto                true  a note when a Standard/Strict order has no AUTO criterion (a hint, not a gate)
 
-No self-disabling: a switch above set to false (or 0) for a Standard/Strict order fails `gate_check --order` unless a
-PO_PENDING entry naming that switch is answered by the PO (the 2.2.3-ds.3 rule for require_spec, WO-DS-004 lesson).
+No self-loosening: for a Standard/Strict order, tests_first / plan_gate / spec_review_for_standard set to false, or
+stop_after_rounds set to 0 / false or raised above 1, fails `gate_check --order` unless a PO_PENDING entry naming that
+switch is answered by the PO (the 2.2.3-ds.3 rule for require_spec, WO-DS-004 lesson). prefer_auto off is only a note.
 
 Also here: "order_limits" (max_files_per_order 3, max_lines_per_order 200, max_test_lines_per_order 400; 0 = off) and
 "protected_tests" (globs of test files a worker may only add to), both read by scope_check.py.
@@ -234,24 +235,44 @@ def is_off(value):
     return value is False or value == 0 or value is None
 
 
+def loosening(key, value):
+    """How a switch is looser than its default: 'off' (false / 0), 'raised' (stop_after_rounds above 1), else None."""
+    if is_off(value):
+        return "off"
+    if key == "stop_after_rounds" and not isinstance(value, bool):
+        try:
+            rounds = int(value)
+        except (TypeError, ValueError):
+            return None
+        if rounds > DEFAULTS[key]:
+            return "raised"
+    return None
+
+
 def switch_off_problems(config, gov, notes):
-    """2.2.5-ds.5 (B1): a safety switch turned off for a Standard/Strict order needs the PO's answer: a PO_PENDING
-    entry naming the switch, answered or closed with an ANSWER. Open or missing: a problem (the lead may not turn a
-    gate off by itself; WO-DS-004 wrote its own DD to do that)."""
+    """2.2.5-ds.5 (B1): a safety gate loosened for a Standard/Strict order (a switch off, or stop_after_rounds raised
+    above 1) needs the PO's answer: a PO_PENDING entry naming the switch, answered or closed with an ANSWER. Open or
+    missing: a problem (the lead may not loosen a gate by itself; WO-DS-004 wrote its own DD to do that). prefer_auto is
+    a hint, not a gate: off is a note (總監 ruling 2026-11-15)."""
     problems = []
     director = config.get("_dir")
     for key in SWITCHES:
         if key == "spec_review_for_standard" and gov != "Standard":
             continue
-        if not is_off(config.get(key)):
+        how = loosening(key, config.get(key))
+        if how is None:
             continue
+        if key == "prefer_auto":
+            notes.append("safety.prefer_auto is off: no note about a missing AUTO criterion (a hint, not a gate)")
+            continue
+        state = "is off" if how == "off" else f"is raised to {config.get(key)} (default {DEFAULTS[key]})"
         decided = po_decided(director, key)
         if decided == "answered":
-            notes.append(f"safety.{key} is off; the PO answered it in PO_PENDING.md")
+            notes.append(f"safety.{key} {state}; the PO answered it in PO_PENDING.md")
             continue
         wait = "the PO_PENDING entry is still open: wait for the PO" if decided == "open" else (
             f"write a PO_PENDING entry naming {key} and wait for the PO's answer")
-        problems.append(f"safety.{key} is off for a {gov} order; the lead may not turn a safety gate off (docs/13 "
+        problems.append(f"safety.{key} {state} for a {gov} order; the lead may not loosen a safety gate (docs/13 "
                         f"「誰能關」): set it back, or {wait}")
     return problems
 

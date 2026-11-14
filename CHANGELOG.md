@@ -22,7 +22,7 @@ WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 
   - `tests_first`：Standard／Strict 要有 `TESTS_LOCKED`，雜湊不符判不過。
   - `plan_gate`：計畫檔改放 `<WORK_DIR>/<WO>/PLAN.md`，交件時要和 `PLAN_APPROVED` 的雜湊對得上、全部打勾；找不到 PLAN.md 判不過（原本只印 note）。
   - `spec_review_for_standard`、`stop_after_rounds`（1）、`prefer_auto`：照舊。`order_limits`、`protected_tests` 也照舊。
-- 不得自行關閉：上面任一開關對 Standard／Strict 設成 false（或 0），要有 PO_PENDING 裡寫明該開關、已答覆的項目，否則 `gate_check --order` 判不過。這是 2.2.3-ds.3 對 `require_spec` 的規則，改套到安全開關。
+- 不得自行關閉：對 Standard／Strict 把 `tests_first`、`plan_gate`、`spec_review_for_standard` 設成 false，或把 `stop_after_rounds` 設成 0、調高到超過 1，要有 PO_PENDING 裡寫明該開關、已答覆的項目，否則 `gate_check --order` 判不過。這是 2.2.3-ds.3 對 `require_spec` 的規則，改套到安全開關。`prefer_auto` 只是提示，關掉只印 note（總監裁決）。
 - 舊設定檔的 `"sdd"` 區塊照讀，不報錯：
   - 安全開關照讀，印「請搬到 safety」；`"safety"` 也有同一個鍵時以 `"safety"` 為準，印「被忽略」。
   - `openspec_bin`、`require_spec_*` 和其他鍵忽略，印「OpenSpec 已在 2.2.5-ds.5 移除，此鍵被忽略」。
@@ -64,7 +64,7 @@ WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 
 - `selftest_ds.py`：ds.4 是 50 項（不設 OPENSPEC_BIN 50/50；設了 OPENSPEC_BIN 的基準見 TASK_REPORT），這一版是 46 項。
   - 刪 8 項，都是 OpenSpec 專屬：`sdd_spec_ok`、`sdd_no_spec_change`、`sdd_validate_fails`、`sdd_no_cli`、`sdd_real_openspec`、`sdd_cli_lookup`、`sdd_cli_setup`、`sdd_which_off_224`。
   - 改名 4 項：`sdd_tests_locked` → `safety_tests_locked_225`、`sdd_plan_and_review` → `safety_plan_and_review_225`、`sdd_spec_off_gate` → `safety_switch_off_225`、`sdd_oversize` → `order_oversize`。
-  - 新增 4 項：`safety_legacy_block_225`、`safety_mutations_225`（5 個 mutation）、`usage_final_225`（3 個 mutation）、`worker_worktree_225`（2 個 mutation）。
+  - 新增 4 項：`safety_legacy_block_225`、`safety_mutations_225`（6 個 mutation）、`usage_final_225`（3 個 mutation）、`worker_worktree_225`（2 個 mutation）。
   - 改內容：`bootstrap_repo`（L-061）、`setup_shadow`、`report_skeleton`。
   - 安全閘門 selftest：ds.4 有 6 項，這一版有 8 項。
 - `test_verify_dsh_run.py` 33 項：D10、步驟「4 鎖定測試」「7 計畫閘門」留著，計畫檔改成 PLAN.md。

@@ -123,7 +123,8 @@ Safety gates (ds.2 SDD; 2.2.5-ds.5 WO-DS-009 B1: OpenSpec removed, the gates kep
 "safety", all on by default; the checks live in safety_gate.py next to this file, docs/13):
   --order / --match on a Standard or Strict order: `TESTS_LOCKED:` lists the acceptance tests written before
              dispatch with their sha256; a changed one fails. STOP_RULES may not allow more rounds than
-             safety.stop_after_rounds (1). A safety switch turned off needs the PO's answer in PO_PENDING.md.
+             safety.stop_after_rounds (1). A safety gate turned off, or stop_after_rounds raised above 1, needs the
+             PO's answer in PO_PENDING.md; prefer_auto off is only a note.
   --match on a Standard or Strict order: the SPEC_REVIEW of the order (--dispatch-log, else DIRECTOR_LOG.md or
              reviews/); with --dispatch-log also `PLAN_APPROVED <WO-ID> sha=<64 hex>`, and <WORK_DIR>/<WO>/PLAN.md
              may differ from the approved plan only by ticked boxes, all ticked.
