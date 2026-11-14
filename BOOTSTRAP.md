@@ -123,7 +123,8 @@ DSH 沒有 Claude 版那種「壓縮門檻 250000」的專案設定，也沒有 
 3. 確認檔案沙箱與核准政策：本次 session 的沙箱模式（read-only / workspace-write / danger-full-access）與核准政策；記進 `GUARDS.md`。**沒有 hooks**，不要假裝有自動阻擋（`docs/08`）。
 4. 確認專案指示有載入：開一個小探測子代理（`subagent`，cwd 指到 `<REPO>`，effort `off`），請它回報 `AGENTS.md` 總監段落的存在與一句內容；看到了記 VERIFIED，看不到記 NOT_VERIFIED 並在回報第 3 點寫。探測完可以讓它閒置，不必保留。
 5. 量初始用量：`python -I -X utf8 <WS>/DIRECTOR/tools/dsh_usage.py --project-dir <WS> --since <建置日>`（也可加 `--json`；看單一工作線用 `--session w1`）。`--project-dir` 比對 session 的啟動資料夾，子代理 session 記在總監的啟動資料夾下。新專案只會看到建置 session 自己的紀錄：數字另列、不當基準，建置前的歷史記 UNKNOWN。印 `NO_DATA` 時記 UNKNOWN，不記 0。
-6. 這一步不改任何設定、不改 repo。
+6. 暫存資料夾（2.2.4-ds.4）：`python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --temp-env <WS>/DIRECTOR/research` 建好 `research/tmp` 並印出設定行；總監自己的指令照那行設 `TEMP`／`TMP`／`TMPDIR`，每張工單的 worker 則設成它的 `WORK_DIR/tmp`（工單 WORK_DIR 欄、`docs/02`）。可以的話在啟動 DSH 的 shell 先設好，所有子代理都會沿用。
+7. 這一步不改任何設定、不改 repo。
 
 ## 8. 量基準（不花費用）
 

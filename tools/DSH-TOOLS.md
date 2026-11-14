@@ -9,12 +9,17 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
 
 ## New DSH tools
 
-- dsh_session.py (library, no CLI) - Node discovery, decode of session.v4.jsonl.zstd, session listing, role / agent
-  name mapping from the parent's catalog, and the plain-JSON projection cache.
+- dsh_session.py (library) - Node discovery, decode of session.v4.jsonl.zstd, session listing, role / agent
+  name mapping from the parent's catalog, and the plain-JSON projection cache. One CLI (2.2.4-ds.4):
+  `dsh_session.py --temp-env WORK_DIR` creates WORK_DIR/tmp and prints the PowerShell and bash lines that point
+  TEMP / TMP / TMPDIR at it.
 - dsh_usage.py - token / context report per session plus daily totals, from the projection cache (no Node).
   `dsh_usage.py [--sessions-root DIR] [--cache-root DIR] [--project-dir PATH] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
-  [--session ID|PREFIX|AGENT] [--json] [--out FILE] [--from-jsonl | --no-fallback]`
-  exit 0 report written, 2 NO_DATA / missing root / usage error.
+  [--session ID|PREFIX|AGENT] [--json] [--out FILE] [--effort-check ORDER] [--from-jsonl | --no-fallback]`
+  exit 0 report written, 2 NO_DATA / missing root / usage error. 2.2.4-ds.4: on NO_DATA --out still writes a file
+  ({"status": "NO_DATA", "reason", "hints"}); a --project-dir below the startup folder prints a HINT naming it;
+  --effort-check prints `EFFORT_ACTUAL <WO> agent= effort= order=` per session of the order's worker and a shadow
+  WARN when the effort differs (exit 0).
 - dsh_audit.py - rebuild the hash-chained action audit (same schema as audit_log.py / report_vs_audit.py) from the
   session event logs; needs Node 22+ for zstd. It is after-the-fact reconstruction, not a live hook. Since
   2.2.1-ds.1 line 1 of a built log is kind=rebuild with a `source` field (session log names, sha256, sizes), the same

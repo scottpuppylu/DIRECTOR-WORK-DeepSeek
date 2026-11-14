@@ -20,6 +20,8 @@ Strict 和 Standard 工單必做（ds.2 起 Standard 也要，開關 `sdd.spec_r
    需求寫「不當掉／不崩潰」卻沒有一條極端輸入的 AC，算 P1。
    OpenSpec 變更也照這張清單看：用得到的邊界各要有一個 `#### Scenario:`（WHEN 極端輸入，THEN 預期的結果或錯誤訊息），
    需求寫「不當掉」卻沒有一個極端輸入的 Scenario，同樣算 P1。
+   巢狀深度（含 JSON）：深層巢狀的 JSON 或括號有沒有一條 AC／Scenario，錯誤不透出 RecursionError？
+   預設輸出要列出哪幾筆有問題：批次輸入有錯時，不加參數的輸出有沒有列出第幾筆或哪個鍵？問題物件用 dict 或中文名稱，不要用 `XxxError` 類別名當使用者看到的字（2.2.4-ds.4）。
 8. 規格（specs 的每個 Scenario）和工單驗收條件對得上嗎？有沒有 Scenario 沒有測試、或驗收條件在規格裡找不到？
 9. TESTS_LOCKED 的測試真的測到 Scenario 說的行為嗎（讀測試檔，只看它斷言了什麼）？
 10. 這張工單夠小嗎：預計 ≤3 個檔、約 200 行？太大就建議怎麼拆。

@@ -16,8 +16,7 @@ Switches: the "sdd" object of director_work.json (all on when missing; docs/02).
   plan_gate                  true  --match with --dispatch-log needs `PLAN_APPROVED <WO> sha=<tasks hash>`, and
                                    tasks.md may only differ from the approved one by ticked boxes, and every
                                    task is ticked at hand-in (OpenSpec's rule: only a box holding `x` is done)
-  max_files_per_order        3     scope_check.py: more changed files than this fails a Standard/Strict order
-  max_lines_per_order        200   scope_check.py: more changed lines (added + deleted) than this fails it
+  (max_files_per_order / max_lines_per_order: moved to the top-level "order_limits" block in 2.2.4-ds.4, see below)
   stop_after_rounds          1     STOP_RULES of a Standard/Strict order may not allow more rounds than this
   prefer_auto                true  a note when a Standard/Strict order has no AUTO criterion
   openspec_bin               null  the openspec command (path to openspec(.cmd) or to bin/openspec.js; %VAR% /
@@ -27,11 +26,24 @@ Switches: the "sdd" object of director_work.json (all on when missing; docs/02).
 
 Set a switch to false (or a limit to 0) to turn that rule off for a project; say why in DIRECTOR_LOG.
 
+2.2.4-ds.4 (B1, WO-DS-006 #8): the size limits of one order are not SDD switches, so they live in their own top-level block
+of director_work.json and apply whether SDD is on or off (scope_check.py reads them for Standard/Strict orders):
+  "order_limits": {
+    max_files_per_order        3     more changed files than this fails the order (test files count here too)
+    max_lines_per_order        200   more changed non-test lines (added + deleted) than this fails it
+    max_test_lines_per_order   400   more changed lines in test files (test_*.py, *_test.py, tests/) fails it
+  }
+An old sdd.max_files_per_order / sdd.max_lines_per_order is still read, with a shadow WARN 「請搬到 order_limits」;
+when both places are set, order_limits wins. 0 turns a limit off. "protected_tests" (top level, a list of globs) names
+test files a worker may only add to (scope_check.py, B5).
+
 CLI:
   sdd_gate.py --lock-tests FILE ... [--repo DIR]  print the `TESTS_LOCKED:` list to paste into the order
   sdd_gate.py --plan-hash TASKS_MD --order WO.md  print the `PLAN_APPROVED` line for DIRECTOR_LOG
   sdd_gate.py --which [--config FILE]             which openspec CLI, from which level (1-4), its version; a hint
-                                                  with the value to write when sdd.openspec_bin is null
+                                                  with the value to write when sdd.openspec_bin is null. With SDD
+                                                  off (both require_spec_for_* false) one line instead:
+                                                  「SDD 關閉，不檢查 CLI」 (2.2.4-ds.4 B6)
 Exit 0 done, 1 a file or the CLI is missing.
 """
 import argparse
@@ -50,8 +62,6 @@ DEFAULTS = {
     "spec_review_for_standard": True,
     "tests_first": True,
     "plan_gate": True,
-    "max_files_per_order": 3,
-    "max_lines_per_order": 200,
     "stop_after_rounds": 1,
     "prefer_auto": True,
     "openspec_bin": None,
@@ -82,7 +92,61 @@ def load_config(order_path=None, config_path=None):
     sdd = data.get("sdd") if isinstance(data, dict) else None
     if isinstance(sdd, dict):
         config.update({key: value for key, value in sdd.items() if key in DEFAULTS})
+        config["_legacy_limits"] = {key: sdd[key] for key in LIMIT_KEYS if key in sdd}
+    limits = data.get("order_limits") if isinstance(data, dict) else None
+    if isinstance(limits, dict):
+        config["_order_limits"] = {key: value for key, value in limits.items()
+                                   if key in LIMIT_KEYS + ("max_test_lines_per_order",)}
+    protected = data.get("protected_tests") if isinstance(data, dict) else None
+    if isinstance(protected, list):
+        config["_protected_tests"] = [str(item) for item in protected if str(item).strip()]
     return config, None
+
+
+LIMIT_KEYS = ("max_files_per_order", "max_lines_per_order")
+LIMIT_DEFAULTS = {"max_files_per_order": 3, "max_lines_per_order": 200, "max_test_lines_per_order": 400}
+TEST_FILE = re.compile(r"(?:^|/)(?:tests/|test_[^/]*\.py$|[^/]*_test\.py$)")
+
+
+def is_test_file(path):
+    """2.2.4-ds.4 (B1): a test file, counted apart from max_lines_per_order: test_*.py, *_test.py, or anything under
+    a tests/ folder."""
+    return bool(TEST_FILE.search(str(path).replace("\\", "/")))
+
+
+def order_limits(config, notes=None):
+    """2.2.4-ds.4 (B1, WO-DS-006 #8): (max files, max non-test lines, max test lines) of one order. Read from the
+    top-level `order_limits` block of director_work.json first. An old `sdd.max_*_per_order` key still works but
+    leaves a shadow WARN 「請搬到 order_limits」; when both are set, order_limits wins and the WARN says the sdd key
+    is ignored. 0 turns a limit off."""
+    new = config.get("_order_limits") or {}
+    old = config.get("_legacy_limits") or {}
+    values = []
+    for key in LIMIT_KEYS + ("max_test_lines_per_order",):
+        if key in new:
+            value = new[key]
+            if key in old and notes is not None:
+                notes.append(f"SHADOW WARN: sdd.{key}={old[key]} is ignored (order_limits.{key}={value} wins); "
+                             f"remove it from the sdd block")
+        elif key in old:
+            value = old[key]
+            if notes is not None:
+                notes.append(f"SHADOW WARN: sdd.{key}={value} is the old place; 請搬到 order_limits "
+                             f"(director_work.json top-level \"order_limits\": {{\"{key}\": {value}}})")
+        else:
+            value = LIMIT_DEFAULTS[key]
+        try:
+            values.append(int(value or 0))
+        except (TypeError, ValueError):
+            values.append(LIMIT_DEFAULTS[key])
+            if notes is not None:
+                notes.append(f"SHADOW WARN: {key}={value!r} is not a number; the default {LIMIT_DEFAULTS[key]} is used")
+    return tuple(values)
+
+
+def sdd_off(config):
+    """2.2.4-ds.4 (B6, WO-DS-006 #9): SDD is off for the project when both require_spec_for_* are false."""
+    return not config.get("require_spec_for_strict") and not config.get("require_spec_for_standard")
 
 
 def governance(text):
@@ -419,19 +483,73 @@ def log_lines(log_text, event):
     return out
 
 
-def match_problems(order_text, ids, log_text, repo, config, notes):
-    """--match with --dispatch-log: the spec review and the approved plan are in DIRECTOR_LOG. OpenSpec has no review
-    record and no approval step between `propose` and `apply`; the log line is ours."""
-    problems = []
-    gov = governance(order_text)
-    if gov not in GOVERNED or log_text is None:
-        return problems
+REVIEW_FIELDS = ("tokens=", "issues=", "adopted=")
+
+
+def review_sources(order_path, config):
+    """2.2.4-ds.4 (B4): where a spec review of an order may be found without --dispatch-log: DIRECTOR_LOG.md and
+    reviews/*SPEC_REVIEW* of the order's DIRECTOR folder (the folder of director_work.json, else orders/..)."""
+    folders = [pathlib.Path(config["_dir"])] if config.get("_dir") else []
+    if order_path is not None:
+        folders.append(pathlib.Path(order_path).resolve().parent.parent)
+    logs, reviews = [], []
+    for folder in dict.fromkeys(folders):
+        if (folder / "DIRECTOR_LOG.md").is_file():
+            logs.append(folder / "DIRECTOR_LOG.md")
+        if (folder / "reviews").is_dir():
+            reviews += sorted(p for p in (folder / "reviews").iterdir()
+                              if p.is_file() and "SPEC_REVIEW" in p.name.upper())
+    return logs, reviews
+
+
+def spec_review_problems(order_text, ids, log_text, config, notes, order_path):
+    """2.2.4-ds.4 (B4, WO-DS-006 #4): every Standard/Strict order handed in needs its spec review. Before, the review
+    was looked for only when --dispatch-log was given; without it nothing was checked and an order with no review
+    passed --match (WO-005/006 of the trial). Now: the `SPEC_REVIEW <WO>` line of --dispatch-log, else of the
+    order's DIRECTOR_LOG.md, else a reviews/ file named after the order with SPEC_REVIEW in its name. None: FAIL."""
     wanted = {name.upper() for name in ids}
     label = next(iter(ids), "the order")
+    looked = []
+    if log_text is not None:
+        sources = [("--dispatch-log", log_text)]
+    else:
+        logs, reviews = review_sources(order_path, config)
+        sources = [(path.as_posix(), path.read_text(encoding="utf-8-sig")) for path in logs]
+        for path in reviews:
+            upper = path.name.upper()
+            if any(re.search(rf"(?<![A-Z0-9-]){re.escape(name)}(?![0-9])", upper) for name in wanted):
+                notes.append(f"SPEC_REVIEW: review file {path.as_posix()} (no --dispatch-log; its line in "
+                             "DIRECTOR_LOG was not checked)")
+                return []
+        looked.append("reviews/*SPEC_REVIEW*")
+    for where, text in sources:
+        lines = [rest for name, rest in log_lines(text, "SPEC_REVIEW") if name.upper() in wanted]
+        if lines:
+            lacking = [key.rstrip("=") for key in REVIEW_FIELDS if key not in lines[-1]]
+            if lacking:
+                notes.append(f"SPEC_REVIEW: the line for {label} in {where} has no {'/'.join(lacking)}; write "
+                             f"`SPEC_REVIEW {label} tokens=<n|UNKNOWN> issues=<P0/P1/P2> adopted=<n>`")
+            return []
+        looked.insert(0, where)
+    return [f"SPEC_REVIEW: no `SPEC_REVIEW {label} tokens=... issues=... adopted=...` line (looked in: "
+            f"{', '.join(looked) or 'no --dispatch-log, no DIRECTOR_LOG.md'}); every Standard/Strict order is reviewed "
+            "before dispatch (templates/SPEC_REVIEW.md)"]
+
+
+def match_problems(order_text, ids, log_text, repo, config, notes, order_path=None):
+    """--match: the spec review (B4: with or without --dispatch-log) and, with --dispatch-log, the approved plan are
+    in DIRECTOR_LOG. OpenSpec has no review record and no approval step between `propose` and `apply`; the log line
+    is ours."""
+    problems = []
+    gov = governance(order_text)
+    if gov not in GOVERNED:
+        return problems
+    label = next(iter(ids), "the order")
     if gov == "Strict" or config.get("spec_review_for_standard", True):
-        if not any(name.upper() in wanted for name, _ in log_lines(log_text, "SPEC_REVIEW")):
-            problems.append(f"SPEC_REVIEW: no `SPEC_REVIEW {label} tokens=... issues=... adopted=...` line in the "
-                            "dispatch log; review the order before dispatch (templates/SPEC_REVIEW.md)")
+        problems += spec_review_problems(order_text, ids, log_text, config, notes, order_path)
+    if log_text is None:
+        return problems
+    wanted = {name.upper() for name in ids}
     if config.get("plan_gate", True):
         approved = [rest for name, rest in log_lines(log_text, "PLAN_APPROVED") if name.upper() in wanted]
         if not approved:
@@ -502,6 +620,9 @@ def main():
         config, problem = load_config(None, a.config)
         if problem:
             print(f"# {problem}")
+        if sdd_off(config):  # 2.2.4-ds.4 (B6): no lookup and no 「寫入 openspec_bin」 hint for a project with SDD off
+            print("OPENSPEC: SDD 關閉，不檢查 CLI (sdd.require_spec_for_strict and require_spec_for_standard are false)")
+            return status
         command, how = find_cli(config)
         if command is None:
             print(f"OPENSPEC: NOT_FOUND {how}; {INSTALL_HINT}")

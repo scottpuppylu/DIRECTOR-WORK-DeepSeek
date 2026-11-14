@@ -206,6 +206,8 @@ def check_openspec(tools_dir, config_path=None):
     sdd = importlib_module(spec)
     spec.loader.exec_module(sdd)
     config, problem = sdd.load_config(None, config_path)
+    if sdd.sdd_off(config):  # 2.2.4-ds.4 (B6): a project with SDD off gets no lookup and no 寫入 hint
+        return "OK", "SDD 關閉，不檢查 CLI (both require_spec_for_* are false)" + (f"; {problem}" if problem else "")
     command, how = sdd.find_cli(config)
     if command is None:
         return "WARN", f"openspec CLI {how}; the SDD gate fails Standard/Strict orders until it is installed (PO_PENDING 「安裝 openspec」, docs/13)"

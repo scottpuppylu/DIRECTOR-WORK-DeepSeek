@@ -8,13 +8,13 @@ TRACES_TO      = <這張工單服務的初衷卡、需求或決定編號，逗�
 BRIEF_REVISION        = <選用：初衷卡版次；不用就刪掉這兩行>
 BRIEF_FINGERPRINTS_V1 = <選用：gate_check.py --brief BRIEF.md 印的 {"B-2": "<64 位雜湊>"}>
 PRIMARY_WORKER = 子代理「<名稱>」（例：w1；總監用 subagent 開，名稱只能小寫英數和 -）
-MODEL / EFFORT = deepseek-flash / <off|low|high|max>（理由見 docs/05；開工時指定，開完不能中途改）
+MODEL / EFFORT = deepseek-flash / <off|low|high|max>（理由見 docs/05；開工時指定，開完不能中途改；`subagent` 的 reasoning_effort 一定要填這個值，派工後跑 `dsh_usage.py --effort-check <本工單>`，把印出的 EFFORT_ACTUAL 行貼進 DIRECTOR_LOG，不一致會印 shadow WARN，2.2.4-ds.4）
 FALLBACK       = <同名子代理續談（send_message 從 RESUME_STATE 接續）| 開接班子代理>
 GOVERNANCE     = <Direct | Standard | Strict>
 BASE_REF       = <remote/branch @ commit，例：origin/main @ 1bfcb4a>   # 開工前先 git fetch，寫 fetch 後遠端分支的最新 commit；落後時 gate_check --order 印 WARN BASE_REF（docs/02）
 NEW_BRANCH     = <分支名>
-WORKTREE       = <選用：自己用 git worktree 開的隔離目錄；DSH 沒有 worktree 機制，預設所有子代理共用同一 checkout，不用就填「共用 checkout」>
-WORK_DIR       = <放報告、RESUME_STATE.md、輸出的資料夾>
+WORKTREE       = <選用：自己用 git worktree 開的隔離目錄；DSH 沒有 worktree 機制，預設所有子代理共用同一 checkout，不用就填「共用 checkout」；共用時 `scope_check.py` 只看本工單的 commit（commit 訊息要寫工單編號）和 SCOPE 內還沒 commit 的檔，2.2.4-ds.4>
+WORK_DIR       = <放報告、RESUME_STATE.md、輸出的資料夾；開工先把 TEMP／TMP／TMPDIR 設成 WORK_DIR/tmp，`dsh_session.py --temp-env <WORK_DIR>` 印出設定行，2.2.4-ds.4>
 BUDGET         = <US$0 | PO 核准的金額>
 HEAVY_RESOURCE = <無 | 需先 TEST REQUEST：類型、預估分鐘>
 SPEC_CHANGE    = <openspec/changes/<名稱> | NONE>   # Standard／Strict 必填且不可為 NONE（docs/13）；Direct 寫 NONE
@@ -41,7 +41,7 @@ FORBIDDEN:
 - <不准碰的路徑或 glob；沒有就寫 NONE>
 ```
 
-大小上限（ds.2，Standard／Strict）：最後結果 ≤3 個檔、約 200 行（新增＋刪除；`openspec/` 不算），`scope_check.py` 超過就印 `OVERSIZE`。估計會超過就拆成幾張工單。FORBIDDEN 加上 `openspec/changes/<名稱>/specs/**`、`openspec/changes/<名稱>/proposal.md` 和 TESTS_LOCKED 的測試檔：worker 只寫 `openspec/changes/<名稱>/tasks.md` 和程式。
+大小上限（ds.2，Standard／Strict）：最後結果 ≤3 個檔、約 200 行（新增＋刪除；`openspec/` 不算），`scope_check.py` 超過就印 `OVERSIZE`。2.2.4-ds.4：上限寫在 director_work.json 頂層 `order_limits`（不再放 `sdd`）；測試檔（`test_*.py`、`*_test.py`、`tests/` 下）算檔數，行數另算 `max_test_lines_per_order`（預設 400），不吃掉 200 行。估計會超過就拆成幾張工單。FORBIDDEN 加上 `openspec/changes/<名稱>/specs/**`、`openspec/changes/<名稱>/proposal.md` 和 TESTS_LOCKED 的測試檔：worker 只寫 `openspec/changes/<名稱>/tasks.md` 和程式。
 
 `*` 不跨資料夾，`**` 跨資料夾，沒有萬用字元的名稱連底下全部都算。兩邊都符合時以 FORBIDDEN 為準。不要寫「相關檔案」這種話。
 
@@ -75,6 +75,7 @@ CHECKS:
 - AC-1: ["python", "-I", "-m", "unittest", "tests.test_parser"]
 ```
 
+  路徑一律用正斜線（`D:/ws/tools/x.py`，Windows 也認得）：JSON 裡的反斜線不是合法字元（`\w`），或會悄悄變成控制字元（`\t`、`\n`），`gate_check.py --order` 派工前就擋下並指出第幾行（2.2.4-ds.4）。
   CHECKS 可以放任何可重跑的指令，包括本規則包的檢查工具（路徑照專案實際位置寫）：`["python", "-I", "-X", "utf8", "<WS>/DIRECTOR/tools/round_check.py", "--resume", "<WS>/DIRECTOR/RESUME_STATE.md"]`。放進 CHECKS 就等於核准它在 `--rerun` 時被執行。
 - `REVIEW`：要有人看成品。開工前寫明誰看、從哪個角度看、看多大範圍、看哪些常識閘門項目（docs/07）。reviewer 用 `subagent` 開；DSH 子代理預設拿到完整工具集，不能只給讀取工具，所以 review 的範圍靠工單指示＋總監事後用 `dsh_audit.py` 核對（docs/07）。worker 最多填 `READY_FOR_REVIEW`。
 - `PO`：PO 保留的判定，例如最終驗收。worker 和總監都只填 `PENDING_PO`。同一個 commit 給 PO 看兩份以上成品時，報告寫 `CANDIDATE_ID: <PO_ACCEPTANCE 的 candidate_id>`（2.2）。
@@ -87,12 +88,15 @@ CHECKS:
   - 不是字串的輸入（None、數字、list）
   - Unicode 與全形字元（全形數字、全形運算子）
   - 錯誤訊息不漏出程式語言的原生訊息（traceback、RecursionError）或英文訊息，照工單規定的語言與格式
+  - 巢狀深度（含 JSON）：讀檔或解析 JSON 時，深層巢狀（例如 1000 層 `[[[…]]]`）也回清楚的錯誤，不透出 RecursionError（2.2.4-ds.4）
+  - 預設輸出要列出哪幾筆有問題：批次輸入有錯時，不加參數的預設輸出就列出是哪幾筆（第幾筆或哪個鍵）；問題物件用 dict 或中文名稱，不要用 `XxxError` 類別名當使用者看到的字（2.2.4-ds.4）
   - 需求寫「不當掉／不崩潰」時，至少一條 AC 用極端輸入驗證（例如上面的深度或長度）
   - Standard／Strict（OpenSpec，2.2.3-ds.3）：用得到的每一項在 `specs/<能力>/spec.md` 寫成一個 `#### Scenario:`（WHEN 極端輸入，THEN 預期的結果或錯誤訊息），鎖定測試照 Scenario 寫；需求寫「不當掉」時，至少一個 Scenario 用極端輸入
 - 選用的 `追溯` 欄（加在表的最後一欄）：這條 AC 驗證 TRACES_TO 的哪些編號，例如 `DD-03`；沒有寫 `—`。不加這欄也照樣通過；加了之後 `trace_report.py` 每個編號一列，不必猜哪條 AC 服務哪個需求。
 
 - 驗收優先寫 `AUTO`（ds.2）：能用指令判定的就不要寫成 REVIEW／PO。
 - 測試先寫並鎖定（ds.2，Standard／Strict）：驗收測試在派工前寫好並 commit 到 BASE_REF，`python -I -X utf8 tools/sdd_gate.py --lock-tests <測試檔> --repo <專案>` 印的清單貼在下面；worker 不得改，改了 `gate_check.py` 判不過。沒有測試的文件類工單寫 `- NONE  # 理由`。
+- 受保護的測試只准新增（2.2.4-ds.4）：TESTS_LOCKED 的檔和 director_work.json 頂層 `protected_tests` 列的檔，worker 只能新增檔案或在檔尾加測試；改到原有內容或刪檔，`scope_check.py` 判 `PROTECTED` 越界。scope_check 印的 `PROTECTED_CHANGED:` 行照抄進報告；寫「無」而 diff 有改，`gate_check.py --match` 判不過。
 
 ```text
 TESTS_LOCKED:

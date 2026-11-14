@@ -37,6 +37,9 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     means by count); base_ref an object, check / fetch / strict true or false (gate_check --order); release an
     object, remote / branch / title / tag_message / selftest non-empty strings, gh_repo owner/name or null
     (release.py refuses an unknown release key, so it is a problem here too); sdd is known (sdd_gate.py checks it)
+  - 2.2.4-ds.4: order_limits an object of whole numbers (max_files_per_order / max_lines_per_order /
+    max_test_lines_per_order, 0 = off); an old sdd.max_*_per_order is a shadow line 「請搬到 order_limits」;
+    protected_tests a list of globs
 
 2.2.3-ds.3, shadow too: the openspec CLI (sdd_gate.find_cli: OPENSPEC_BIN, sdd.openspec_bin,
 %LOCALAPPDATA%/dw-ds-tools/openspec-*/, PATH). A note gives the command, level and version; a shadow line when it is
@@ -70,7 +73,9 @@ ANY_ID = re.compile(r"^[ \t]*ID[ \t]*:[ \t]*(.*)$")
 CONFIG_VERSION = 1
 CONFIG_MODES = ("general", "beginner")
 CONFIG_PATTERNS = ("trace_id_pattern", "po_item_pattern", "po_open_pattern")
-CONFIG_KEYS = ("schema_version", "mode", "po_pending_files", "sdd", "resume", "base_ref", "release") + CONFIG_PATTERNS
+CONFIG_KEYS = ("schema_version", "mode", "po_pending_files", "sdd", "resume", "base_ref", "release", "order_limits",
+               "protected_tests") + CONFIG_PATTERNS
+ORDER_LIMIT_KEYS = ("max_files_per_order", "max_lines_per_order", "max_test_lines_per_order")  # 2.2.4-ds.4
 RESUME_CONFIG_KEYS = ("max_bytes", "max_line_bytes", "keep_recent", "protect_headings")  # 2.2.2-ds.3
 BASE_REF_KEYS = ("check", "fetch", "strict")  # 2.2.2-ds.3: gate_check --order BASE_REF freshness
 RELEASE_KEYS = ("remote", "branch", "title", "tag_message", "selftest", "gh_repo")  # 2.2.2-ds.3: release.py
@@ -285,6 +290,25 @@ def config_blocks(data, notes):
             odd = sorted(k for k in data["resume"] if k not in RESUME_CONFIG_KEYS and not k.startswith("_"))
             if odd:
                 notes.append(f"director_work.json: resume keys no tool reads: {', '.join(odd)} (a typo?)")
+    if "order_limits" in data:  # 2.2.4-ds.4 (B1): scope_check.py reads it
+        block = data["order_limits"]
+        if not isinstance(block, dict):
+            say(f"order_limits: an object with {' / '.join(ORDER_LIMIT_KEYS)}, got {block!r}")
+        else:
+            for key, value in block.items():
+                if key.startswith("_"):
+                    continue
+                if key not in ORDER_LIMIT_KEYS:
+                    notes.append(f"director_work.json: order_limits key no tool reads: {key} (a typo?)")
+                elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    say(f"order_limits.{key}: a whole number, 0 = off, got {value!r}")
+    if isinstance(data.get("sdd"), dict):
+        old = [key for key in ("max_files_per_order", "max_lines_per_order") if key in data["sdd"]]
+        if old:
+            say(f"sdd.{' / sdd.'.join(old)}: 請搬到 order_limits (2.2.4-ds.4; still read, with a shadow WARN)")
+    if "protected_tests" in data and not (isinstance(data["protected_tests"], list) and all(
+            isinstance(item, str) and item.strip() for item in data["protected_tests"])):
+        say(f"protected_tests: a list of globs, got {data['protected_tests']!r}")
     if "base_ref" in data:
         block = data["base_ref"]
         if not isinstance(block, dict):
@@ -377,7 +401,9 @@ def shadow_openspec(folder, notes):
         return found
     notes.append(f"openspec: {' '.join(command)} ({how}) version={sdd.cli_version(command)}")
     suggest = sdd.suggested_bin(command, how)
-    if suggest and not config.get("openspec_bin"):
+    if suggest and not config.get("openspec_bin") and sdd.sdd_off(config):  # 2.2.4-ds.4 (B6): no 寫入 hint
+        notes.append("openspec: SDD 關閉，不檢查 CLI (sdd.openspec_bin stays null)")
+    elif suggest and not config.get("openspec_bin"):
         found.append(f'openspec: found but sdd.openspec_bin is null; write "sdd": {{"openspec_bin": "{suggest}"}} into '
                      "director_work.json (BOOTSTRAP 「規格層」)")
     for gov in sdd.GOVERNED:

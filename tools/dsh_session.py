@@ -627,3 +627,44 @@ def session_header(events):
         if event.get("type") == "session":
             return event
     return {}
+
+
+TEMP_NAMES = ("TEMP", "TMP", "TMPDIR")
+
+
+def temp_env(work_dir):
+    """2.2.4-ds.4 (B10; DW 2.2.4 B3): {TEMP, TMP, TMPDIR: <WORK_DIR>/tmp}, the folder created. Scripts and temp output
+    then stay in the work folder the Director can rerun from, not in the system temp folder (L-053)."""
+    folder = pathlib.Path(work_dir).expanduser().resolve() / "tmp"
+    folder.mkdir(parents=True, exist_ok=True)
+    return {name: str(folder) for name in TEMP_NAMES}
+
+
+def temp_env_lines(env):
+    """The lines that set env in PowerShell and in bash (one each), for the lead to paste at the start of the run."""
+    value = next(iter(env.values()))
+    quoted = value.replace("'", "''")
+    posix = pathlib.Path(value).as_posix().replace("'", "'\\''")
+    return ["; ".join(f"$env:{name}='{quoted}'" for name in env),
+            "export " + " ".join(f"{name}='{posix}'" for name in env)]
+
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description="dsh_session.py is the DSH session library (see the module text). Its "
+                                 "one command: --temp-env WORK_DIR prints the lines that point TEMP / TMP / TMPDIR at "
+                                 "WORK_DIR/tmp (2.2.4-ds.4 B10; BOOTSTRAP 「DSH 啟動」).")
+    ap.add_argument("--temp-env", metavar="WORK_DIR", required=True,
+                    help="create WORK_DIR/tmp and print the PowerShell and bash lines that set TEMP / TMP / TMPDIR to it")
+    a = ap.parse_args(argv)
+    sys.stdout.reconfigure(encoding="utf-8")
+    env = temp_env(a.temp_env)
+    powershell, bash = temp_env_lines(env)
+    print(f"TEMP_ENV: {env['TEMP']}")
+    print(f"POWERSHELL: {powershell}")
+    print(f"BASH: {bash}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

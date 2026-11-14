@@ -22,6 +22,8 @@ rules:
     - Write the behaviour, not the implementation.
     - 'Go through the boundary and stress list of templates/WORK_ORDER.md section E (nesting depth, input length, repeated unary operators or symbols, huge numbers / overflow / division by zero, non-string input, Unicode and full-width characters, error text without the native or English messages of the language) and write each item that applies as its own "#### Scenario:" (WHEN the extreme input, THEN the expected result or error).'
     - 'When a requirement says the program must not crash, at least one Scenario uses an extreme input (for example 1000 nested brackets or a very long input).'
+    - 'Nesting depth includes JSON: deeply nested JSON (for example 1000 levels of [[[...]]]) gets a clear error, never a RecursionError (2.2.4-ds.4).'
+    - 'When a batch input has bad records, the default output (no extra option) names which ones (record number or key). Describe each problem as a dict or in zh-TW words; never show an XxxError class name to the user (2.2.4-ds.4).'
     - A new capability's "## Purpose" is at least 50 characters (about two zh-TW sentences); --strict refuses a shorter one after archive.
   tasks:
     - The implementer writes tasks.md and hands it to the Director before any code; wait for PLAN_APPROVED.

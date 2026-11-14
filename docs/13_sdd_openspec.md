@@ -34,9 +34,9 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
 | Standard／Strict 必須有 `SPEC_CHANGE`，資料夾存在，`openspec validate <名稱> --strict --json` 通過；找不到 CLI 或跑不起來**判不過** | `gate_check.py --order / --match` | 派工前、交件時 | `require_spec_for_standard`、`require_spec_for_strict` |
 | Strict 的變更不能 `skip_specs: true`（Standard 只提示） | 同上 | 同上 | — |
 | 測試先寫且鎖定：要有 `TESTS_LOCKED`（docs-only 寫 `- NONE  # 理由`），檔案雜湊不符就判不過 | `gate_check.py --order / --match` | 同上 | `tests_first` |
-| Standard 也要規格審查：DIRECTOR_LOG 要有 `SPEC_REVIEW <WO>` 整行 | `gate_check.py --match --dispatch-log` | 交件時 | `spec_review_for_standard`（Strict 一律要） |
+| Standard 也要規格審查：DIRECTOR_LOG 要有 `SPEC_REVIEW <WO> tokens=… issues=… adopted=…` 整行。2.2.4-ds.4：沒給 `--dispatch-log` 也查（工單所在 DIRECTOR 的 DIRECTOR_LOG.md，或 `reviews/` 下檔名有工單編號和 SPEC_REVIEW 的檔），找不到就**判不過**（之前沒給 log 就不查，直接過）；行裡缺 tokens／issues／adopted 印 note | `gate_check.py --match` | 交件時 | `spec_review_for_standard`（Strict 一律要） |
 | 計畫閘門：DIRECTOR_LOG 要有 `PLAN_APPROVED <WO> sha=<64>`；tasks.md 和核准的版本比，只准多打勾，而且交件時要全部勾完（只有 `[x]` 算完成，照 OpenSpec） | `gate_check.py --match --dispatch-log` | 交件時 | `plan_gate` |
-| 工單大小：最後結果 ≤3 個檔、≤200 行（新增＋刪除；`openspec/` 不算） | `scope_check.py` | 交件時 | `max_files_per_order`、`max_lines_per_order`（0＝關） |
+| 工單大小：最後結果 ≤3 個檔、≤200 行（新增＋刪除；`openspec/` 不算）；測試檔（`test_*.py`、`*_test.py`、`tests/` 下）算檔數，行數另算 ≤400 | `scope_check.py` | 交件時 | 2.2.4-ds.4 起在頂層 `"order_limits"`（不在 `sdd`）：`max_files_per_order`、`max_lines_per_order`、`max_test_lines_per_order`（0＝關） |
 | STOP_RULES 允許的輪數不能超過 1 | `gate_check.py --order` | 派工前 | `stop_after_rounds` |
 | 至少一條 AUTO 驗收（只提示） | `gate_check.py --order` | 派工前 | `prefer_auto` |
 | 找得到 openspec CLI 時，`require_spec_for_<治理>` 設成 `false` 要有 PO 的答覆（PO_PENDING 有寫 require_spec 的項目、STATUS answered／closed、有 ANSWER）；還在 open 或沒寫就**判不過**（2.2.3-ds.3） | `gate_check.py --order`；`dsh_setup_check.py` 印 shadow | 派工前、建置時 | — |
@@ -51,13 +51,29 @@ Direct 工單不走這套（純查詢、文件、沒有風險）。
   "spec_review_for_standard": true,
   "tests_first": true,
   "plan_gate": true,
-  "max_files_per_order": 3,
-  "max_lines_per_order": 200,
   "stop_after_rounds": 1,
   "prefer_auto": true,
   "openspec_bin": null
 }
 ```
+
+工單大小上限（2.2.4-ds.4，WO-DS-006 #8）：上限不是 SDD 開關，SDD 關掉的專案也要用，所以搬到頂層的 `order_limits`。
+舊的 `sdd.max_files_per_order`／`sdd.max_lines_per_order` 還照讀，但 `scope_check.py` 印 `NOTE: SHADOW WARN … 請搬到 order_limits`；
+兩邊都寫時以 `order_limits` 為準，並提醒刪掉 sdd 裡的那一個。測試檔另算，是因為試驗裡鎖定測試把 200 行吃掉，工人只好拆單或改設定。
+
+```json
+"order_limits": {
+  "max_files_per_order": 3,
+  "max_lines_per_order": 200,
+  "max_test_lines_per_order": 400
+}
+```
+
+`scope_check.py` 的 `SIZE:` 行印三個數：`files= lines= test_lines= limit=3/200/400`。
+
+SDD 關閉（2.2.4-ds.4，WO-DS-006 #9）：`require_spec_for_strict` 和 `require_spec_for_standard` 都是 `false` 時，`sdd_gate.py --which`
+只印一行「SDD 關閉，不檢查 CLI」，不找 CLI、也不建議寫入 `openspec_bin`；`dsh_doctor.py` 印 OK 和同一句，`dsh_setup_check.py`
+不再印「寫入 openspec_bin」的 shadow。找得到 CLI 時關 `require_spec_*` 仍要 PO 答覆（下一節）。
 
 工具通過只代表規格格式對、測試沒被改、計畫沒被偷換、改動夠小；**不代表規格寫對了**。規格對不對靠第 6 步的審查和總監自己讀。
 

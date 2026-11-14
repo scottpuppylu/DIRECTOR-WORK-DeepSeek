@@ -38,6 +38,7 @@ import datetime
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 
 
@@ -255,7 +256,7 @@ def build_report(args):
     catalog = dsh.agent_catalog(projections)
     since = dsh.parse_day(args.since) if args.since else None
     until = dsh.parse_day(args.until, end=True) if args.until else None
-    rows = []
+    rows, parents = [], {}
     for session_id in sorted(set(projections) | set(session_files)):
         projection = projections.get(session_id)
         ref = session_files.get(session_id)
@@ -264,9 +265,17 @@ def build_report(args):
         if row is None:
             continue
         if not in_filters(row, args, session_id, since, until):
+            cwd = row.get("cwd")
+            if cwd and args.project_dir and any(dsh.path_is_under(root, cwd) and not dsh.path_is_under(cwd, root)
+                                                for root in args.project_dir):
+                parents[cwd] = parents.get(cwd, 0) + 1
             continue
         rows.append(row)
     rows.sort(key=lambda row: (row.get("started_ms") or 0, row["id"]))
+    # 2.2.4-ds.4 (B9): a --project-dir below the startup folder matches nothing (WO-DS-006 #16: the repo subfolder)
+    args.hints = [f"HINT: {count} session(s) started in {cwd}, a parent of --project-dir; sessions are recorded under "
+                  f"their startup folder: use --project-dir {cwd} (and --session <agent> for one worker)"
+                  for cwd, count in sorted(parents.items())] if not rows else []
     report = make_report(rows, warnings, args, cache_root, sessions_root, projections, session_files)
     return report, warnings, None
 
@@ -463,6 +472,63 @@ def render_text(report):
     return "\n".join(lines)
 
 
+EFFORTS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+
+def order_effort(text):
+    """2.2.4-ds.4 (B8): (worker name, model, effort) from a work order's PRIMARY_WORKER and MODEL / EFFORT lines.
+    The worker is the name in 「」 (子代理「w1」), else the first word; None for what the order does not say."""
+    worker = re.search(r"^[ \t]*PRIMARY_WORKER[ \t]*=[ \t]*(.*)$", text, re.M)
+    name = None
+    if worker:
+        quoted = re.search(r"「([^」]+)」", worker.group(1))
+        name = quoted.group(1).strip() if quoted else (worker.group(1).split() or [None])[0]
+    line = re.search(r"^[ \t]*MODEL[ \t]*/[ \t]*EFFORT[ \t]*=[ \t]*(.*)$", text, re.M)
+    model = effort = None
+    if line:
+        parts = line.group(1).split("/")
+        model = parts[0].strip() or None
+        found = re.match(r"\s*([A-Za-z]+)", parts[1]) if len(parts) > 1 else None
+        effort = found.group(1).lower() if found else None
+    return name, model, effort
+
+
+def effort_lines(order_text, order_id, rows):
+    """2.2.4-ds.4 (B8, WO-DS-006 #14): one `EFFORT_ACTUAL <WO> agent=<name> effort=<session> order=<order>` line per
+    session of the order's worker (the lead pastes it into DIRECTOR_LOG next to DISPATCH), and a shadow WARN when
+    the session ran at another effort than the order says (the trial: order high, every session max)."""
+    name, _, wanted = order_effort(order_text)
+    if not name:
+        return ["SHADOW WARN: the order has no PRIMARY_WORKER name; pass --session <agent>"], 0
+    mine = [row for row in rows if (row.get("agent") or "").lower() == name.lower()]
+    if not mine:
+        return [f"SHADOW WARN: no DSH session of agent {name} matched the filters (add --project-dir <startup folder>)"], 0
+    lines, off = [], 0
+    for row in mine:
+        actual = (row.get("effort") or "UNKNOWN").lower()
+        lines.append(f"EFFORT_ACTUAL {order_id} agent={name} effort={actual} order={wanted or 'UNKNOWN'} "
+                     f"session={str(row.get('id'))[:20]} started={row.get('started') or '?'}")
+        if wanted and actual != wanted:
+            off += 1
+            lines.append(f"SHADOW WARN: {order_id} says EFFORT {wanted}, the session ran at {actual}; dispatch with "
+                         f"subagent(..., reasoning_effort=\"{wanted}\") or fix the order (docs/11)")
+    return lines, off
+
+
+def write_no_data(args, reason, warnings):
+    """2.2.4-ds.4 (B9, WO-DS-006 #16): --out on NO_DATA. Before, the exit 2 came before --out was written, so a
+    caller saw rc=2 and no file and could not tell why. Now the file holds the reason (exit stays 2)."""
+    if not args.out:
+        return
+    out = pathlib.Path(args.out).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    data = {"tool": "dsh_usage", "status": "NO_DATA", "reason": reason, "hints": getattr(args, "hints", []),
+            "filters": {"project_dir": args.project_dir, "since": args.since, "until": args.until,
+                        "session": args.session}, "warnings": warnings[:50], "sessions": []}
+    out.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    print(f"WROTE {out} (NO_DATA)", file=sys.stderr)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sessions-root", help="DSH sessions root (default %%USERPROFILE%%\\.dsh\\sessions)")
@@ -476,6 +542,9 @@ def main(argv=None):
                     help="only this session id / id prefix / agent name (repeatable)")
     ap.add_argument("--json", action="store_true", help="print the report as JSON")
     ap.add_argument("--out", help="also write the JSON report to this file")
+    ap.add_argument("--effort-check", metavar="ORDER", help="2.2.4-ds.4: print `EFFORT_ACTUAL <WO> ...` for the "
+                    "sessions of the order's PRIMARY_WORKER and a shadow WARN when their effort differs from the "
+                    "order's MODEL / EFFORT (exit 0; paste the line into DIRECTOR_LOG)")
     fallback = ap.add_mutually_exclusive_group()
     fallback.add_argument("--from-jsonl", action="store_true",
                           help="confirm roles/lineage from the event-log headers (needs Node)")
@@ -483,6 +552,16 @@ def main(argv=None):
                           help="never read the event logs; the projection cache only (no Node)")
     a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
+    effort_order_text = effort_order_id = None
+    if a.effort_check:
+        order_path = pathlib.Path(a.effort_check)
+        if not order_path.is_file():
+            print(f"dsh_usage: --effort-check {a.effort_check}: file not found", file=sys.stderr)
+            return 2
+        effort_order_text = order_path.read_text(encoding="utf-8-sig")
+        title = re.search(r"^#\s+([A-Za-z]+(?:-[A-Za-z]+)*-\d+)", effort_order_text, re.M)
+        stem = re.match(r"[A-Za-z]+(?:-[A-Za-z]+)*-\d+", order_path.stem)
+        effort_order_id = (title or stem).group(1 if title else 0) if (title or stem) else order_path.stem
     for field in ("since", "until"):
         value = getattr(a, field)
         if value:
@@ -491,23 +570,30 @@ def main(argv=None):
             except ValueError:
                 print(f"dsh_usage: --{field} {value} is not YYYY-MM-DD", file=sys.stderr)
                 return 2
+    a.hints = []
     try:
         report, warnings, no_data = build_report(a)
     except dsh.DshError as error:
         print(f"NO_DATA: {error}", file=sys.stderr)
+        write_no_data(a, f"NO_DATA: {error}", [])
         return 2
     if report is None or not report["sessions"]:
         reason = no_data or (f"NO_DATA: {len(warnings)} session(s) found but none matched the filters"
                              if warnings else "NO_DATA: no sessions matched the filters")
         print(reason)
-        for warning in warnings[:10]:
-            print("  ~ " + warning)
+        for line in a.hints + ["  ~ " + warning for warning in warnings[:10]]:
+            print(line)
+        write_no_data(a, reason, warnings)
         return 2
     if a.out:
         out = pathlib.Path(a.out).expanduser()
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         print(f"WROTE {out}", file=sys.stderr)
+    if a.effort_check:
+        for line in effort_lines(effort_order_text, effort_order_id, report["sessions"])[0]:
+            print(line)
+        return 0
     if a.json:
         print(json.dumps(report, ensure_ascii=False, indent=1))
     else:

@@ -106,7 +106,7 @@ BT = chr(96)
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
              "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release",
-             "verify_dsh_run", "bootstrap_repo")
+             "verify_dsh_run", "bootstrap_repo", "dsh_session")
 TESTS = []
 
 
@@ -212,6 +212,110 @@ def dsh_usage(tmp):
                 "dsh_usage exit 2 without a clear message: " + tail(text))
         return "rc=2 no data: " + tail(text, 160)
     raise AssertionError("dsh_usage --json exit %s: %s" % (proc.returncode, tail(text_of(proc))))
+
+
+@test
+def dsh_usage_out_224(tmp):
+    """2.2.4-ds.4 B9: --out on NO_DATA writes a file with the reason (was: rc=2 and no file); a --project-dir below
+    the startup folder gets a hint naming that folder."""
+    empty = tmp / "usage224" / "empty"
+    (empty / "cache").mkdir(parents=True)
+    (empty / "sessions").mkdir(parents=True)
+    out = tmp / "usage224" / "out" / "none.json"
+    proc = run_tool("dsh_usage", "--cache-root", empty / "cache", "--sessions-root", empty / "sessions", "--out", out)
+    require(proc.returncode == 2 and out.is_file(), "NO_DATA with --out wrote no file: " + tail(text_of(proc)))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    require(data.get("status") == "NO_DATA" and "NO_DATA" in data.get("reason", "") and data.get("sessions") == [],
+            "the NO_DATA file lacks status / reason: %s" % data)
+    cache = sorted(dsh_home().glob("storages/session_projcache/sessions/*.json"))
+    usage = load_tool("dsh_usage")
+    picked = None
+    for path in cache[-40:]:
+        try:
+            row = usage.row_from_projection(usage.dsh.read_projection(path))
+        except Exception:
+            continue
+        if row.get("cwd"):
+            picked = (path, row["cwd"])
+            break
+    if picked is None:
+        return "NO_DATA file written (no DSH projection here for the hint half)"
+    one = tmp / "usage224" / "one"
+    one.mkdir()
+    shutil.copy(picked[0], one / picked[0].name)  # a copy in the selftest temp folder, removed afterwards
+    below = str(pathlib.Path(picked[1]) / "sub-folder-of-startup")
+    out2 = tmp / "usage224" / "out" / "below.json"
+    proc = run_tool("dsh_usage", "--cache-root", one, "--sessions-root", empty / "sessions", "--project-dir", below,
+                    "--no-fallback", "--out", out2)
+    text = text_of(proc)
+    require(proc.returncode == 2 and out2.is_file() and "a parent of --project-dir" in text,
+            "a --project-dir below the startup folder got no hint: " + tail(text))
+    proc = run_tool("dsh_usage", "--cache-root", one, "--sessions-root", empty / "sessions", "--project-dir", picked[1],
+                    "--no-fallback", "--out", tmp / "usage224" / "out" / "ok.json")
+    require(proc.returncode == 0 and (tmp / "usage224" / "out" / "ok.json").is_file(),
+            "the startup folder itself did not give rc=0 and a file: " + tail(text_of(proc)))
+    return "NO_DATA --out writes status/reason, rc 2; subfolder hint names the startup folder; startup folder rc 0"
+
+
+@test
+def temp_env_224(tmp):
+    """2.2.4-ds.4 B10: dsh_session.py --temp-env WORK_DIR points TEMP / TMP / TMPDIR at WORK_DIR/tmp; a child process
+    started with that environment writes its temp files there; the report skeleton prints the same line."""
+    work = tmp / "temp224" / "work dir"
+    proc = run_tool("dsh_session", "--temp-env", work)
+    text = text_of(proc)
+    want = str((work / "tmp").resolve())
+    require(proc.returncode == 0 and (work / "tmp").is_dir() and f"TEMP_ENV: {want}" in text
+            and "$env:TEMP=" in text and "$env:TMPDIR=" in text and "export TEMP=" in text,
+            "--temp-env did not print the lines or make the folder: " + tail(text))
+    session = load_tool("dsh_session")
+    env = session.temp_env(work)
+    require(sorted(env) == ["TEMP", "TMP", "TMPDIR"] and set(env.values()) == {want}, "temp_env: %s" % env)
+    child = subprocess.run(PY_ARGS + ["-c", "import tempfile; print(tempfile.gettempdir())"], capture_output=True,
+                           text=True, env=dict(os.environ, **env), timeout=TIMEOUT)
+    require(child.returncode == 0 and os.path.normcase(child.stdout.strip()) == os.path.normcase(want),
+            "a child's tempfile.gettempdir() is not WORK_DIR/tmp: " + child.stdout.strip())
+    order = sdd_order("NONE", "NONE", governance="Direct").replace(
+        "FALLBACK       = 同名子代理續談", "FALLBACK       = 同名子代理續談\nWORK_DIR       = D:/work/wo-7  # 腳本與暫存")
+    order_path = write(tmp / "temp224" / "DIRECTOR" / "orders" / "WO-7.md", order)
+    gate = load_tool("gate_check")
+    _, commands = gate.report_skeleton(order_path, tmp / "temp224")
+    require(any(line.startswith("# TEMP first:") and "$env:TEMP='D:/work/wo-7/tmp'" in line for line in commands),
+            "the skeleton has no TEMP line for WORK_DIR: %s" % commands[:3])
+    return "folder made; PowerShell + bash lines; child gettempdir == WORK_DIR/tmp; skeleton TEMP line"
+
+
+@test
+def effort_check_224(tmp):
+    """2.2.4-ds.4 B8: the order's EFFORT against the session's; EFFORT_ACTUAL line; shadow WARN on a mismatch."""
+    usage, gate = load_tool("dsh_usage"), load_tool("gate_check")
+    order = sdd_order("NONE", "NONE")  # PRIMARY_WORKER = 子代理「w1」, MODEL / EFFORT = deepseek-flash / high
+    require(usage.order_effort(order) == ("w1", "deepseek-flash", "high"), "order_effort: %s" % (usage.order_effort(order),))
+    rows = [{"agent": "lead", "effort": "max", "id": "session-1"}, {"agent": "w1", "effort": "max", "id": "w1-a"}]
+    lines, off = usage.effort_lines(order, "WO-7", rows)
+    require(off == 1 and lines[0].startswith("EFFORT_ACTUAL WO-7 agent=w1 effort=max order=high")
+            and any(line.startswith("SHADOW WARN: WO-7 says EFFORT high, the session ran at max") for line in lines),
+            "a max session for a high order gave no WARN: %s" % lines)
+    same, off = usage.effort_lines(order, "WO-7", [{"agent": "W1", "effort": "high", "id": "w1-b"}])
+    require(off == 0 and not any("WARN" in line for line in same), "a matching effort warned: %s" % same)
+    none, _ = usage.effort_lines(order, "WO-7", rows[:1])
+    require(none and none[0].startswith("SHADOW WARN: no DSH session of agent w1"), "no session: %s" % none)
+    notes = []
+    gate.effort_notes(order, ["WO-7"], "2026-11-14 09:01 | EFFORT_ACTUAL WO-7 agent=w1 effort=max order=high\n", notes)
+    require(any(n.startswith("SHADOW WARN EFFORT: WO-7 says EFFORT high, the session ran at max") for n in notes),
+            "gate_check did not warn on the logged mismatch: %s" % notes)
+    notes = []
+    gate.effort_notes(order, ["WO-7"], "EFFORT_ACTUAL WO-7 agent=w1 effort=high order=high\n", notes)
+    require(notes == [], "a matching logged effort was noted: %s" % notes)
+    gate.effort_notes(order, ["WO-7"], "DISPATCH WO-7 rev=1\n", notes)
+    require(any("no `EFFORT_ACTUAL WO-7" in n for n in notes), "a missing EFFORT_ACTUAL line was not noted")
+    empty = tmp / "effort224"
+    (empty / "c").mkdir(parents=True)
+    (empty / "s").mkdir(parents=True)
+    order_path = write(empty / "WO-7.md", order)
+    proc = run_tool("dsh_usage", "--effort-check", order_path, "--cache-root", empty / "c", "--sessions-root", empty / "s")
+    require(proc.returncode == 2 and "NO_DATA" in text_of(proc), "--effort-check without sessions: " + tail(text_of(proc)))
+    return "order high vs session max WARNs; same effort quiet; gate_check reads EFFORT_ACTUAL from the log"
 
 
 def newest_session_log():
@@ -542,6 +646,266 @@ def sdd_oversize(tmp):
     proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main")
     require(proc.returncode == 0 and "SIZE: files=3" in text_of(proc), "3 files did not pass: " + tail(text_of(proc)))
     return "4 files OVERSIZE, 3 files PASS, openspec/ not counted"
+
+
+def git_repo(path, files):
+    """A git repo at path with `files` ({name: text}) committed on main."""
+    path.mkdir(parents=True, exist_ok=True)
+    for name, body in files.items():
+        write(path / name, body)
+    for args in (["git", "init", "-q", "-b", "main"], ["git", "config", "user.email", "selftest@example.invalid"],
+                 ["git", "config", "user.name", "Selftest"], ["git", "config", "core.autocrlf", "false"],
+                 ["git", "add", "-A"], ["git", "commit", "-q", "-m", "init"]):
+        proc = run_prog(args, cwd=path)
+        require(proc.returncode == 0, " ".join(args) + " failed: " + tail(text_of(proc)))
+    return path
+
+
+def git_commit(repo, message, *paths):
+    for args in (["git", "add", "--", *paths], ["git", "commit", "-q", "-m", message]):
+        proc = run_prog(args, cwd=repo)
+        require(proc.returncode == 0, " ".join(args) + " failed: " + tail(text_of(proc)))
+
+
+@test
+def order_limits_224(tmp):
+    """2.2.4-ds.4 B1: limits in the top-level order_limits block; old sdd.* still read with a WARN; test files apart."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    repo = git_repo(tmp / "limits", {"calc.py": "x = 1\n"})
+    order = write(tmp / "limits_order" / "WO-7.md",
+                  sdd_order("NONE", "NONE").replace("- calc.py", "- src/**\n- tests/**\n- test_*.py"))
+    write(repo / "src" / "a.py", "a = 1\n" * 150)
+    write(repo / "tests" / "test_a.py", "b = 1\n" * 300)  # 300 test lines: over 200, under the test limit 400
+    write(repo / "test_b.py", "c = 1\n" * 50)
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main")
+    text = text_of(proc)
+    require(proc.returncode == 0 and "SIZE: files=3 lines=150 test_lines=350 limit=3/200/400" in text,
+            "test lines were not counted apart (defaults): " + tail(text))
+    new = write(tmp / "limits_cfg" / "new.json", json.dumps({"order_limits": {"max_lines_per_order": 100}}))
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", new)
+    text = text_of(proc)
+    require(proc.returncode == 1 and "OVERSIZE" in text and "lines=150/100" in text and "SHADOW" not in text,
+            "order_limits.max_lines_per_order was not read: " + tail(text))
+    old = write(tmp / "limits_cfg" / "old.json", json.dumps({"sdd": {"max_lines_per_order": 100}}))
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", old)
+    text = text_of(proc)
+    require(proc.returncode == 1 and "lines=150/100" in text and "請搬到 order_limits" in text,
+            "an old sdd.max_lines_per_order was not read with a WARN: " + tail(text))
+    both = write(tmp / "limits_cfg" / "both.json", json.dumps({"sdd": {"max_lines_per_order": 100},
+                                                              "order_limits": {"max_lines_per_order": 500}}))
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", both)
+    text = text_of(proc)
+    require(proc.returncode == 0 and "limit=3/500/400" in text and "is ignored (order_limits" in text,
+            "order_limits did not win over sdd, or no WARN: " + tail(text))
+    tests = write(tmp / "limits_cfg" / "tests.json", json.dumps({"order_limits": {"max_test_lines_per_order": 300}}))
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", tests)
+    text = text_of(proc)
+    require(proc.returncode == 1 and "test_lines=350/300" in text, "the test-line limit did not FAIL: " + tail(text))
+    sdd = load_tool("sdd_gate")
+    require(sdd.is_test_file("tests/x/helper.py") and sdd.is_test_file("a/test_x.py") and sdd.is_test_file("x_test.py")
+            and not sdd.is_test_file("src/testing.py") and not sdd.is_test_file("contest_x.py"),
+            "is_test_file is wrong")
+    return "defaults 3/200/400; order_limits read; old sdd.* + WARN; both: order_limits wins; test limit FAILs"
+
+
+@test
+def scope_shared_224(tmp):
+    """2.2.4-ds.4 B2: two orders in one checkout; each sees only its own commits and in-scope uncommitted files."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    repo = git_repo(tmp / "shared", {"a.py": "a = 1\n", "b.py": "b = 1\n"})
+    base = sdd_order("NONE", "NONE", governance="Direct").replace(
+        "PRIMARY_WORKER = 子代理「w1」", "PRIMARY_WORKER = 子代理「w1」\nWORKTREE       = 共用 checkout")
+    one = write(tmp / "shared_orders" / "WO-11.md", base.replace("# WO-7", "# WO-11").replace("- calc.py", "- a.py"))
+    two = write(tmp / "shared_orders" / "WO-12.md", base.replace("# WO-7", "# WO-12").replace("- calc.py", "- b.py"))
+    write(repo / "a.py", "a = 2\n")
+    git_commit(repo, "WO-11: change a", "a.py")
+    write(repo / "b.py", "b = 2\n")
+    git_commit(repo, "WO-12: change b", "b.py")
+    write(repo / "b.py", "b = 3\n")  # WO-12's worker, not committed yet
+    write(repo / "notes_w2.txt", "scratch of the other worker\n")
+    proc = run_tool("scope_check", "--order", one, "--repo", repo, "--base", "main~2")
+    text = text_of(proc)
+    require(proc.returncode == 0 and "shared=1" in text and "OTHER     b.py" in text and "OUTSIDE" not in text
+            and "changed=1" in text, "WO-11 in a shared checkout counted the other worker's files: " + tail(text))
+    proc = run_tool("scope_check", "--order", two, "--repo", repo, "--base", "main~2")
+    text = text_of(proc)
+    require(proc.returncode == 0 and "OTHER     a.py" in text and "changed=1" in text,
+            "WO-12 did not count its own commit and uncommitted file: " + tail(text))
+    write(repo / "a.py", "a = 3\n")
+    git_commit(repo, "WO-11: also touch b", "a.py")
+    write(repo / "b.py", "b = 4\n")
+    git_commit(repo, "WO-11 sneaks into b.py", "b.py")
+    proc = run_tool("scope_check", "--order", one, "--repo", repo, "--base", "main~4")
+    text = text_of(proc)
+    require(proc.returncode == 1 and "OUTSIDE   b.py" in text,
+            "an out-of-scope file in this order's own commit was not caught: " + tail(text))
+    plain = write(tmp / "shared_orders" / "WO-13.md", base.replace("# WO-7", "# WO-13").replace(
+        "WORKTREE       = 共用 checkout", "WORKTREE       = D:/wt/13").replace("- calc.py", "- a.py"))
+    proc = run_tool("scope_check", "--order", plain, "--repo", repo, "--base", "main~4")
+    require(proc.returncode == 1 and "shared=1" not in text_of(proc),
+            "an order with its own worktree went into shared mode: " + tail(text_of(proc)))
+    return "two orders, one checkout: each PASS on its own files; own out-of-scope commit FAILs; own worktree off"
+
+
+@test
+def protected_tests_224(tmp):
+    """2.2.4-ds.4 B5: a protected test file may be added or appended to; changing existing content FAILs."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    test_text = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1, 1)\n"
+    repo = git_repo(tmp / "protect", {"calc.py": "x = 1\n", "test_money.py": test_text, "test_csv.py": test_text})
+    order = write(tmp / "protect_order" / "WO-7.md", sdd_order("NONE", "NONE", governance="Direct").replace(
+        "- calc.py", "- calc.py\n- test_*.py"))
+    config = write(tmp / "protect_order" / "cfg.json", json.dumps({"protected_tests": ["test_money.py", "test_csv.py"]}))
+    write(repo / "test_money.py", test_text + "\n    def test_b(self):\n        self.assertEqual(2, 2)\n")
+    write(repo / "test_new.py", test_text)
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", config)
+    text = text_of(proc)
+    require(proc.returncode == 0 and "PROTECTED_CHANGED: test_money.py" in text,
+            "an appended test was refused or not listed: " + tail(text))
+    write(repo / "test_csv.py", test_text.replace("assertEqual(1, 1)", "assertEqual(1, 1 or 2)"))
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", config)
+    text = text_of(proc)
+    require(proc.returncode == 1 and "PROTECTED test_csv.py" in text and "protected=1" in text,
+            "an edited protected test did not FAIL: " + tail(text))
+    (repo / "test_csv.py").unlink()
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", config)
+    require(proc.returncode == 1 and "was deleted" in text_of(proc), "a deleted protected test did not FAIL")
+    write(repo / "test_csv.py", test_text.replace("\n", "\r\n"))  # line endings only
+    proc = run_tool("scope_check", "--order", order, "--repo", repo, "--base", "main", "--config", config)
+    require(proc.returncode == 0, "CRLF alone counted as a change: " + tail(text_of(proc)))
+    locked = write(tmp / "protect_order" / "WO-8.md", sdd_order("NONE", "test_csv.py sha256=" + "0" * 64,
+                                                               governance="Direct").replace("- calc.py", "- test_*.py"))
+    write(repo / "test_csv.py", "# rewritten\n")
+    proc = run_tool("scope_check", "--order", locked, "--repo", repo, "--base", "main")
+    require(proc.returncode == 1 and "PROTECTED test_csv.py" in text_of(proc),
+            "a TESTS_LOCKED file was not protected without a config: " + tail(text_of(proc)))
+    return "append PASS + listed; edit FAILs; delete FAILs; CRLF only PASS; TESTS_LOCKED protected"
+
+
+@test
+def spec_review_224(tmp):
+    """2.2.4-ds.4 B4: a Standard/Strict order with no SPEC_REVIEW fails --match, with or without --dispatch-log."""
+    sdd = load_tool("sdd_gate")
+    director = tmp / "review224" / "DIRECTOR"
+    order_path = write(director / "orders" / "WO-7.md", sdd_order("NONE", "NONE"))
+    order = order_path.read_text(encoding="utf-8")
+    config = dict(sdd.DEFAULTS, plan_gate=False)
+    none = sdd.match_problems(order, ["WO-7"], None, tmp, config, [], order_path)
+    require(any(p.startswith("SPEC_REVIEW: no") for p in none),
+            "no --dispatch-log and no review anywhere did not FAIL (the old behaviour passed): %s" % none)
+    write(director / "reviews" / "WO-70_SPEC_REVIEW.md", "another order's review\n")
+    other = sdd.match_problems(order, ["WO-7"], None, tmp, config, [], order_path)
+    require(any(p.startswith("SPEC_REVIEW: no") for p in other), "WO-70's review counted for WO-7: %s" % other)
+    write(director / "reviews" / "WO-7_SPEC_REVIEW.md", "審查紀錄\n")
+    notes = []
+    found = sdd.match_problems(order, ["WO-7"], None, tmp, config, notes, order_path)
+    require(found == [] and any("review file" in n for n in notes), "a review file was not found: %s %s" % (found, notes))
+    (director / "reviews" / "WO-7_SPEC_REVIEW.md").unlink()
+    write(director / "DIRECTOR_LOG.md", "2026-11-14 09:00 | SPEC_REVIEW WO-7 done\n")
+    notes = []
+    logged = sdd.match_problems(order, ["WO-7"], None, tmp, config, notes, order_path)
+    require(logged == [] and any("no tokens/issues/adopted" in n for n in notes),
+            "a DIRECTOR_LOG line was not read, or its missing fields not noted: %s %s" % (logged, notes))
+    given = sdd.match_problems(order, ["WO-7"], "DISPATCH WO-7 rev=1\n", tmp, config, [], order_path)
+    require(any("looked in: --dispatch-log" in p for p in given), "--dispatch-log without the line passed: %s" % given)
+    direct = sdd.match_problems(sdd_order("NONE", "NONE", governance="Direct"), ["WO-7"], None, tmp, config, [], order_path)
+    off = sdd.match_problems(order, ["WO-7"], "", tmp, dict(config, spec_review_for_standard=False), [], order_path)
+    require(direct == [] and off == [], "Direct, or spec_review_for_standard false, was asked for a review")
+    return "no review FAILs (was: passed without --dispatch-log); review file / DIRECTOR_LOG found; Direct not asked"
+
+
+@test
+def protected_report_224(tmp):
+    """2.2.4-ds.4 B5: the report's PROTECTED_CHANGED is held against git by gate_check --match."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    gate, sdd = load_tool("gate_check"), load_tool("sdd_gate")
+    body = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1, 1)\n"
+    repo = git_repo(tmp / "protect_report", {"calc.py": "x = 1\n", "test_money.py": body, "test_csv.py": body})
+    start = run_prog(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+    order_path = write(tmp / "protect_report_dir" / "orders" / "WO-7.md", sdd_order("NONE", "NONE", governance="Direct")
+                       .replace("- calc.py", "- calc.py\n- test_*.py").replace("main @ abc1234", "main @ " + start))
+    write(tmp / "protect_report_dir" / "director_work.json", json.dumps({"protected_tests": ["test_money.py",
+                                                                                            "test_csv.py"]}))
+    order = order_path.read_text(encoding="utf-8")
+    config, problem = sdd.load_config(order_path)
+    require(problem is None and config.get("_protected_tests"), "protected_tests not loaded: %s" % problem)
+    write(repo / "test_money.py", body + "\n    def test_b(self):\n        pass\n")
+    git_commit(repo, "WO-7: add a test", "test_money.py")
+    head = run_prog(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+    def check(report):
+        notes = []
+        return gate.protected_report_problems(report, order, order_path, repo, config, head, notes), notes
+
+    said_none, _ = check("PROTECTED_CHANGED: 無\n")
+    require(any("git shows protected test files changed: test_money.py" in p for p in said_none),
+            "無 while test_money.py changed did not FAIL: %s" % said_none)
+    listed, _ = check("PROTECTED_CHANGED: test_money.py\n")
+    require(listed == [], "a correct list was refused: %s" % listed)
+    missing, notes = check("RESULT: PASS\n")
+    require(missing == [] and any("missing in the report" in n for n in notes), "a missing field was not noted")
+    write(repo / "test_csv.py", "# rewritten\n")
+    git_commit(repo, "WO-7: rewrite csv test", "test_csv.py")
+    head = run_prog(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+    partial, _ = check("PROTECTED_CHANGED: test_money.py\n")
+    require(any("leaves out: test_csv.py" in p for p in partial) and any(p.startswith("PROTECTED: test_csv.py")
+                                                                          for p in partial),
+            "a left-out, rewritten protected file did not FAIL: %s" % partial)
+    return "無 vs diff FAILs; correct list passes; missing field noted; left-out + rewritten file FAILs"
+
+
+@test
+def sdd_which_off_224(tmp):
+    """2.2.4-ds.4 B6: with SDD off, --which prints one line 「SDD 關閉，不檢查 CLI」 and no lookup / 寫入 hint."""
+    fake = write(tmp / "which224" / "fake_openspec.py", FAKE_OPENSPEC)
+    off = write(tmp / "which224" / "off.json", json.dumps({"sdd": {"require_spec_for_strict": False,
+                                                                  "require_spec_for_standard": False,
+                                                                  "openspec_bin": None}}))
+    half = write(tmp / "which224" / "half.json", json.dumps({"sdd": {"require_spec_for_standard": False}}))
+    for env in ({"OPENSPEC_BIN": str(fake)}, {"OPENSPEC_BIN": None}):
+        proc = run_tool("sdd_gate", "--which", "--config", off, env=env)
+        lines = [line for line in text_of(proc).splitlines() if line.strip()]
+        require(proc.returncode == 0 and len(lines) == 1 and "SDD 關閉，不檢查 CLI" in lines[0]
+                and "openspec_bin\": \"" not in lines[0], "SDD off did not give the one line: " + tail(text_of(proc)))
+    proc = run_tool("sdd_gate", "--which", "--config", half, env={"OPENSPEC_BIN": str(fake)})
+    require("SDD 關閉" not in text_of(proc) and "level 1 OPENSPEC_BIN" in text_of(proc),
+            "SDD half on was treated as off: " + tail(text_of(proc)))
+    doctor = load_tool("dsh_doctor")
+    status, detail = doctor.check_openspec(TOOLS, off)
+    require(status == "OK" and "SDD 關閉，不檢查 CLI" in detail, "dsh_doctor with SDD off: %s %s" % (status, detail))
+    return "SDD off: one line, exit 0, with or without a CLI; half on still looks up; doctor OK"
+
+
+@test
+def checks_paths_224(tmp):
+    """2.2.4-ds.4 B3: a CHECKS line with a backslash path is refused at --order, naming the line and forward slashes."""
+    gate = load_tool("gate_check")
+    lines = ["# WO-9", "", "```text", "CHECKS:",
+             '- AC-1: ["python", "-I", "D:/w/tools/scope_check.py", "--order", "D:/w/orders/WO-9.md"]',
+             '- AC-2: ["python", "-I", "D:\\wods\\tools\\scope_check.py"]',
+             '- AC-3: ["python", "-I", "D:\\tmp\\new\\run.py"]',
+             '- AC-4: ["python", "-I", "D:\\\\ok\\\\escaped.py"]', "```", ""]
+    problems = []
+    checks = gate.order_checks("\n".join(lines), problems)
+    require(list(checks) == ["AC-1", "AC-4"], "only the forward-slash and escaped lines should parse: %s" % checks)
+    require(any(p.startswith("CHECKS line 6 (AC-2): backslash path `D:\\wods\\tools\\scope_check.py` is not valid "
+                             "JSON") and "forward slashes" in p for p in problems),
+            "the invalid \\w escape was not named with its line: %s" % problems)
+    require(any(p.startswith("CHECKS line 7 (AC-3)") and "control character" in p for p in problems),
+            "\\t / \\n turned into control characters were not caught: %s" % problems)
+    require(len(problems) == 2, "unexpected problems: %s" % problems)
+    order = sdd_order("NONE", "NONE", governance="Direct").replace(
+        "- DELIVERABLES", "```text\nCHECKS:\n" + lines[5] + "\n```\n\n- DELIVERABLES")
+    order_path = write(tmp / "checks224" / "orders" / "WO-7.md", order)
+    proc = run_tool("gate_check", "--order", order_path, "--repo", tmp / "checks224")
+    text = text_of(proc)
+    require(proc.returncode == 1 and "backslash path" in text and "CHECKS line " in text,
+            "gate_check --order did not block the backslash path before dispatch: " + tail(text))
+    return "\\w invalid and \\t silent both refused with the line number; forward / escaped slashes pass; --order FAILs"
 
 
 @test
@@ -1583,6 +1947,9 @@ def report_skeleton(tmp):
           json.dumps({"schema_version": 1, "sdd": {"require_spec_for_standard": False, "tests_first": False}}) + "\n")
     write(root / "DIRECTOR" / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\nQUESTION: turn require_spec_for_standard "
           "off for the report selftest?\nOPTIONS: a) yes b) no\nRECOMMENDED: a\nSOURCE: selftest\nANSWER: a) yes\n")
+    # 2.2.4-ds.4 (B4): a Standard order is reviewed before dispatch; without --dispatch-log the DIRECTOR_LOG is read
+    write(root / "DIRECTOR" / "DIRECTOR_LOG.md", "2026-11-14 09:05 | SPEC_REVIEW WO-8 tokens=UNKNOWN issues=0/0/0 "
+          "adopted=0\n")
     write(repo / "calc.py", "def add(a, b):\n    return a + b\n")
     rgit(repo, "commit", "-q", "-am", "WO-8: add returns the sum")
     head = rgit(repo, "rev-parse", "HEAD")
@@ -1926,7 +2293,13 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--verbose", action="store_true", help="print full detail for passing tests too")
     parser.add_argument("--keep", action="store_true", help="keep the temp folder (printed at the end)")
+    parser.add_argument("--only", help="2.2.4-ds.4: run only these tests (comma-separated names); the summary line "
+                        "then says ONLY, so a partial run is never read as the full selftest")
     args = parser.parse_args(argv)
+    wanted = [name.strip() for name in (args.only or "").split(",") if name.strip()]
+    unknown = sorted(set(wanted) - {function.__name__ for function in TESTS})
+    if unknown:
+        parser.error("no such test: " + ", ".join(unknown))
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dw-selftest-"))
@@ -1934,6 +2307,8 @@ def main(argv=None):
     try:
         for function in TESTS:
             name = function.__name__
+            if wanted and name not in wanted:
+                continue
             started = time.time()
             try:
                 detail = function(tmp)
@@ -1957,8 +2332,8 @@ def main(argv=None):
         else:
             shutil.rmtree(tmp, ignore_errors=True)
     total = passed + failed + skipped
-    print("SELFTEST_DS: %s tests=%d pass=%d fail=%d skip=%d" %
-          ("PASS" if failed == 0 else "FAIL", total, passed, failed, skipped))
+    print("SELFTEST_DS%s: %s tests=%d pass=%d fail=%d skip=%d" %
+          (" ONLY" if wanted else "", "PASS" if failed == 0 else "FAIL", total, passed, failed, skipped))
     return 0 if failed == 0 else 1
 
 

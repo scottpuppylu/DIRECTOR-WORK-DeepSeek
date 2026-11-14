@@ -17,7 +17,7 @@
 
 | 流程需要 | DSH 的做法 | 注意 |
 |---|---|---|
-| 開 worker | `subagent({name, cwd, prompt, provider, model, reasoning_effort})` | 先寫好工單再開；prompt 只給工單路徑、RESUME_STATE 路徑、一句目標。回傳 `started subagent <name>` 就代表已受理，不會等它做完。第一批要 PO 同意（`docs/12`）。 |
+| 開 worker | `subagent({name, cwd, prompt, provider, model, reasoning_effort})` | `reasoning_effort` 一定要填工單 `MODEL / EFFORT` 的值（不填會用 session 預設，WO-DS-006 試驗全變成 max）；開完跑 `dsh_usage.py --effort-check <工單>`，把 `EFFORT_ACTUAL` 行寫進 DIRECTOR_LOG（2.2.4-ds.4）。先寫好工單再開；prompt 只給工單路徑、RESUME_STATE 路徑、一句目標。回傳 `started subagent <name>` 就代表已受理，不會等它做完。第一批要 PO 同意（`docs/12`）。 |
 | 傳訊息給 worker | `send_message({agent, message})` | 只在 `docs/03` 的三種情況發。訊息會叫醒閒置的子代理並讓它跑一輪；送達不代表已讀。長內容寫檔，訊息只給路徑。 |
 | 看 worker 列表與狀態 | `list_agents()` | 只給名字、running/inactive、description；沒有「正在做什麼」的細節，細節讀它的 `RESUME_STATE.md`。inactive 可能只是做完一輪，不代表結束。 |
 | worker 回報 | worker 自己用 `send_message` 傳給總監，或做完一輪後 DSH 送完成通知 | 完成通知會帶最後結論；要它繼續就用 `send_message`。 |
@@ -34,6 +34,8 @@
 | 專案指示 | `AGENTS.md`（DSH 也載入 `CLAUDE.md`；本版統一 `AGENTS.md`）＋ `AGENTS.local.md` 疊加；使用者層 `~/.dsh/AGENTS.md`、`~/.agents/AGENTS.md` | 子代理 session 會自動載入（已實測）。改指示後要讓相關 session 重新讀到：下一次成功讀寫到那個目錄，或重開 session。 |
 | 檔案沙箱與核准 | 每個 session 有 `read-only / workspace-write / danger-full-access`；核准政策是 session 設定 | **沒有** PreToolUse hooks，hook_guard 不移植。`docs/08` 的「會擋」改成「規則＋PO 核准＋事後 audit」；不要宣稱自動擋。 |
 | 規格先行（OpenSpec，ds.2） | 專案根目錄 `openspec init --tools agents --language zh-TW --no-animation`；`openspec new change <名稱>`、`openspec validate <名稱> --strict`、`openspec archive <名稱> --yes`；工單閘門用 `gate_check.py --order <工單> --repo <專案>` | OpenSpec 的 6 個 skill 寫進 `<專案>/.agents/skills/openspec-*`，DSH 的 filesystem skill provider 從這裡載入（rank 200；`.dsh/skills` 是 rank 100，`openspec init --tools dsh` 寫那裡，也能用）。CLI 位置與安裝見 `docs/13`。 |
+| 共用 checkout 的範圍檢查（2.2.4-ds.4） | 工單 `WORKTREE = 共用 checkout` 時 `scope_check.py` 自動切到共用模式（也可加 `--shared`）：只算 commit 訊息寫了本工單編號的 commit，加上 SCOPE 內還沒 commit 的檔；別的工人的檔印 `OTHER`，不算越界 | commit 訊息一定要寫工單編號（例 `WO-12: …`），否則那個 commit 不算本工單的；本工單 commit 動到 SCOPE 外的檔照樣判越界。SCOPE 外還沒 commit 的檔看不到，所以交件前先 commit。 |
+| 暫存資料夾（2.2.4-ds.4） | 開工先跑 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --temp-env <WORK_DIR>`，照印出的那行設 `TEMP`／`TMP`／`TMPDIR`（PowerShell 每個指令前加 `$env:TEMP=…;`，或在啟動 DSH 的 shell 先設好） | DSH 每個 shell 指令是新的行程，環境變數不會留到下一個指令；在啟動 DSH 前設最省事。 |
 | 動作紀錄 | `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_audit.py build --session <agent> --out <WS>/DIRECTOR/research/audit-<日期>.jsonl`（`--project-dir <WS>` 抓整個工作區） | 事後從 session 紀錄重建，不是即時 hook；給 `report_vs_audit.py` 和 gate 審查用。子代理 session 記在總監 session 的啟動資料夾下，所以 `--project-dir <REPO>` 抓不到 worker。input 經 secret_mask 後最多記 500 字，長指令尾端會截斷。 |
 
 ## 開 worker 的流程

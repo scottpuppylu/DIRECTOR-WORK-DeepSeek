@@ -358,29 +358,58 @@ def order_line(text):
     return line.group(1), (int(rev.group(1)) if rev else None)
 
 
+def checks_line_numbers(text):
+    """2.2.4-ds.4 (B3): the 1-based line number of each `- ` item under the order's `CHECKS:` line, in order."""
+    lines = text.splitlines()
+    for n, line in enumerate(lines):
+        if re.fullmatch(r"\s*CHECKS\s*[:：]\s*", line):
+            out = []
+            for k in range(n + 1, len(lines)):
+                if not re.match(r"\s*-\s+", lines[k]):
+                    break
+                out.append(k + 1)
+            return out
+    return []
+
+
 def order_checks(text, problems=None):
     """{AC id: command} from the order's `CHECKS:` list, one `- AC-1: ["program", "arg", ...]` line per AUTO criterion
     (a JSON array of strings, run without a shell); None when the order has no CHECKS. With a problems list, records a
-    line that is not in that form and an AC listed twice (the first line wins)."""
+    line that is not in that form and an AC listed twice (the first line wins). 2.2.4-ds.4 (B3, WO-DS-006 #3): each
+    problem names the line, and a Windows path written with backslashes gets its own message: in JSON `\w` is no
+    escape at all (invalid), and `\t` `\n` `\b` `\f` `\r` silently become control characters."""
     items = parse_list(text, "CHECKS")
     if items is None:
         return None
+    numbers = checks_line_numbers(text)
     checks = {}
-    for item in items:
+    for n, item in enumerate(items):
+        where = f"CHECKS line {numbers[n]}" if n < len(numbers) else "CHECKS"
         m = re.fullmatch(r"(AC-[\w-]+)\s*:\s*(.+)", item)
+        error = None
         try:
             command = json.loads(m.group(2)) if m else None
-        except ValueError:
-            command = None
+        except ValueError as failed:
+            command, error = None, failed
+        controls = isinstance(command, list) and any(isinstance(part, str) and re.search(r"[\x00-\x1f]", part)
+                                                     for part in command)
+        if m and "\\" in m.group(2) and (error is not None or controls):
+            if problems is not None:
+                bad = re.search(r'[^\s"\[\],]*\\[^\s"\[\],]*', m.group(2))
+                problems.append(f"{where} ({m.group(1)}): backslash path `{bad.group(0) if bad else '?'}` "
+                                + ("is not valid JSON" if error is not None else
+                                   "is read as a control character (\\t, \\n, ...)")
+                                + "; write the path with forward slashes (D:/folder/file.py; Windows takes them)")
+            continue
         if not (isinstance(command, list) and command and all(isinstance(part, str) for part in command)
                 and command[0].strip()):
             if problems is not None:
-                problems.append(f'CHECKS: `{item}` is not `AC-n: ["program", "arg", ...]` (a JSON array of strings; '
+                problems.append(f'{where}: `{item}` is not `AC-n: ["program", "arg", ...]` (a JSON array of strings; '
                                 "a ` #` starts a comment, so a command cannot hold one)")
             continue
         if m.group(1) in checks:
             if problems is not None:
-                problems.append(f"CHECKS: {m.group(1)} listed twice; one approved check per AC")
+                problems.append(f"{where}: {m.group(1)} listed twice; one approved check per AC")
             continue
         checks[m.group(1)] = command
     return checks
@@ -1802,6 +1831,12 @@ def report_skeleton(order_path, repo=None, evidence_dir=None):
     order = path.resolve().as_posix()
     commands = [f"# {wo}: run these after the last commit (tick every task before that commit, so the evidence "
                 "is recorded at the HEAD the report names)"]
+    work_dir = re.split(r"\s+#", order_value(text, "WORK_DIR") or "")[0].strip()
+    if work_dir and not PLACEHOLDER.search(work_dir) and work_dir.upper() != "NONE":
+        # 2.2.4-ds.4 (B10): temp files stay in WORK_DIR/tmp (dsh_session.py --temp-env prints the same lines)
+        tmp = (pathlib.Path(work_dir) / "tmp").as_posix()
+        commands.append(f"# TEMP first: PowerShell $env:TEMP='{tmp}'; $env:TMP='{tmp}'; $env:TMPDIR='{tmp}'  |  "
+                        f"bash export TEMP='{tmp}' TMP='{tmp}' TMPDIR='{tmp}'")
     for ac in acs:
         if ac in checks:
             commands.append(f"{py} {(tools / 'evidence_record.py').as_posix()} run --out-dir {evidence.as_posix()} "
@@ -2013,7 +2048,11 @@ def main():
                 base["strict"] = base["strict"] or a.strict_base
                 problems += base_ref_problems(order_text, repo, base, notes, fetched)
             if kind == "match":
-                problems += sdd.match_problems(order_text, order_ids(order_text, order_path), log_text, repo, config, notes)
+                problems += sdd.match_problems(order_text, order_ids(order_text, order_path), log_text, repo, config, notes,
+                                              order_path)
+                problems += protected_report_problems(text, order_text, order_path, repo, config, candidate, notes)
+                if log_text is not None:
+                    effort_notes(order_text, order_ids(order_text, order_path), log_text, notes)
         if brief and text is not None and kind in ("order", "match"):
             brief_notes(text if kind == "order" else files[1].read_text(encoding="utf-8-sig"), files[-1], brief, notes)
         failed += bool(problems)
@@ -2024,6 +2063,79 @@ def main():
         print(f"checked {len(jobs) - skipped - undated}, {'warned' if a.warn else 'failed'} {failed}, skipped {skipped}"
               + (f", UNDATED {undated} (not checked)" if undated else ""))
     return 1 if failed and not a.warn else 0
+
+
+EFFORT_LINE = re.compile(LOG_DATE + r"EFFORT_ACTUAL[ \t]+(\S+)[ \t]+(.*)$")
+
+
+def effort_notes(order_text, ids, log_text, notes):
+    """2.2.4-ds.4 (B8, WO-DS-006 #14, shadow): the order's MODEL / EFFORT against the `EFFORT_ACTUAL <WO> ...
+    effort=<e>` line `dsh_usage.py --effort-check` prints and the lead pastes into DIRECTOR_LOG at dispatch. The
+    trial's orders said high while every session ran at max; a mismatch is a shadow WARN, a missing line a note."""
+    line = re.search(r"^[ \t]*MODEL[ \t]*/[ \t]*EFFORT[ \t]*=[ \t]*[^/\n]*/\s*([A-Za-z]+)", order_text, re.M)
+    wanted = line.group(1).lower() if line else None
+    names = {name.upper() for name in ids}
+    found = [m.group(2) for m in (EFFORT_LINE.fullmatch(text) for text in log_lines(log_text))
+             if m and m.group(1).upper().removesuffix(".MD") in names]
+    label = next(iter(ids), "the order")
+    if not found:
+        notes.append(f"EFFORT_ACTUAL: no `EFFORT_ACTUAL {label} ... effort=<e>` line in the dispatch log; run "
+                     f"`dsh_usage.py --effort-check <order>` after dispatch and paste its line (docs/11)")
+        return
+    for rest in found:
+        actual = re.search(r"\beffort=(\S+)", rest)
+        if wanted and actual and actual.group(1).lower() != wanted:
+            notes.append(f"SHADOW WARN EFFORT: {label} says EFFORT {wanted}, the session ran at {actual.group(1)} "
+                         "(dispatch with reasoning_effort equal to the order, or fix the order)")
+
+
+PROTECTED_FIELD = re.compile(r"^[ \t]*PROTECTED_CHANGED[ \t]*[:：][ \t]*(.*)$", re.M)
+NONE_WORDS = ("NONE", "無", "没有", "沒有", "-")
+
+
+def scope_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("scope_check", pathlib.Path(__file__).resolve().parent / "scope_check.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def protected_report_problems(report_text, order_text, order_path, repo, config, candidate, notes):
+    """2.2.4-ds.4 (B5, WO-DS-006 #7): the report's `PROTECTED_CHANGED:` line names each protected test file the work
+    changed (TESTS_LOCKED, director_work.json "protected_tests"), or NONE / 無. --match holds it against git: 無 while
+    a protected file changed FAILs (the trial's PO report said 「兩支原測試沒改一行」 and they had changed); a changed
+    file the line leaves out FAILs; existing content changed in a protected file FAILs (it may only grow)."""
+    scope = scope_module()
+    try:
+        summary = scope.protected_summary(repo, order_text, order_path, config.get("_protected_tests") or [],
+                                          candidate=candidate)
+    except (RuntimeError, OSError, ValueError) as error:
+        notes.append(f"PROTECTED_CHANGED: not compared with git ({error}); pass --repo (and --candidate)")
+        return []
+    if summary is None:
+        return []
+    changed, broken = summary
+    problems = [f"PROTECTED: {path}: {why}" for path, why in broken]
+    m = PROTECTED_FIELD.search(report_text)
+    if not m:
+        notes.append("PROTECTED_CHANGED: missing in the report; write each protected test file the work changed "
+                     "(scope_check.py prints the line), or NONE" + (f"; git shows: {', '.join(changed)}" if changed else ""))
+        return problems
+    value = re.split(r"\s+#", m.group(1))[0].strip()
+    listed = [] if value.strip("`").strip() in NONE_WORDS or value.upper().startswith("NONE") else \
+        [item.strip().strip("`").replace("\\", "/") for item in re.split(r"[,，、;；\s]+", value) if item.strip().strip("`")]
+    if not listed and changed:
+        problems.append(f"PROTECTED_CHANGED: the report says {value or 'nothing'}, but git shows protected test files "
+                        f"changed: {', '.join(changed)}")
+    else:
+        left_out = [path for path in changed if path not in listed]
+        if left_out:
+            problems.append(f"PROTECTED_CHANGED: changed protected test files the report leaves out: {', '.join(left_out)}")
+        extra = [path for path in listed if path not in changed]
+        if extra:
+            notes.append(f"PROTECTED_CHANGED: the report lists files git shows unchanged: {', '.join(extra)}")
+    return problems
 
 
 def revision_sync_notes(order_text, order_path, notes):
