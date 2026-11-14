@@ -66,7 +66,7 @@ PO 手動停止後再讓它繼續，也要先完整跑一次這個程序：停�
 
 ### 狀態腳本（status_gen.py）
 
-- 每條工作線一支 `status.py`：`tools/status_gen.py --config <設定> --out <線的資料夾>/status.py` 產生，一次印出 log 尾段、雜湊、磁碟（GiB）、git 摘要、最新輸出，總長有上限。在每輪第一步跑它，不逐項重查（L-042）。
+- 每條工作線一支 `status.py`：`tools/status_gen.py --config <設定> --out <線的資料夾>/status.py` 產生，一次印出 log 尾段、雜湊、磁碟（GiB）、git 摘要、最新輸出，總長有上限；一行太長時頭尾都留、路徑中段換成 `…`，行尾狀態字不會被切掉（2.2.4-ds.4）。在每輪第一步跑它，不逐項重查（L-042）。
 - 總監版從 `templates/status_director.json` 改起：多印待決帳計數（open / answered 未關閉）、未結案工單、動作紀錄（`dsh_audit.py` 的輸出）最近 1 小時的筆數、磁碟空間。讀不到待決帳就 exit 1；路徑換成專案自己的。
 - DSH 沒有 per-folder 設定，也沒有依 session 給不同防護的設定：防護是 profile／preset 與 session 設定，子代理預設繼承總監的 preset；要依子代理給不同工具或限制，只能改使用者層 preset（需 PO 同意）。
 - `dsh_doctor.py` 列環境與設定（Python、Node、模型、沙箱、核准、子代理上限與深度、session 目錄、工具齊全）；`dsh_setup_check.py <WS>/DIRECTOR` 檢查待決帳與建置檔。報告的問題要處理。

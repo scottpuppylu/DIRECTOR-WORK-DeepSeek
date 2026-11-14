@@ -5,7 +5,7 @@
 
 ## 2.2.4-ds.4（2026-11-14）
 
-對應上游 2.2.4（DW commit 5428682）。這一版處理 WO-DS-006 試驗（DSH 有／沒有 SDD 兩組，對照 Claude）比較表 §10 裡歸 DW-DS 的項目，並移植上游 2.2.4 的通用修正。ds 序號從 3 升到 4（總監待辦「ds 序號可以往下」）。
+對應上游 2.2.4（DW commit 18d8ddb；5428682 之後另有 dad65a2 的 UNVERIFIED 和 18d8ddb 的 status 截寬與長路徑）。這一版處理 WO-DS-006 試驗（DSH 有／沒有 SDD 兩組，對照 Claude）比較表 §10 裡歸 DW-DS 的項目，並移植上游 2.2.4 的通用修正。ds 序號從 3 升到 4（總監待辦「ds 序號可以往下」）。
 
 ### 工單大小上限搬出 sdd（#8、S-P1）
 - 上限不是 SDD 開關，SDD 關掉的專案也要用，所以搬到 `director_work.json` 頂層的 `order_limits`：`max_files_per_order` 3、`max_lines_per_order` 200、新的 `max_test_lines_per_order` 400。
@@ -42,14 +42,27 @@
 - `dsh_session.py` 多一個 CLI：`--temp-env <WORK_DIR>` 建 `WORK_DIR/tmp`，印出把 `TEMP`／`TMP`／`TMPDIR` 指過去的 PowerShell 與 bash 設定行。BOOTSTRAP 第 7 步、`docs/02`、`docs/11`、`templates/WORK_ORDER.md`、`templates/TASK_REPORT.md` 寫明開工先設；`gate_check.py --report-skeleton` 對有 WORK_DIR 的工單也印這一行。
 
 ### 上游 2.2.4 移植
-- `report_vs_audit.py`（上游原樣搬，DS 只留自己的說明段和 rebuild 註記）：WO-DS-006 三組 20 份報告的誤判 FAIL 64 → 0（claude 8、dsh-sdd 32、dsh-nosdd 24；64 條全是誤判，沒有真漏跑）。變數會展開（`$X`、`${X}`、`$env:X`、`%X%`、PowerShell `a + b`、here-string，同一 agent 前面設的延用到後面）；`git -C DIR x` 當 `cd DIR` 再 `git x`；字中 `...`／`…` 代表任意字；短 hex 對長 sha 開頭；主張的絕對路徑對紀錄的相對路徑；`at=HH:MM:SS` 和時間區間；`AC-1 .. AC-6`；選項換順序；全形 `；` 斷句；多段主張分在幾次呼叫跑也算；從 RAN: 外開的 ``` 在那裡結束（WO-01 的 ACCEPTANCE 表格不再當成指令）；別的主張對到的截斷呼叫裡找不到的主張印「may be in the cut part」不判 FAIL；PowerShell 這類從不回報 error 的工具 exit 對不上印 not checkable。沒人跑過的指令照樣 FAIL。
+- `report_vs_audit.py`（上游原樣搬，DS 只留自己的說明段和 rebuild 註記）：WO-DS-006 三組 20 份報告的誤判 FAIL 64 → 0、其中 18 條是 UNVERIFIED（claude 8 → 0／4、dsh-sdd 32 → 0／11、dsh-nosdd 24 → 0／3；64 條全是誤判，沒有真漏跑）。變數會展開（`$X`、`${X}`、`$env:X`、`%X%`、PowerShell `a + b`、here-string，同一 agent 前面設的延用到後面）；`git -C DIR x` 當 `cd DIR` 再 `git x`；字中 `...`／`…` 代表任意字；短 hex 對長 sha 開頭；主張的絕對路徑對紀錄的相對路徑；`at=HH:MM:SS` 和時間區間；`AC-1 .. AC-6`；選項換順序；全形 `；` 斷句；多段主張分在幾次呼叫跑也算；從 RAN: 外開的 ``` 在那裡結束（WO-01 的 ACCEPTANCE 表格不再當成指令）；主張可能在另一條主張對到的截斷呼叫被截掉的那段時，印新狀態 **UNVERIFIED**（in log cut part）：不算 OK、也不算 FAIL，最後一行另計 `unverified=n`（放在最後，原有欄位位置不變），exit code 不變，審查的人要自己看；在截斷呼叫留下來的那段就對得到的主張仍是 OK；PowerShell 這類從不回報 error 的工具 exit 對不上印 not checkable。沒人跑過的指令照樣 FAIL。
 - `gate_check.py --after-verdict <裁決.md>... --repo <專案> [--orders <資料夾>] [--strict]`（shadow）：最後一份裁決的 `CANDIDATE_HEAD` 之後，改到該工單 SCOPE 外、又不是文件（`DIRECTOR/` 底下、`.md`／`.rst`／`.txt`）的 commit 印 `~ WARN LATE_COMMIT`，exit 不變；`--strict` 判 FAIL。候選解不出印 `NOT_CHECKED`。DS 的 `--strict` 原本只配 `--resume`，現在兩者都可以。
 - `templates/WORK_ORDER.md` B 節：「不做（OUT OF SCOPE）」不可留空（沒有寫「無」）；新欄「可呼叫的入口」（交付物是函式庫或工具時寫一個測試可直接呼叫的公開函式）。`templates/SPEC_REVIEW.md` 第 12 項審這兩欄（上游是第 9 項，DS 編號不同）。
 - `docs/05`「派工規劃」加三行：平行線切多大、能同時就同時派、派工前估時間。
 - 暫存檔放 WORK_DIR/tmp：DS 在本版 B10 已做（`dsh_session.py --temp-env`、`docs/02`、BOOTSTRAP 第 7 步）；另照上游在 `docs/11` 開 worker 流程第 3 步的提示加一句。
+- `status_gen.py`（上游 2.2.4，L-059，總監驗收時發現）：產生的 `status.py` 每行原本從行尾切到 `width`，TMP 一長，路徑後面的狀態字（OK、LOW、計數）就被切掉。現在一行超過 `width` 時頭尾都留，行內最長路徑（路徑太短就整行）的中段換成 `…`，寬度上限照舊。修前在 152 字的 TMP 下實測：DISK 行尾的 `OK`、LOG 行尾的 `ago)` 都被切掉；修後都留著。DS 原本的 selftest 抓不到（`status_gen_round_trip` 只看 STATUS 標頭），新增 `status_long_path_224`。
+- selftest 長路徑（上游 2.2.4 同寫法）：`selftest_ds.py` 開頭給整個 process 設 `GIT_CONFIG_COUNT`／`GIT_CONFIG_KEY_n=core.longpaths`／`GIT_CONFIG_VALUE_n=true`（原本有就接在後面），它叫起來的工具裡的 git 也吃到；release、BASE_REF 測試建的 bare origin 另外在 repo 裡設 `core.longpaths`（本機 remote 那一側不繼承環境變數）。tools 不變。修前用 152 字的 TMP 跑 selftest_ds：49 項 FAIL 5（`release_state`、`release_execute`、`base_ref_fresh`、`release_scan` 的 git push「Filename too long」，`after_verdict_224` 的 commit 寫不進去），都不是 status 造成的。DS 沒有子模組測試，所以沒有上游 `test_submodule_ignore` 的 GIT_DIR SKIP；DS 的摘要行本來就分開算 `skip=n`，格式不變。
+
+### 已知限制
+- Windows 長路徑三點寫進 `tools/README.md`「已知限制」：git 超過 260 字要 `core.longpaths`；GIT_DIR 超過約 220 字 git 本身停止；本機 remote 那一側不繼承 `GIT_CONFIG_COUNT`。
+- UNVERIFIED 的主張要人看：工具只能說「可能在截斷處」，不能判斷有沒有跑。
+
+### 遷移
+- 舊的 `director_work.json` 照樣能用：`sdd.max_files_per_order`／`sdd.max_lines_per_order` 照讀（印 shadow WARN，請搬到頂層 `order_limits`）。
+- `report_vs_audit.py` 最後一行多了 `unverified=n`（放在最後，原有欄位位置不變），有程式讀這一行的照樣讀得到。
+- 已經產生的 `status.py` 要用 `status_gen.py --force` 重新產生，才會換成頭尾都留的截寬。
+- Standard／Strict 工單驗收時一定要有 SPEC_REVIEW 紀錄（DIRECTOR_LOG.md 或 `reviews/`），舊工單沒審過的會判不過。
+- 舊工單沒有「不做」「可呼叫的入口」照樣通過 `gate_check`（由規格審查看）。
 
 ### 驗證
-- `selftest_ds.py` 由 37 項增為 49 項，新增：`order_limits_224`、`scope_shared_224`、`protected_tests_224`、`spec_review_224`、`protected_report_224`、`sdd_which_off_224`、`checks_paths_224`、`dsh_usage_out_224`、`effort_check_224`、`temp_env_224`，以及上游 2.2.4 的 `report_vs_audit_224`（20 個比對案例、14 個 CLI 情境、22 個 mutation，案例表與上游逐字相同）、`after_verdict_224`（11 個 CLI 檢查、4 個階段、5 個 mutation）。`report_skeleton` 的 fixture 補一行 SPEC_REVIEW（B4 之後沒審過的 Standard 工單會被擋）。新增 `--only <名稱>` 方便單跑（摘要行標 ONLY，不會被當成全套）。
+- `selftest_ds.py` 由 37 項增為 50 項，新增：`order_limits_224`、`scope_shared_224`、`protected_tests_224`、`spec_review_224`、`protected_report_224`、`sdd_which_off_224`、`checks_paths_224`、`dsh_usage_out_224`、`effort_check_224`、`temp_env_224`，以及上游 2.2.4 的 `report_vs_audit_224`（20 個比對案例、15 個 CLI 情境、26 個 mutation，含 UNVERIFIED 兩個情境與 4 個 mutation，案例表與上游逐字相同）、`after_verdict_224`（11 個 CLI 檢查、4 個階段、5 個 mutation）、`status_long_path_224`（150 字以上資料夾，2 個 mutation）。短 TMP 和剛好 140 字的長 TMP 各跑一次，都是 50/50、skip=0。`report_skeleton` 的 fixture 補一行 SPEC_REVIEW（B4 之後沒審過的 Standard 工單會被擋）。新增 `--only <名稱>` 方便單跑（摘要行標 ONLY，不會被當成全套）。
 - 每輪必讀（docs/01、03、06、08）：10,964 → 10,964 bytes。
 
 ## 2.2.3-ds.3（2026-11-14）

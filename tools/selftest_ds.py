@@ -103,6 +103,12 @@ TOOLS = pathlib.Path(__file__).resolve().parent
 PY_ARGS = [sys.executable, "-I", "-X", "utf8"]
 TIMEOUT = 240
 BT = chr(96)
+# 2.2.4-ds.4 (upstream 2.2.4): under a long TMP, git on Windows stops at 260 characters ("Filename too long").
+# core.longpaths=true for every git that selftest starts, also inside the tools it runs; an existing GIT_CONFIG_COUNT
+# list is kept and extended. A local remote does not inherit it: the bare origins set it in their own config.
+_GIT_N = int(os.environ.get("GIT_CONFIG_COUNT") or 0)
+os.environ.update({"GIT_CONFIG_COUNT": str(_GIT_N + 1), "GIT_CONFIG_KEY_%d" % _GIT_N: "core.longpaths",
+                   "GIT_CONFIG_VALUE_%d" % _GIT_N: "true"})
 CLI_TOOLS = ("dsh_usage", "dsh_audit", "dsh_doctor", "dsh_setup_check", "dsh_guard", "gate_check",
              "scope_check", "evidence_record", "report_vs_audit", "trace_report", "round_check", "status_gen",
              "metrics_report", "memory_size_check", "secret_mask", "pause_ctl", "audit_log", "sdd_gate", "release",
@@ -937,10 +943,10 @@ RVA_224_CASES = [
     (".../x and ...\\x inside a word", "Bash", RVA_SCOPE224, "scope_check.py --order .../wo-9.md --repo ...\\repo", True),
     (".../x with another file", "Bash", RVA_SCOPE224, "scope_check.py --order .../wo-8.md --repo ...\\repo", False),
     ("a short hex is a prefix of the logged sha", "Bash",
-     "python tools/scope_check.py --base 98f9a89ec0aa11 --candidate 1dc08601cd04b1d6238e",
-     "scope_check.py --base 98f9a89ec0 --candidate 1dc08601cd04", True),
-    ("a short hex with another start", "Bash", "python tools/scope_check.py --base 98f9a89ec0aa11 --candidate 1dc08601cd04b1",
-     "scope_check.py --base 98f9a89ec0 --candidate 1dc08601cd05", False),
+     "python tools/scope_check.py --base a0b1c2d3e4f5a6 --candidate 5e6f7a8b9c0d1e2f3a4b",
+     "scope_check.py --base a0b1c2d3e4 --candidate 5e6f7a8b9c0d", True),
+    ("a short hex with another start", "Bash", "python tools/scope_check.py --base a0b1c2d3e4f5a6 --candidate 5e6f7a8b9c0d1e",
+     "scope_check.py --base a0b1c2d3e4 --candidate 5e6f7a8b9c0e", False),
     ("an absolute claimed path ends with the logged relative one", "Bash",
      "python DIRECTOR/tools/gate_check.py --report DIRECTOR/reports/r.md",
      "python D:/w/DIRECTOR/tools/gate_check.py --report D:/w/DIRECTOR/reports/r.md", True),
@@ -972,7 +978,7 @@ RVA_224_ROWS = [
      "done", "result", "ok", None),
     ("30:00", "w2", "python tools/scope_check.py --order D:/w/orders/wo-9.md --repo D:/w/repo", "result", "ok", "pwsh"),
     ("35:00", "w1", "python tools/report.py --week", "result", "ok", None),
-    ("41:00", "w1", "python tools/ledger.py --strict", "result", "ok", None)]
+    ("41:00", "w1", "python tools/books.py --strict", "result", "ok", None)]
 RVA_224_LOGS = {"main": RVA_224_ROWS,
                 "pwsh_error": RVA_224_ROWS + [("50:00", "w2", "python tools/x.py", "failure", "error", "pwsh")]}
 # (name, report body after SESSION_ID: S1, log, exit, says, lacks); run by the CLI and, for mutants, in process
@@ -991,9 +997,15 @@ RVA_224_RUNS = [
      ["its statements were run in separate calls, seq 4, 5", "PASS claims=1 ok=1"], []),
     ("statements in separate calls must keep their order",
      "RAN: `git status --porcelain; python -m py_compile a.py` exit=0\n", "main", 1, ["not run in session S1"], []),
-    ("a claim in the cut part of a call another claim matched",
+    ("a claim in the cut part of a call another claim matched is UNVERIFIED, not OK",
      "RAN: `build_all.py --mode full --target alpha ...` exit=0\nRAN: `python tools/lint.py --all` exit=0\n", "main", 0,
-     ["seq 6 was cut at the log's input limit", "may be in the cut part", "PASS claims=2 ok=2"], []),
+     ["UNVERIFIED command: `python tools/lint.py --all`: in log cut part: no call shows it, but seq 6 was cut at the "
+      "log's input limit", "OK   command: `build_all.py", "PASS claims=2 ok=1 failed=0", "unverified=1"],
+     ["OK   command: `python tools/lint.py"]),
+    ("a claim found in the kept part of a cut call stays OK",
+     "RAN: `python tools/build_all.py --mode full --target alpha` exit=0\n", "main", 0,
+     ["OK   command: `python tools/build_all.py --mode full --target alpha`: seq 6", "PASS claims=1 ok=1 failed=0",
+      "unverified=0"], ["UNVERIFIED"]),
     ("a cut call no other claim matched covers nothing", "RAN: `python tools/lint.py --all` exit=0\n", "main", 1,
      ["`python tools/lint.py --all`: not run in session S1"], ["may be in the cut part"]),
     ("a cut call outside at= covers nothing",
@@ -1005,7 +1017,7 @@ RVA_224_RUNS = [
     ("exit=1 on a mapped tool that does report error is checked", "RAN: `"
      + RVA_SCOPE224.replace("D:/w/tools/", "tools/") + "` exit=1\n", "pwsh_error", 1,
      ["exit=1, but the log says ok (seq 8)"], ["not checkable"]),
-    ("exit=1 on a hook-logged call is checked", "RAN: `python tools/ledger.py --strict` exit=1\n", "main", 1,
+    ("exit=1 on a hook-logged call is checked", "RAN: `python tools/books.py --strict` exit=1\n", "main", 1,
      ["exit=1, but the log says ok (seq 10)"], ["not checkable"]),
     ("AC-1 .. AC-3 with spaces is a range (a $l loop)",
      "RAN: `evidence_record.py run --label AC-1 .. AC-3 -- python -m unittest` exit=0\n", "main", 0,
@@ -1042,6 +1054,12 @@ RVA_224_MUTATIONS = [
     ("no separate calls", [("        parts = split_runs(claim, mine, offset, tolerance)\n",
                             "        parts = None\n")], True),
     ("no cut cover", [("                if cover is not None:\n", "                if False:\n")], True),
+    ("cut part printed as OK", [("        if index in in_cut:\n", "        if False:\n")], True),
+    ("the kept part of a cut call is UNVERIFIED", [("        if index in in_cut:\n",
+                                                    "        if index in in_cut or any(command_of(e)[1] for e in "
+                                                    "shown):\n")], True),
+    ("UNVERIFIED not counted", [("            unverified += 1\n", "            pass\n")], True),
+    ("UNVERIFIED fails the run", [("            unverified += 1\n", "            failed += 1\n")], True),
     ("cut cover without another claim", [('    pool = [e for e in mine if e.get("seq") in anchors and',
                                           "    pool = [e for e in mine if True and")], True),
     ("cut cover outside at=", [('            and command_of(e)[1] and (at is None or near(str(e.get("ts")), at, '
@@ -1222,6 +1240,77 @@ def after_verdict_224(tmp):
     survived = [name for name, swaps in AV224_MUTATIONS if not wrong_with(mutated("gate_check", swaps))]
     require(not survived, "these after-verdict mutations get no stage wrong: %s" % survived)
     return "11 CLI checks, 4 stages in process, %d mutations killed" % len(AV224_MUTATIONS)
+
+def path_line(out, prefix, path, suffix):
+    """2.2.4 (upstream): a status line that names a path: the whole line, or (cut to the width) the same line with the
+    middle of the path turned into "…" while the prefix, the start of the path, its file name and the suffix stay."""
+    path = str(path)
+    for line in out.splitlines():
+        if line == prefix + path + suffix:
+            return True
+        if not (line.startswith(prefix) and line.endswith(suffix) and len(line) > len(prefix) + len(suffix)):
+            continue
+        middle = line[len(prefix):len(line) - len(suffix)]
+        if middle.count("\u2026") == 1:
+            head, end = middle.split("\u2026")
+            if head and path.startswith(head) and path.endswith(end) and end.endswith(pathlib.PurePath(path).name):
+                return True
+    return False
+
+
+STATUS_LONG_MUTATIONS = [
+    ("cut from the end of the line", ('    out.append(fit(str(text), CONFIG["width"]))\n',
+                                      '    out.append(str(text)[:CONFIG["width"]])\n')),
+    ("a line without a path cut from its end",
+     ('    return text[:head] + "\u2026" + text[len(text) - (width - 1 - head):]\n', '    return text[:width]\n'))]
+
+
+@test
+def status_long_path_224(tmp):
+    d = tmp / "status_long"
+    while len(str(d)) < 150:
+        d = d / ("long_path_" + "p" * 30)
+    d.mkdir(parents=True)
+    write(d / "run.log", "first\n" + "x" * 300 + " END\n")
+    (d / "out").mkdir()
+    (d / "out" / "a.png").write_bytes(b"x")
+    write(d / "PO_PENDING.md", "ID: OD-1\nSTATUS: answered\n")
+    conf = write(d / "status.json", json.dumps({
+        "schema_version": 1, "name": "long", "logs": ["run.log"], "log_lines": 2, "outputs": ["out"], "disk": str(d),
+        "disk_min_gib": 0.001, "po_pending": {"path": "PO_PENDING.md", "counts": [
+            {"label": "answered", "regex": "^STATUS:\\s*answered\\b"}]}}))
+    script = d / "status.py"
+    proc = run_tool("status_gen", "--config", conf, "--out", script)
+    require(proc.returncode == 0, "status_gen exit %s: %s" % (proc.returncode, tail(text_of(proc))))
+
+    def wrong(swap=None):
+        run = script
+        if swap:
+            source = script.read_text(encoding="utf-8")
+            if source.count(swap[0]) != 1:
+                return ["anchor %r not found once" % swap[0]]
+            run = d / "mutant.py"
+            run.write_text(source.replace(*swap), encoding="utf-8")
+        done = run_prog(PY_ARGS + [str(run)], cwd=d)
+        out, lines = done.stdout, done.stdout.splitlines()
+        bad = ["exit %s" % done.returncode] if done.returncode != 0 else []
+        bad += ["%d characters: %s" % (len(x), x) for x in lines if len(x) > 160]
+        for start, end in (("DISK ", " OK"), ("OUT ", ": 1 files, newest 1"), ("LOG ", " ago)"), ("  xxx", "x END"),
+                           ("~ PENDING_METHOD_MISSING: ", " in DIRECTOR_STATE.md")):
+            if not any(x.startswith(start) and x.endswith(end) for x in lines):
+                bad.append("no line %s...%s" % (start, end))
+        if not any(x.startswith("LOG ") and "run.log (" in x for x in lines):
+            bad.append("LOG line lost the file name")
+        if not path_line(out, "PO ", d / "PO_PENDING.md", ": answered=1"):
+            bad.append("PO line")
+        return bad + ([out[-600:]] if bad else [])
+
+    bad = wrong()
+    require(not bad, "status.py under a %d-character folder: %s" % (len(str(d)), bad))
+    survived = [name for name, swap in STATUS_LONG_MUTATIONS if not wrong(swap)]
+    require(not survived, "these status long-path mutations get no line wrong: %s" % survived)
+    return "%d-character folder: every line fits 160 and keeps its end; %d mutations killed" % (
+        len(str(d)), len(STATUS_LONG_MUTATIONS))
 
 @test
 def sdd_real_openspec(tmp):
@@ -2026,6 +2115,7 @@ def release_origin(tmp, name):
     base = tmp / name
     base.mkdir(parents=True)
     rgit(base, "init", "-q", "--bare", "-b", "main", "origin.git")
+    rgit(base / "origin.git", "config", "core.longpaths", "true")  # 2.2.4: a local remote ignores GIT_CONFIG_COUNT
     origin = base / "origin.git"
     seed = release_clone(origin, base / "seed")
     write(seed / "a.txt", "base\n")
@@ -2148,6 +2238,7 @@ def base_ref_fresh(tmp):
     base = tmp / "bref"
     base.mkdir(parents=True)
     rgit(base, "init", "-q", "--bare", "-b", "main", "origin.git")
+    rgit(base / "origin.git", "config", "core.longpaths", "true")  # 2.2.4: a local remote ignores GIT_CONFIG_COUNT
     proj = release_clone(base / "origin.git", base / "proj")
     repo, lock, env = sdd_fixture(base, "proj")
     rgit(proj, "add", "-A")
