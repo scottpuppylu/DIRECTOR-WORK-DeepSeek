@@ -14,7 +14,7 @@ Where each number comes from (every *.md under DIRECTOR is searched):
                        po_item_pattern   regex that starts an entry; group 1 is its kind (OD, ACT, ...)
                        po_open_pattern   regex that marks an entry still waiting for the PO
   新專案導入卡住     DIRECTOR_LOG lines with `BOOTSTRAP_STUCK`
-  額度用量           not read here: run usage_report.py
+  額度用量           not read here: run dsh_usage.py (DSH session token report)
 and the spec review cost: DIRECTOR_LOG lines `SPEC_REVIEW ... tokens=N issues=... adopted=N`.
 
 A number with nothing to count from prints UNKNOWN, never 0: no verdict, no order, no RESUMED line, or a missing
@@ -413,7 +413,7 @@ def director_report(a, ap):
 
     print(f"# 成效數字\n\n範圍：{f'{a.since} 起' if a.since else '全部'}。數字是檔案裡記下的次數，沒記的事不會被算到。\n")
     print("| 指標 | 數字 | 來源 |\n|---|---|---|")
-    print("| 額度用量 | UNKNOWN：跑 `usage_report.py` | 對話紀錄（本工具不讀） |")
+    print("| 額度用量 | UNKNOWN：跑 `dsh_usage.py` | DSH session 紀錄（本工具不讀） |")
     print(f"| 返工次數 | {rework} | 裁決 {len(verdicts)} 份、工單 {len(orders)} 份 |")
     print(f"| 中斷後遺失的工作 | {lost} | DIRECTOR_LOG 的 `RESUMED ... redo=` |")
     print(f"| PO 介入次數 | {po} | {'、'.join(po_files)} |")

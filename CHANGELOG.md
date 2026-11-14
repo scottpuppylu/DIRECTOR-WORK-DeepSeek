@@ -26,7 +26,8 @@
 - 新增 `docs/13_sdd_openspec.md`（流程、開關、原生 vs 膠水、安裝、OpenSpec vs Spec Kit 選型、已知限制）。
 - 更新 `docs/02`（規格先行一節、規格審查）、`docs/05`（SDD 時怎麼分 effort）、`docs/11`（OpenSpec 在 DSH 上的操作）、`BOOTSTRAP.md`（10.5 規格先行工具）、`README.md`、`DEEPSEEK-PORT.md` 第 11 節、`tools/README.md`。
 - `templates/WORK_ORDER.md`：`SPEC_CHANGE`、`TESTS_LOCKED`、大小上限、計畫閘門、STOP_RULES 1 輪；`templates/SPEC_REVIEW.md`：Standard 必做、加審 OpenSpec 變更三題。
-- 新增 `templates/openspec_config.yaml`（OpenSpec 原生 `rules:`／`operations:`）；`"sdd"` 開關的完整寫法放在 `docs/13`（`director_work.example.json` 不在本次工單範圍，沒改）。
+- 新增 `templates/openspec_config.yaml`（OpenSpec 原生 `rules:`／`operations:`）；`director_work.example.json` 附上完整的 `"sdd"` 物件（全開，`openspec_bin: null`），說明在 `docs/13`。
+- `metrics_report.py`：「額度用量」列改指 DSH 版的 `dsh_usage.py`（原本指 Claude 版的 `usage_report.py`，本版已移除）。
 
 ### 升級注意
 - 預設全開：舊的 Standard／Strict 工單沒有 `SPEC_CHANGE`／`TESTS_LOCKED`、STOP_RULES 寫 2 輪，`gate_check.py --order` 會判不過。舊工單用 `--warn`／`--since`，或在專案 `director_work.json` 把對應開關設成 `false`。
@@ -35,7 +36,7 @@
 ### 驗證
 - `selftest_ds.py`：基準 11/11 → 19/19 PASS（`OPENSPEC_BIN` 指到實機 OpenSpec 1.16.0）；不設時 18 PASS、1 SKIP（`sdd_real_openspec`）。
 - 試跑找到並已修進來：`validate --strict` 要求 Requirement 含英文 SHALL／MUST（改用原生 `init --language zh-TW`）；archive 後主規格 Purpose 要 ≥50 字元；`python -I -m unittest <模組>` 找不到 cwd 的測試（CHECKS 改 `discover -s .`）；交件時未勾的任務原本不查。
-- 試跑：`_work/demo-project` 一張 Standard 工單走完 propose → 審查 → tasks 核准 → apply → 交件檢查 → archive，見 `_work/ds2-openspec/TRIAL.md`（Claude 模擬 worker；DSH 實機 deepseek-flash 尚未跑，列為 PO 步驟）。
+- 試跑：`_work/demo-project` 一張 Standard 工單走完 propose → 審查 → tasks 核准 → apply → 交件檢查 → archive，見 `_work/ds2-openspec/TRIAL.md`（Claude 模擬 worker）。DSH 實機（deepseek-flash）準備好了但還沒跑：PO 只照 `_work/ds2-openspec/PO_RUN.md` 貼一段 prompt，結果由總監照 `_work/ds2-openspec/VERIFY.md` 驗。
 
 ## 2.2.0-ds.1（2026-11-12）
 
