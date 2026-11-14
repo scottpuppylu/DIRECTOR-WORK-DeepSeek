@@ -5,7 +5,7 @@
 
 ## 2.2.5-ds.5（2026-11-15）
 
-WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 110、DSH 開 SDD 97.5、DSH 關 SDD 95）裡歸 DW-DS 的項目。上游 DW 2.2.5 的移植（B7）等 DW commit 後另補，見最後「還沒做」。
+WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 110、DSH 開 SDD 97.5、DSH 關 SDD 95）裡歸 DW-DS 的項目。並移植上游 DW 2.2.5（DW commit ab1460f，B7），上游原文附在 `CHANGELOG-upstream.md`。
 
 ### 拿掉 OpenSpec，安全閘門保留（B1）
 - 原因：OpenSpec 本身沒有量到正確性效益。r2 的 `openspec validate` 全過，隱藏測試卻是開 SDD 85/107、關 SDD 101/107。
@@ -61,18 +61,33 @@ WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 
 - `verify_dsh_run` 設定的 `change`、`openspec_bin` 鍵已移除，寫了會被拒絕（未知鍵）。
 
 ### 驗證
-- `selftest_ds.py`：ds.4 是 50 項（不設 OPENSPEC_BIN 50/50；設了 OPENSPEC_BIN 的基準見 TASK_REPORT），這一版是 46 項。
+- `selftest_ds.py`：ds.4 是 50 項（不設 OPENSPEC_BIN 50/50；設了 OPENSPEC_BIN 的基準見 TASK_REPORT），B1～B5 之後 46 項，B7 之後 53 項；Python 3.11 和 3.9 各跑一次，都是 53/53、skip=0。
   - 刪 8 項，都是 OpenSpec 專屬：`sdd_spec_ok`、`sdd_no_spec_change`、`sdd_validate_fails`、`sdd_no_cli`、`sdd_real_openspec`、`sdd_cli_lookup`、`sdd_cli_setup`、`sdd_which_off_224`。
   - 改名 4 項：`sdd_tests_locked` → `safety_tests_locked_225`、`sdd_plan_and_review` → `safety_plan_and_review_225`、`sdd_spec_off_gate` → `safety_switch_off_225`、`sdd_oversize` → `order_oversize`。
   - 新增 4 項：`safety_legacy_block_225`、`safety_mutations_225`（6 個 mutation）、`usage_final_225`（3 個 mutation）、`worker_worktree_225`（2 個 mutation）。
   - 改內容：`bootstrap_repo`（L-061）、`setup_shadow`、`report_skeleton`。
   - 安全閘門 selftest：ds.4 有 6 項，這一版有 8 項。
-- `test_verify_dsh_run.py` 33 項：D10、步驟「4 鎖定測試」「7 計畫閘門」留著，計畫檔改成 PLAN.md。
+  - B7 新增 7 項（上游 2.2.5 的案例表、fixture、mutation 字串逐字相同，只換測試框架）：`report_vs_audit_225`（H1 的 10 個比對案例、18 次 CLI 執行、13 個 mutation，另查 `dsh_audit` 整條保留與 `--input-limit` 的 `input_cut`）、`weird_inputs_225`、`ran_line_225`（5 個 mutation；上游的 `browser_check` 那一項本版沒有這支工具，不搬）、`gate_order_225`（5 個）、`after_verdict_225`（1 個）、`final_225`（3 個）、`scope_shared_225`（4 個）。
+  - B7 改內容：`after_verdict_224` 照上游 2.2.5 改成預設 FAIL（mutation 換成上游 2.2.5 的 5 個）；`worker_worktree_225` 改看上游格式的 WORKTREE 行；`usage_final_225` 加「沒有 E2E 就 `FAIL final`、exit 1」，usage 的檢查放在有 E2E 的情況下照舊。
+  - Python 3.9：`Path.write_text(newline=)` 要 3.10，selftest 的寫檔函式、`test_verify_dsh_run.py` 和 `verify_dsh_run.py` 的 `save` 改用 `open(..., newline=)`（和 `pause_ctl.py` 同寫法）。之前在 3.9 上 selftest 47 項壞在這裡，`verify_dsh_run.py` 寫報告也會壞。
+- `test_verify_dsh_run.py` 33 項（Python 3.11、3.9 都 OK）：D10、步驟「4 鎖定測試」「7 計畫閘門」留著，計畫檔改成 PLAN.md。
 - 每輪必讀（docs/01、03、06、08）：10,964 → 10,964 bytes（這幾個檔沒改）。
 
-### 還沒做（B7，等總監通知 DW 2.2.5 已 commit）
-- 移植 DW 2.2.5：時間戳工具、report_vs_audit 擴充與 H1 fixture、閘門順序（PLAN_APPROVED 時間、審查 session 不同）、裁決後鎖程式碼、最終 E2E 檢查、worker 輪數上限與交接、規格審查清單、點子清單範本、TEMP 自動設定、逐 commit 的 scope_check、BASE_REF 括號解析、長路徑訊息。
-- DS 已有、DW 從 DS 搬回去的部分（ds.4 B2、B4），移植時以 DW 2.2.5 版本為準，不留兩份。
+### 上游 DW 2.2.5 移植（B7）
+- 做法：DW `v2.2.4` 和 ab1460f 用 `git show` 讀出（DW checkout 只讀），對本版每個檔做三方合併（`git merge-file`），衝突逐處處理；DS 已有、DW 2.2.5 從 DS 搬回去的部分（ds.4 B2 `--shared`、B4 規格審查檔案查法），保留一份。
+- 原樣搬：`tools/ran_line.py`（RAN 行和時間戳從時鐘來）、`templates/weird_inputs.py`、`templates/HANDOFF.md`、`evidence_record.py` 和 `release.py` 的 TEMP（設了 `WORK_DIR` 時暫存檔放 `WORK_DIR/tmp`）、`audit_log.summary(input, limit)`。
+- `report_vs_audit.py`：上游 2.2.5 全部（H1 誤報修正、FAIL 類別、`time_mismatch=`／`not_run=`、`--lead`、`--tolerance-min` 預設 10、最上層攔例外）；和上游只差本版原有的 3 處（DSH 包殼說明、`pwsh` 註解、rebuild 提示寫出來源工具）。
+- `dsh_audit.py`（本版對應上游 `transcript_audit.py`）：`build` 預設整條 input 都記，不再截 500 字；`--input-limit N` 截過的行標 `input_cut`（同上游 2.2.5）。
+- `gate_check.py`：
+  - 新增 `--sequence`（PLAN_APPROVED 早於 worker 第一個 commit、每張工單有自己的 SPEC_REVIEW、審查和裁決來自別的 session）。
+  - `--after-verdict` 改成預設 FAIL，`--warn` 回到 WARN；`--strict` 照收。
+  - `--final` 用上游的最終驗收（`evidence/E2E/` 沒有非空檔 FAIL；缺 `ENTRY_POINT:`、DD 沒「驗收案例」印 WARN），本版 B2 的 usage.json 行接在後面（`~ WARN USAGE`，不影響 exit）。原本 ds.5 的 `FINAL: OK|FAIL` 行拿掉，改用上游的 `OK|FAIL final <資料夾>`；`--final` 可以和其他模式一起跑（上游做法）。
+  - 長路徑一行訊息、BASE_REF 括號當註解，改在本版原有的 `base_git`／`base_ref_problems`（本版放在檔案前段，合併放不進去，手動搬）。
+- `scope_check.py`：BASE_REF 括號當註解、`WORKTREE:` 行、長路徑訊息、最上層 `NOT_RUN`。`--shared` 用本版 ds.4 B2 的那份（上游 2.2.5 搬回去的就是它，查的東西相同；本版另外算大小）。
+- WORKTREE 行只留一份：`scope_check.worktree_line`（上游 2.2.5 B10）；`dsh_session.py --worktree-status` 和 `gate_check.py --report-skeleton` 都呼叫它。行的格式改成上游的 `WORKTREE: 隔離 worktree <路徑> (git worktree list: n)`／`WORKTREE: 共用 checkout（主 checkout） <路徑> (...)`。
+- 範本與文件：`SPEC_REVIEW` 清單加上游第 10～14 項（本版編號 13～17）、LOG 行加 `session=`；`WORK_ORDER` 加 `WORKER_LIMIT` 和交接；`GATE_VERDICT` 加 `SESSION_ID:` 和 G 節最終驗收；`TASK_REPORT` 的 RAN 行用 `ran_line.py`；`DECISION_REGISTER` 加「驗收案例」欄；`DIRECTOR_FILES` 加 DIRECTOR_LOG 時間戳格式和 IDEAS.md；`docs/02` 加閘門順序、裁決後鎖程式碼、最終驗收、輪數上限、TEMP 更正；`BOOTSTRAP` 開 worker 提示加 TEMP 更正。DSH 用語照本版（`subagent`、`send_message`、停止規則 1 輪）。
+- 規格審查的「有沒有審查」查了兩處：`--match`（`safety_gate.spec_review_problems`，本版 ds.4 B4，安全開關 `spec_review_for_standard` 管）和 `--sequence`（上游 2.2.5 B3，另查時間先後和 session）。兩處的輸入不同（`--match` 沒給 `--dispatch-log` 也會找 DIRECTOR_LOG），所以都留著；時間先後和 session 只在上游那份。
+- 沒搬：`browser_check.py`（本版本來就沒有）、上游 `selftest.py`（案例改寫進 `selftest_ds.py`，見「驗證」）、`transcript_audit.py`（本版是 `dsh_audit.py`，見上）。
 
 ## 2.2.4-ds.4（2026-11-14）
 

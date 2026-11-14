@@ -109,6 +109,14 @@ reads the flag in DSH: workers check it themselves),
 audit_log.py (verify / head / cite / recover; append is unused in DSH), vocabulary.json, guard_rules.json (used by
 dsh_guard.py).
 
+2.2.5-ds.5 (WO-DS-009 B7, upstream DW 2.2.5): ran_line.py (new: RAN lines and time stamps from the clock), gate_check.py
+--sequence / --after-verdict (default FAIL, --warn for the old WARN) / --final (evidence/E2E/, ENTRY_POINT, DD 驗收案例,
+plus the DS usage.json lines), scope_check.py WORKTREE line (one function, also used by dsh_session.py --worktree-status
+and --report-skeleton), BASE_REF brackets as comments, long-path line, NOT_RUN instead of a traceback, report_vs_audit.py
+H1 fixes and failure classes (time_mismatch= not_run=, --lead, --tolerance-min 10), dsh_audit.py build keeps the whole
+input (--input-limit N cuts and marks input_cut), evidence_record.py / release.py put temp files in WORK_DIR/tmp when
+WORK_DIR is set; templates/weird_inputs.py and templates/HANDOFF.md.
+
 ## Removed Claude-only tools
 
 hook_guard.py (its rules survive in guard_rules.json), setup_project_settings.py, context_probe.py, usage_report.py,

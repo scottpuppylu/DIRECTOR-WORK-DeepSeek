@@ -74,9 +74,35 @@ Runs, on this machine and offline:
               請搬到 safety, OpenSpec keys ignored with a WARN; 5 mutations
   worker_worktree_225 2.2.5-ds.5 B4: dsh_session --worker-worktree opens <REPO>/../wt/<WO> on its own branch; the
               WORKTREE line (--worktree-status, gate_check --report-skeleton) comes from git worktree list
-              (main = 共用 checkout, linked = 隔離 worktree); an existing folder or a bad id is refused; 2 mutations
-  usage_final_225 2.2.5-ds.5 B2: gate_check --final DIRECTOR: usage.json missing, unreadable or NO_DATA is
-              `~ WARN USAGE` with exit 0; a dsh_usage.py --out file is `ok USAGE`; 3 mutations
+              (main = 共用 checkout（主 checkout）, linked = 隔離 worktree, with the root and the list count, upstream
+              2.2.5 scope_check's line); an existing folder or a bad id is refused; 2 mutations
+  usage_final_225 2.2.5-ds.5 B2: gate_check --final DIRECTOR: without evidence/E2E/ it is FAIL final, exit 1; with an
+              E2E record, usage.json missing, unreadable or NO_DATA is `~ WARN USAGE` with exit 0; a dsh_usage.py
+              --out file is `ok USAGE`; --final runs beside --order; 3 mutations in gate_check.usage_lines
+  after_verdict_224 2.2.4-ds.4 (upstream 2.2.4 B2), expectations of upstream 2.2.5 B4: gate_check --after-verdict fails
+              a late code commit by default (--warn: WARN, exit 0), code inside SCOPE counts too, docs/ and DIRECTOR/
+              and .md are documents; the last of several verdicts; NOT_CHECKED candidate; 5 mutations
+  report_vs_audit_225 2.2.5-ds.5 (upstream 2.2.5 B2, H1 classes of WO-DS-008): 10 matcher cases, 18 CLI runs (same in
+              process): at= span with ～, long calls kept whole, input_cut lines are cut lines, left-out options, TEMP=x,
+              workdir, shell functions, /d/ = D:/, 時間不符 / 沒跑, --tolerance-min, --lead stamps (COMMIT with --repo),
+              entry_point never prints a Traceback; 13 mutations. DS: dsh_audit.py keeps an input whole by default and
+              build --input-limit N cuts it and marks input_cut, read by report_vs_audit as a cut line
+  weird_inputs_225 2.2.5-ds.5 (upstream 2.2.5 B7): templates/weird_inputs.py writes 11 awkward files, each checked by
+              its bytes; a folder it cannot write is one line and exit 2
+  ran_line_225  2.2.5-ds.5 (upstream 2.2.5 B1, B9, A5): ran_line.py run / record / --stamp modes, the RAN: block, a
+              program that cannot start writes nothing; report_vs_audit accepts its line; WORK_DIR/tmp wins over TMPDIR
+              (ran_line, evidence_record, release); 5 mutations
+  gate_order_225 2.2.5-ds.5 (upstream 2.2.5 B3, A4): gate_check --sequence: PLAN_APPROVED before the first commit on any
+              branch, dated headings, append-only log, SPEC_REVIEW needed, same-session review / verdict fails, missing
+              session id WARN, Direct skipped; 10 orders worked out by hand; 5 mutations
+  after_verdict_225 2.2.5-ds.5 (upstream 2.2.5 B4): late code commit FAIL by default, documents pass, a new verdict for
+              the new candidate passes, a rewritten branch is `~ FAIL REWRITTEN`, --warn; 1 mutation
+  final_225     2.2.5-ds.5 (upstream 2.2.5 B5, A4): gate_check --final: no / empty E2E record FAIL, no ENTRY_POINT: WARN,
+              DD rows without 驗收案例 WARN, SUPERSEDED skipped, the folder holding DIRECTOR/; 3 mutations
+  scope_shared_225 2.2.5-ds.5 (upstream 2.2.5 B10, B11): scope_check shared mode (WORKTREE 共用 or --shared, whole-word
+              order ID, --candidate), OTHER files, WORKTREE line from git worktree list, BASE_REF bracket comment
+              (scope_check and gate_check --order), long-path line, bad --base NOT_RUN; 4 mutations
+(2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
 sdd_plan_and_review and sdd_spec_off_gate were rewritten without OpenSpec as safety_tests_locked_225,
@@ -170,7 +196,8 @@ def load_tool(name):
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:  # Path.write_text(newline=) needs 3.10
+        handle.write(text)
     return path
 
 
@@ -1241,19 +1268,24 @@ AV224_VERDICT = """# GATE VERDICT {wo}
 ORDER: {order} REVISION 1
 CANDIDATE_HEAD: {head}
 """
+# 2.2.5-ds.5: upstream 2.2.5's list (its tool changed: a top-level docs/ is a document, SCOPE no longer exempts code,
+# the FAIL / WARN word is set once)
 AV224_MUTATIONS = (
-    ("no document rule", [('    return "DIRECTOR" in parts[:-1] or parts[-1].lower().endswith((".md", ".rst", ".txt"))',
-                           '    return False')]),
-    ("no SCOPE", [("not is_document(n) and not any(rx.fullmatch(n) for rx in scope)", "not is_document(n)")]),
-    ("no strict", [("""late.append(f"  ~ {'FAIL' if strict else 'WARN'} LATE_COMMIT""",
-                    """late.append(f"  ~ {'WARN'} LATE_COMMIT""")]),
+    ("no document rule", [('    return "DIRECTOR" in parts[:-1] or parts[0] == "docs" and len(parts) > 1 \\\n'
+                           '        or parts[-1].lower().endswith((".md", ".rst", ".txt"))', '    return False')]),
+    ("no docs folder", [('parts[0] == "docs" and len(parts) > 1', "False")]),
+    ("no strict", [('word = "FAIL" if strict else "WARN"', 'word = "WARN"')]),
     ("first verdict, not last", [("last = next((f for f in found if all(leads_to(o[0], f[0]) for o in found)), None)",
                                   "last = found[-1]")]),
-    ("every commit is late", [("        if outside:\n", "        if True:\n")]))
+    ("every commit is late", [("        if code_files:\n", "        if True:\n")]))
 
 
 @test
 def after_verdict_224(tmp):
+    """2.2.4-ds.4 (upstream 2.2.4, WO-DW-224 B2): gate_check --after-verdict; the last of several verdicts is the one
+    the others lead to; a candidate that does not resolve is NOT_CHECKED. 2.2.5-ds.5: upstream 2.2.5 (WO-DW-225 B4)
+    changed what this test expects: a late commit fails by default (--warn gives the old WARN, exit 0), code inside
+    SCOPE counts too (every non-document file counts), and a top-level docs/ folder is a document."""
     folder = tmp / "after_verdict_224"
     repo, gates, orders = folder / "repo", folder / "DIRECTOR" / "gates", folder / "DIRECTOR" / "orders"
     for d in (repo / "lib", gates, orders):
@@ -1281,24 +1313,29 @@ def after_verdict_224(tmp):
                 says=["OK   AFTER_VERDICT", "candidate %s (the others lead to it)" % second[:12], "HEAD is the candidate"],
                 lacks="LATE_COMMIT")
     stages = [("none", both, False)]
-    docs = commit("docs only", {"README.md": "x\n", "docs/guide.md": "y\n", "DIRECTOR/state.json": "{}\n"})
+    docs = commit("docs only", {"README.md": "x\n", "docs/guide.md": "y\n", "docs/diagram.svg": "<svg/>\n",
+                                "DIRECTOR/state.json": "{}\n"})
     expect_tool("after-verdict: documents only", "gate_check", 0, "--after-verdict", *both, "--repo", repo,
-                says=["OK   AFTER_VERDICT", "is 1 commit(s) later, 0 change files outside SCOPE"], lacks="LATE_COMMIT")
-    inside = commit("code inside SCOPE", {"app.py": "a = 3\n", "lib/x.py": "c = 1\n"})
-    expect_tool("after-verdict: documents and in-SCOPE code only", "gate_check", 0, "--after-verdict", *both, "--repo",
-                repo, says=["OK   AFTER_VERDICT", "is 2 commit(s) later, 0 change files outside SCOPE"], lacks="LATE_COMMIT")
+                says=["OK   AFTER_VERDICT", "is 1 commit(s) later, 0 change files that are not documents"],
+                lacks="LATE_COMMIT")
     stages.append(("docs", both, False))
+    inside = commit("code inside SCOPE", {"app.py": "a = 3\n", "lib/x.py": "c = 1\n"})
+    expect_tool("after-verdict: code inside SCOPE is late too (2.2.5 B4)", "gate_check", 1, "--after-verdict", *both,
+                "--repo", repo, says=["FAIL AFTER_VERDICT",
+                                      "~ FAIL LATE_COMMIT %s code inside SCOPE: app.py, lib/x.py" % inside[:12]])
     late = commit("code outside SCOPE", {"other.py": "b = 2\n", "notes.md": "z\n"})
-    expect_tool("after-verdict: a code commit outside SCOPE is a WARN, exit unchanged", "gate_check", 0,
-                "--after-verdict", *both, "--repo", repo,
+    expect_tool("after-verdict: with --warn a late code commit is a WARN, exit unchanged", "gate_check", 0,
+                "--after-verdict", *both, "--repo", repo, "--warn",
                 says=["WARN AFTER_VERDICT", "~ WARN LATE_COMMIT %s code outside SCOPE: other.py" % late[:12],
-                      "shadow, exit unchanged", "is 3 commit(s) later, 1 change files"],
-                lacks=[docs[:12], inside[:12], "notes.md"])
+                      "--warn, exit unchanged", "is 3 commit(s) later, 2 change files"], lacks=[docs[:12], "notes.md"])
+    expect_tool("after-verdict: a late code commit fails by default (2.2.5 B4)", "gate_check", 1, "--after-verdict",
+                *both, "--repo", repo, says=["FAIL AFTER_VERDICT", "~ FAIL LATE_COMMIT %s" % late[:12]],
+                lacks="--warn, exit unchanged")
     expect_tool("after-verdict: --strict fails", "gate_check", 1, "--after-verdict", *both, "--repo", repo, "--strict",
-                says=["FAIL AFTER_VERDICT", "~ FAIL LATE_COMMIT %s" % late[:12]], lacks="shadow, exit unchanged")
-    expect_tool("after-verdict: the older verdict alone counts every later commit", "gate_check", 0, "--after-verdict",
+                says=["FAIL AFTER_VERDICT", "~ FAIL LATE_COMMIT %s" % late[:12]], lacks="--warn, exit unchanged")
+    expect_tool("after-verdict: the older verdict alone counts every later commit", "gate_check", 1, "--after-verdict",
                 old, "--repo", repo,
-                says=["order not found: every non-document file counts", "~ WARN LATE_COMMIT " + second[:12]])
+                says=["order not found; every non-document file counts", "~ FAIL LATE_COMMIT " + second[:12]])
     stages += [("late", both, False), ("strict", both, True)]
     bad = write(gates / "WO-003-GATE.md", AV224_VERDICT.format(wo="WO-003", order="WO-002-app.md", head="deadbeef0"))
     expect_tool("after-verdict: a candidate that is not a commit is NOT_CHECKED", "gate_check", 0, "--after-verdict", bad,
@@ -1312,11 +1349,11 @@ def after_verdict_224(tmp):
     for path in ("DIRECTOR/a.json", "x/y.MD", "a\\DIRECTOR\\b.py"):
         require(real.is_document(path), "after-verdict: %s is not a document" % path)
     require(not real.is_document("DIRECTORY/a.py"), "after-verdict: DIRECTORY/a.py counted as a document")
-    expected = {"none": 0, "docs": 0, "late": 1, "strict": 1}
+    expected = {"none": 0, "docs": 0, "late": 2, "strict": 2}
 
     def wrong_with(module):
         got = []
-        for head, part in ((second, stages[:1]), (inside, stages[1:2]), ("main", stages[2:])):
+        for head, part in ((second, stages[:1]), (docs, stages[1:2]), ("main", stages[2:])):
             git("checkout", "-q", "--detach", head) if head != "main" else git("checkout", "-q", "main")
             for name, paths, strict in part:
                 try:
@@ -1335,7 +1372,7 @@ def after_verdict_224(tmp):
     require(not wrong, "after-verdict: after_verdict() is wrong at %s" % wrong)
     survived = [name for name, swaps in AV224_MUTATIONS if not wrong_with(mutated("gate_check", swaps))]
     require(not survived, "these after-verdict mutations get no stage wrong: %s" % survived)
-    return "11 CLI checks, 4 stages in process, %d mutations killed" % len(AV224_MUTATIONS)
+    return "12 CLI checks, 4 stages in process, %d mutations killed" % len(AV224_MUTATIONS)
 
 def path_line(out, prefix, path, suffix):
     """2.2.4 (upstream): a status line that names a path: the whole line, or (cut to the width) the same line with the
@@ -1496,8 +1533,9 @@ def bootstrap_repo(tmp):
 
 
 
-WORKTREE_MUTATIONS = [
-    ("main reads as isolated", [("    if norm(top) == norm(main):", "    if norm(top) != norm(main):")]),
+WORKTREE_MUTATIONS = [  # 2.2.5-ds.5: worktree_kind now reads scope_check.worktree_line; the kind is taken from it
+    ("main reads as isolated", [('    return ("isolated" if "隔離 worktree" in line else "shared"), line',
+                                 '    return "isolated", line')]),
     ("worktree inside the repo", [('target = (pathlib.Path(root) if root else repo.parent / "wt") / order_id',
                                    'target = (pathlib.Path(root) if root else repo / "wt") / order_id')]),
 ]
@@ -1507,7 +1545,9 @@ WORKTREE_MUTATIONS = [
 def worker_worktree_225(tmp):
     """2.2.5-ds.5 B4: dsh_session.py --worker-worktree REPO --order WO opens <REPO>/../wt/<WO> on its own branch; the
     WORKTREE line (--worktree-status, and gate_check --report-skeleton) comes from git worktree list: the main checkout
-    is 「共用 checkout」, a linked one 「隔離 worktree」; an existing folder or a bad id is refused."""
+    is 「共用 checkout」, a linked one 「隔離 worktree」; an existing folder or a bad id is refused. 2.2.5-ds.5: the line
+    is upstream 2.2.5 scope_check's: `WORKTREE: 共用 checkout（主 checkout） <root> (git worktree list: N)` or
+    `WORKTREE: 隔離 worktree <root> (git worktree list: N)`."""
     if shutil.which("git") is None:
         raise Skip("git is not on PATH")
     repo = tmp / "wt225" / "ws" / "proj"
@@ -1518,13 +1558,15 @@ def worker_worktree_225(tmp):
     rgit(repo, "add", "-A")
     rgit(repo, "commit", "-q", "-m", "base")
     proc = run_tool("dsh_session", "--worktree-status", repo)
-    require(proc.returncode == 0 and "WORKTREE: 共用 checkout" in text_of(proc), "main checkout: " + tail(text_of(proc)))
+    require(proc.returncode == 0 and "WORKTREE: 共用 checkout（主 checkout） " in text_of(proc)
+            and "(git worktree list: 1)" in text_of(proc), "main checkout: " + tail(text_of(proc)))
     proc = run_tool("dsh_session", "--worker-worktree", repo, "--order", "WO-01", "--branch", "wo-01-x")
     target = tmp / "wt225" / "ws" / "wt" / "WO-01"
     require(proc.returncode == 0 and "WORKTREE: 隔離 worktree" in text_of(proc) and (target / "a.py").is_file()
             and rgit(target, "rev-parse", "--abbrev-ref", "HEAD") == "wo-01-x", "worker worktree: " + tail(text_of(proc)))
     proc = run_tool("dsh_session", "--worktree-status", target)
-    require(proc.returncode == 0 and "WORKTREE: 隔離 worktree" in text_of(proc) and "main checkout" in text_of(proc),
+    require(proc.returncode == 0 and "WORKTREE: 隔離 worktree " in text_of(proc)
+            and "(git worktree list: 2)" in text_of(proc) and "共用" not in text_of(proc),
             "linked worktree status: " + tail(text_of(proc)))
     again = run_tool("dsh_session", "--worker-worktree", repo, "--order", "WO-01")
     require(again.returncode == 1 and "exists" in text_of(again), "an existing worktree folder was reused")
@@ -1548,31 +1590,36 @@ def worker_worktree_225(tmp):
            "skeleton line from the tool; %d mutations killed" % len(WORKTREE_MUTATIONS)
 
 
-USAGE_MUTATIONS = [
+USAGE_MUTATIONS = [  # 2.2.5-ds.5: anchors in gate_check.usage_lines (the final mode's pass / fail is upstream's E2E rule)
     ("missing usage not warned", [('return [f"  ~ WARN USAGE: {usage_path} not found',
                                    'return [f"  ok USAGE: {usage_path} not found')]),
     ("NO_DATA taken as data", [('    if status == "NO_DATA":', '    if status == "NO_DATA_NEVER":')]),
-    ("a WARN fails the final mode", [("    lines += usage_lines(director, usage)\n",
-                                      "    lines += usage_lines(director, usage)\n"
-                                      "    failed += any(\"WARN\" in line for line in lines)\n")]),
+    ("unreadable taken as data", [('        return [f"  ~ WARN USAGE: {usage_path} unreadable: {error}"]',
+                                   '        return [f"  ok USAGE: {usage_path}"]')]),
 ]
 
 
 @test
 def usage_final_225(tmp):
     """2.2.5-ds.5 B2: gate_check --final DIRECTOR looks for DIRECTOR/usage.json (or --usage FILE), the file the lead's
-    last step writes with dsh_usage.py --out. Missing, unreadable or NO_DATA: `~ WARN USAGE`, exit 0; a usage file:
-    `ok USAGE`."""
+    last step writes with dsh_usage.py --out. Missing, unreadable or NO_DATA: `~ WARN USAGE`, never a failure; a usage
+    file: `ok USAGE`. The usage lines come after upstream 2.2.5's `OK|FAIL final` lines: without a non-empty
+    evidence/E2E/ record the final mode is `FAIL final`, exit 1 (final_225); with one (ENTRY_POINT:) it is `OK   final`."""
     director = tmp / "final225" / "DIRECTOR"
     director.mkdir(parents=True)
-    cases = []
 
     def final(*extra):
         proc = run_tool("gate_check", "--final", director, *extra)
         return proc.returncode, text_of(proc)
 
     code, out = final()
-    cases.append(("missing", code == 0 and "~ WARN USAGE" in out and "not found" in out and "FINAL: OK" in out, out))
+    require(code == 1 and "FAIL final" in out and "  - E2E: no end-to-end evidence in" in out and "~ WARN USAGE" in out,
+            "--final without E2E evidence is not FAIL final, exit 1: " + tail(out))
+    write(director / "evidence" / "E2E" / "run.txt", "ENTRY_POINT: python -m calc 1 + 2\n3\n")
+    cases = []
+    code, out = final()
+    cases.append(("missing", code == 0 and "~ WARN USAGE" in out and "not found" in out and "OK   final" in out
+                  and "WARN E2E" not in out, out))
     write(director / "usage.json", "{not json")
     code, out = final()
     cases.append(("unreadable", code == 0 and "~ WARN USAGE" in out and "unreadable" in out, out))
@@ -1584,28 +1631,866 @@ def usage_final_225(tmp):
     cases.append(("--usage", code == 0 and "ok USAGE" in out and "WARN" not in out, out))
     bad = [name + ": " + tail(out) for name, ok, out in cases if not ok]
     require(not bad, "gate_check --final: %s" % bad)
+    # 2.2.5-ds.5: as upstream 2.2.5, --final runs beside the other checks (ds.5 B2 refused that); each prints its own
+    # result and any FAIL sets the exit code
     proc = run_tool("gate_check", "--final", director, "--order", director / "x.md")
-    require(proc.returncode == 2, "--final with another check was accepted: " + tail(text_of(proc)))
+    require(proc.returncode == 1 and "OK   final" in text_of(proc) and "FAIL order" in text_of(proc),
+            "--final beside --order (a missing order): " + tail(text_of(proc)))
     (director / "usage.json").unlink()
 
     def wrong_with(module):
         got = []
-        lines, failed = module.final_check(str(director))
-        if failed or not any("~ WARN USAGE" in line for line in lines):
-            got.append("missing")
-        write(director / "usage.json", json.dumps({"status": "NO_DATA", "reason": "x"}))
-        lines, failed = module.final_check(str(director))
-        if failed or not any("~ WARN USAGE" in line for line in lines):
-            got.append("NO_DATA")
-        (director / "usage.json").unlink()
+        for name, content in (("missing", None), ("unreadable", "{not json"),
+                              ("NO_DATA", json.dumps({"status": "NO_DATA", "reason": "x"}))):
+            if content is not None:
+                write(director / "usage.json", content)
+            lines = module.usage_lines(str(director))
+            if module.final_problems(str(director), []) or not any("~ WARN USAGE" in line for line in lines):
+                got.append(name)
+            if content is not None:
+                (director / "usage.json").unlink()
         return got
 
     wrong = wrong_with(load_tool("gate_check"))
-    require(not wrong, "final_check() is wrong at %s" % wrong)
+    require(not wrong, "usage_lines() / final_problems() is wrong at %s" % wrong)
     survived = [name for name, swaps in USAGE_MUTATIONS if not wrong_with(mutated("gate_check", swaps))]
     require(not survived, "these usage mutations get nothing wrong: %s" % survived)
-    return "missing / unreadable / NO_DATA -> ~ WARN USAGE exit 0, --usage file -> ok, --final alone; " \
-           "%d mutations killed" % len(USAGE_MUTATIONS)
+    return "no E2E -> FAIL final exit 1; with E2E: missing / unreadable / NO_DATA -> ~ WARN USAGE exit 0, --usage " \
+           "file -> ok, beside --order; %d mutations killed" % len(USAGE_MUTATIONS)
+
+
+# 2.2.5-ds.5 (upstream DW 2.2.5, WO-DW-225): the tests of upstream selftest.py 2.2.5 lines 3948-4770; case tables,
+# fixtures and mutations are upstream's word for word, only the harness is DS's (require / expect_tool / mutated).
+RVA_LONG225 = "python tools/build_all.py --mode full " + "--x " * 140 + "; python tools/lint.py --all"
+RVA_CUT225 = "python tools/pack.py --target beta " + "--y " * 140 + "; python tools/sign.py --all"
+# log rows of 2.2.5 (H1 classes of WO-DS-008, de-identified, made-up paths): (HH:MM:SS, agent, tool, input, kind,
+# status, tool_raw, cut); session S1 on 2026-11-14 UTC; cut N keeps the first N characters of the command (the
+# input stays whole JSON) and marks the row "input_cut", as a tool that cuts inside a field writes it
+RVA_225_ROWS = [
+    ("00:30:20", "w1", "Bash", {"command": "python -B -m unittest test_a"}, "result", "ok", None, None),
+    ("00:40:00", "w1", "Bash", {"command": RVA_LONG225}, "result", "ok", None, None),
+    ("00:45:00", "w1", "Bash", {"command": RVA_CUT225}, "result", "ok", None, 200),
+    ("01:00:00", "w2", "Bash", {"command": "$env:TEMP='D:\\w\\tmp'; python tools\\evidence_record.py run --out-dir evidence "
+                                           "--label AC-1 --order orders\\wo-6.md --cwd D:\\w\\repo -- python -B -m unittest "
+                                           "test_b", "workdir": "D:\\w\\DIRECTOR"}, "result", "ok", "pwsh", None),
+    ("01:05:00", "w2", "Bash", {"command": "python tools\\scope_check.py --order orders\\wo-6.md --repo D:\\w\\repo --base "
+                                           "abc1234 --candidate HEAD --shared", "workdir": "D:\\w\\DIRECTOR"},
+     "result", "ok", "pwsh", None),
+    ("01:10:00", "w1", "Bash", {"command": 'run(){ python -B "$@"; }\nrun tests/check.py --all'}, "result", "ok", None, None),
+    ("01:12:00", "w1", "Bash", {"command": "TMPDIR=/d/w/tmp python -B /d/w/scripts/ac6.py"}, "result", "ok", None, None),
+    ("02:00:00", "w3", "Bash", {"command": "cd D:/w/repo; python -B -m unittest test_gas"}, "result", "ok", None, None),
+    ("02:01:00", "w3", "Bash", {"command": 'git commit -m "WO-2 gas parser" -- gas.py'}, "result", "ok", None, None),
+    ("02:15:00", "lead", "Write", {"file_path": "D:\\w\\DIRECTOR\\GATE_VERDICT_WO-2.md",
+                                   "content": "# GATE VERDICT WO-2\n2026-11-14 02:30 | VERDICT | PASS\n"},
+     "result", "ok", None, None),
+    ("02:20:00", "lead", "Write", {"file_path": "D:\\w\\DIRECTOR\\DIRECTOR_LOG.md",
+                                   "content": "2026-11-14 02:00 | GATE | WO-2 late line\n"
+                                              "2026-11-14 02:20 | GATE | WO-2 on time\n"}, "result", "ok", None, None)]
+RVA_225_VERDICT = "# GATE VERDICT WO-2\n2026-11-14 02:30 | VERDICT | PASS\n"
+RVA_225_LOG = "2026-11-14 02:00 | GATE | WO-2 late line\n2026-11-14 02:20 | GATE | WO-2 on time\n"
+# (name, report or lead file body ({sha} = the test repo's commit), mode, extra args, exit, says, lacks)
+RVA_225_RUNS = [
+    ("claude 1: at= span with a full-width ～", "RAN: `python -B -m unittest test_a` exit=0 at=00:30～00:31\n",
+     "report", (), 0, ["OK   command: `python -B -m unittest test_a`: seq 1", "PASS claims=1 ok=1"], []),
+    ("claude 2: a long uncut call holds its last statement", "RAN: `python tools/lint.py --all` exit=0\n", "report", (),
+     0, ["OK   command: `python tools/lint.py --all`: seq 2", "unverified=0"], ["UNVERIFIED"]),
+    ("a line rebuilt with input_cut matches on its kept part", "RAN: `python tools/pack.py --target beta` exit=0\n",
+     "report", (), 0, ["OK   command: `python tools/pack.py --target beta`: seq 3"], ["UNVERIFIED"]),
+    ("a line rebuilt with input_cut is a cut line", "RAN: `python tools/pack.py --target beta ...` exit=0\n"
+     "RAN: `python tools/sign.py --all` exit=0\n", "report", (), 0,
+     ["UNVERIFIED command: `python tools/sign.py --all`: in log cut part", "unverified=1"], []),
+    ("nosdd 6-7: a claim may leave out options; TEMP and the workdir",
+     "RAN: `python DIRECTOR/tools/evidence_record.py run --label AC-1 -- python -B -m unittest test_b` exit=0\n",
+     "report", (), 0, ["seq 4 also has --out-dir, --order, --cwd, which the claim leaves out", "PASS claims=1 ok=1"], []),
+    ("nosdd 8-9: relative paths are read against the workdir",
+     "RAN: `python DIRECTOR/tools/scope_check.py --order DIRECTOR/orders/wo-6.md --repo D:/w/repo --base abc1234 "
+     "--candidate HEAD --shared` exit=0\n", "report", (), 0, ["OK   command: `python DIRECTOR/tools/scope_check.py",
+                                                              "PASS claims=1 ok=1"], []),
+    ("a shell function call is its body", "RAN: `python -B tests/check.py --all` exit=0\n", "report", (), 0,
+     ["OK   command: `python -B tests/check.py --all`: seq 6"], []),
+    ("a Git Bash /d/ path is D:/", "RAN: `python -B D:\\w\\scripts\\ac6.py` exit=0\n", "report", (), 0,
+     ["OK   command: `python -B D:\\w\\scripts\\ac6.py`: seq 7"], []),
+    ("nosdd 1-4 / 10: a run an hour away is 時間不符",
+     "RAN: `cd D:/w/repo; python -B -m unittest test_gas` exit=0 at=03:00\n", "report", (), 1,
+     ["at=03:00, but the runs were at", "(類別：時間不符)", "time_mismatch=1 not_run=0"], []),
+    ("nosdd 5: another commit message is 沒跑", 'RAN: `git commit -m "WO-2 other text..." -- gas.py` exit=0\n', "report",
+     (), 1, ["not run in session S1 (類別：沒跑)", "time_mismatch=0 not_run=1"], []),
+    ("tolerance default 10", "RAN: `python -B -m unittest test_a` exit=0 at=00:45\n", "report", (), 1,
+     ["(類別：時間不符)"], []),
+    ("--tolerance-min widens it", "RAN: `python -B -m unittest test_a` exit=0 at=00:45\n", "report",
+     ("--tolerance-min", "20"), 0, ["PASS claims=1 ok=1"], []),
+    ("lead: a verdict stamped after the time it was written", RVA_225_VERDICT, "lead", (), 1,
+     ["FAIL stamp: lead.md:2 `2026-11-14 02:30`: seq 10 wrote it at", "15 min before the time it states (類別：時間不符)",
+      "stamps=1 stamps_unfound=0"], []),
+    ("lead: a log line written long after its stamp", RVA_225_LOG, "lead", (), 1,
+     ["FAIL stamp: lead.md:1 `2026-11-14 02:00`: seq 11", "20 min after the time it states (tolerance 10)",
+      "stamps=2 stamps_unfound=0"], ["lead.md:2"]),
+    ("lead: --tolerance-min covers a late line", RVA_225_LOG, "lead", ("--tolerance-min", "30"), 0,
+     ["REPORT_VS_AUDIT: PASS", "stamps=2"], ["FAIL"]),
+    ("lead: a COMMIT stamp before the commit", "2026-11-14 02:22 | DOC_COMMIT | {sha}\n", "lead_repo", (), 1,
+     ["after the time it states (a commit is logged once it is made)", "stamps_unfound=1"], []),
+    ("lead: a COMMIT stamp just after the commit", "2026-11-14 02:26 | DOC_COMMIT | {sha}\n", "lead_repo", (), 0,
+     ["REPORT_VS_AUDIT: PASS", "stamps=1 stamps_unfound=1"], ["FAIL"]),
+    ("lead: a COMMIT stamp long after the commit", "2026-11-14 02:50 | DOC_COMMIT | {sha}\n", "lead_repo", (), 1,
+     ["min before the time it states (tolerance 10)"], [])]
+# (name, command in the log, claimed command, should match) for matches() in process
+RVA_225_CASES = [
+    ("a claim may leave out a harmless option", "python tools/gate_check.py --out-dir D:/w/ev --final",
+     "python tools/gate_check.py --final", True),
+    ("a left-out option that can weaken the run", "python tools/gate_check.py --warn --final",
+     "python tools/gate_check.py --final", False),
+    ("a left-out option with another value still differs", "python tools/gate_check.py --out-dir D:/w/ev --final --order a",
+     "python tools/gate_check.py --final --order b", False),
+    ("a claim in another order leaving options out", "python tools/x.py --a 1 --b 2 --c 3", "python tools/x.py --c 3 --a 1",
+     False),
+    ("TEMP=x in front is left out", "TEMP=D:/w/tmp python tools/x.py --a 1", "python tools/x.py --a 1", True),
+    ("TEMP=x does not hide another command", "TEMP=D:/w/tmp python tools/y.py --a 1", "python tools/x.py --a 1", False),
+    ("a function call with its arguments", 'f(){ python tools/x.py "$1" --b "$2"; }; f one two',
+     "python tools/x.py one --b two", True),
+    ("a function call with other arguments", 'f(){ python tools/x.py "$1" --b "$2"; }; f one three',
+     "python tools/x.py one --b two", False),
+    ("/d/ is D:/", "python /d/w/x.py", "python D:/w/x.py", True),
+    ("/d/ is not E:/", "python /d/w/x.py", "python E:/w/x.py", False)]
+# (name, swaps, checked by the runs instead of the matcher cases); upstream's 13, each anchor once in report_vs_audit.py
+RVA_225_MUTATIONS = [
+    ("no ～ span", [("[–—~～〜-]", "[–—~-]")], True),
+    ("no TEMP drop", [("    parts = drop_env(parts)\n", "")], False),
+    ("no workdir", [('        return next((value[key] for key in ("workdir", "cwd")', '        return next((None '
+                     'for key in ("workdir", "cwd")')], True),
+    ("no left-out options", [("    return subset and left_out(claim, entry, short) is not None\n",
+                              "    return False\n")], True),
+    ("left-out options may weaken", [("    for have in log_forms(entry, command):\n        found = "
+                                      "omitted_options(words, have.split(\" \"), short)\n",
+                                      "    for have in log_forms(entry, command):\n        found = "
+                                      "omitted_options(words, have.split(\" \"), short) or [\"x\"]\n")], False),
+    ("no shell functions", [("    command = functions(command, env)  # 2.2.5\n", "")], False),
+    ("no /d/ drive", [('        parts = [MSYS_DRIVE.sub(r"\\1\\2:/", part) for part in parts]\n', "")], True),
+    ("input_cut ignored", [('entry.get("input_cut") is True', "False")], True),
+    ("no time class", [('        elif ", but the runs were at " in problem:\n', "        elif False:\n")], True),
+    ("no stamp ahead", [("            if ahead > STAMP_AHEAD_MIN:\n", "            if False:\n")], True),
+    ("no late stamp", [("            elif late > tolerance:\n", "            elif False:\n")], True),
+    ("no commit before stamp", [("                if after < 0:\n", "                if False:\n")], True),
+    ("no commit long before", [("                elif after > tolerance:\n", "                elif False:\n")], True)]
+
+
+def rva225_logs(audit, folder):
+    """The 2.2.5 log (hash chain as audit_log.py writes it)."""
+    prev, out = audit.GENESIS, []
+    for seq, (clock, agent, tool, tool_input, kind, status, raw, limit) in enumerate(RVA_225_ROWS, 1):
+        entry = {"seq": seq, "ts": "2026-11-14T%s.000+00:00" % clock, "session_id": "S1", "agent_id": agent, "tool": tool,
+                 "tool_use_id": "t%d" % seq, "kind": kind,
+                 "input": audit.summary(dict(tool_input, command=tool_input["command"][:limit]) if limit else tool_input,
+                                        None),
+                 "result": {"status": status}, "duration_ms": None, "prev": prev}
+        if raw:
+            entry["tool_raw"] = raw
+        if limit:
+            entry["input_cut"] = True
+        entry["hash"] = audit.digest(entry)
+        prev = entry["hash"]
+        out.append(entry)
+    return write(folder / "log.jsonl", "".join(audit.canonical(e) + "\n" for e in out))
+
+
+def rva225_args(mode, extra, report, log, repo):
+    args = ["--lead" if mode.startswith("lead") else "--report", report, "--log", log, "--utc-offset", "+00:00", *extra]
+    if mode == "lead_repo":
+        args += ["--repo", repo, "--session", "S1"]
+    return args
+
+
+def rva225_runs_wrong(module, reports, log, repo):
+    wrong = []
+    for (name, _, mode, extra, code, says, lacks), report in zip(RVA_225_RUNS, reports):
+        try:
+            got, out = call_main(module, *rva225_args(mode, extra, report, log, repo))
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            wrong.append("%s: crashed %s" % (name, type(error).__name__))
+            continue
+        if rva223_wrong(name, code, says, lacks, got, out):
+            wrong.append(name)
+    return wrong
+
+
+def rva225_matches_wrong(module, audit):
+    return [name for name, command, claim, want in RVA_225_CASES
+            if bool(module.matches({"command": claim}, {"tool": "Bash", "input": audit.summary({"command": command})}))
+            != want]
+
+
+@test
+def report_vs_audit_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B2, the H1 classes of WO-DS-008): at= span with ～; a log rebuilt without
+    a cut holds a long call whole; a line marked input_cut is a cut line; a claim may leave out harmless options (named
+    in a note) but not one that can weaken the run, nor in another order; TEMP=x in front is left out; relative log
+    paths are read against the call's workdir; a shell function call is its body; /d/ is D:/; each FAIL names its class
+    (時間不符 / 沒跑); --tolerance-min; --lead stamps (and, with --repo, a COMMIT stamp); no Traceback at the top level.
+    DS: dsh_audit.py (the DS counterpart of transcript_audit.py) keeps an input whole by default, and build
+    --input-limit N cuts it and marks input_cut, which report_vs_audit reads as a cut line."""
+    import contextlib
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    folder = tmp / "rva225"
+    folder.mkdir()
+    audit = load_tool("audit_log")
+    require(not audit.summary({"command": RVA_LONG225}, None).endswith("\u2026") and "sign.py" not in RVA_CUT225[:200]
+            and len(audit.summary({"command": RVA_LONG225})) < len(RVA_LONG225),
+            "the long log lines are not whole / cut as the cases need")
+    log = rva225_logs(audit, folder)
+    repo = folder / "repo"
+    repo.mkdir()
+    env = dict(os.environ, GIT_COMMITTER_DATE="2026-11-14T02:25:30+00:00", GIT_AUTHOR_DATE="2026-11-14T02:25:30+00:00")
+    for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "doc"]):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=repo, check=True,
+                       capture_output=True, env=env)
+    sha = rgit(repo, "rev-parse", "--short=9", "HEAD")
+    reports = []
+    for n, (_, body, mode, *_) in enumerate(RVA_225_RUNS):
+        if mode.startswith("lead"):
+            reports.append(write(folder / ("lead%d" % n) / "lead.md", body.replace("{sha}", sha)))
+        else:
+            reports.append(write(folder / ("r%d.md" % n), "SESSION_ID: S1\n" + body))
+    cli = []
+    for (name, _, mode, extra, code, says, lacks), report in zip(RVA_225_RUNS, reports):
+        proc = run_tool("report_vs_audit", *rva225_args(mode, extra, report, log, repo))
+        if rva223_wrong(name, code, says, lacks, proc.returncode, text_of(proc)):
+            cli.append("%s (exit %s): %s" % (name, proc.returncode, tail(text_of(proc), 300)))
+    require(not cli, "report_vs_audit CLI gets these 2.2.5 runs wrong: %s" % cli)
+    real = load_tool("report_vs_audit")
+    wrong = rva225_matches_wrong(real, audit)
+    require(not wrong, "report_vs_audit gets these 2.2.5 matcher cases wrong: %s" % wrong)
+    wrong = rva225_runs_wrong(real, reports, log, repo)
+    require(not wrong, "report_vs_audit in process gets these 2.2.5 runs wrong: %s" % wrong)
+    real.main = lambda argv=None: 1 / 0
+    err = _Out()
+    with contextlib.redirect_stderr(err):
+        code = real.entry_point([])
+    text = "".join(err.parts)
+    require(code == 2 and "Traceback" not in text and "cannot run: ZeroDivisionError" in text,
+            "an unexpected error is not one line and exit 2: %s %r" % (code, text))
+    survived = []
+    for name, swaps, by_runs in RVA_225_MUTATIONS:
+        module = mutated("report_vs_audit", swaps)
+        if not (rva225_runs_wrong(module, reports, log, repo) if by_runs else rva225_matches_wrong(module, audit)):
+            survived.append(name)
+    require(not survived, "these 2.2.5 mutations get no case wrong, so the cases do not test them: %s" % survived)
+    # DS: the cut row made by dsh_audit.py itself (upstream: transcript_audit.py), then read by report_vs_audit
+    rebuild = load_tool("dsh_audit")
+    require(rebuild.INPUT_LIMIT is None, "dsh_audit.INPUT_LIMIT is not None (whole input) by default")
+    ms = 1794617100000  # 2026-11-14T00:45:00Z
+    whole = rebuild.make_entry("S1", "w1", "Bash", "t1", "result", {"command": RVA_CUT225}, "ok", "", None, ms, None)
+    require("input_cut" not in whole and "sign.py --all" in whole["input"], "dsh_audit cut a whole input: %r"
+            % whole.get("input", "")[-80:])
+    rebuild.INPUT_LIMIT = 200
+    try:
+        cut = rebuild.make_entry("S1", "w1", "Bash", "t1", "result", {"command": RVA_CUT225}, "ok", "", None, ms, None)
+    finally:
+        rebuild.INPUT_LIMIT = None
+    require(cut.get("input_cut") is True and "sign.py" not in cut["input"] and len(cut["input"]) == 200,
+            "dsh_audit --input-limit 200 did not cut and mark input_cut: %r" % cut)
+    cut = dict(cut, seq=1, prev=audit.GENESIS)
+    cut["hash"] = audit.digest(cut)
+    ds_log = write(folder / "dsh_cut.jsonl", audit.canonical(cut) + "\n")
+    for name, body, says, lacks in (
+            ("dsh_audit cut line: kept part", "RAN: `python tools/pack.py --target beta` exit=0\n",
+             ["OK   command: `python tools/pack.py --target beta`: seq 1", "PASS claims=1 ok=1"], ["UNVERIFIED"]),
+            ("dsh_audit cut line: cut part", "RAN: `python tools/pack.py --target beta ...` exit=0\n"
+             "RAN: `python tools/sign.py --all` exit=0\n",
+             ["UNVERIFIED command: `python tools/sign.py --all`: in log cut part", "unverified=1"], [])):
+        expect_tool(name, "report_vs_audit", 0, "--report", write(folder / "ds_cut.md", "SESSION_ID: S1\n" + body),
+                    "--log", ds_log, "--utc-offset", "+00:00", says=says, lacks=lacks)
+    expect_tool("dsh_audit --input-limit -1", "dsh_audit", 2, "build", "--out", folder / "never.jsonl",
+                "--input-limit", "-1", says="NOT_RUN --input-limit")
+    return "%d matcher cases, %d CLI runs (+ in process), entry_point, %d mutations killed; dsh_audit whole / " \
+           "--input-limit input_cut read as a cut line" % (len(RVA_225_CASES), len(RVA_225_RUNS), len(RVA_225_MUTATIONS))
+
+
+def ran_line_run(*args, env=None):
+    proc = run_tool("ran_line", *args, env=env)
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
+
+
+def ran_line_wrong(module, folder):
+    """In process: the cases a ran_line.py module gets wrong (for the mutation tests)."""
+    import contextlib
+    import datetime
+    wrong = []
+    if (folder / "m.md").exists():  # a mutant before may have written it
+        (folder / "m.md").unlink()
+    clock = datetime.datetime(2026, 11, 14, 2, 59, 50, tzinfo=datetime.timezone.utc)
+    if module.ran_line("python -m x", 0, clock, clock + datetime.timedelta(seconds=20)) != "- `python -m x` exit=0 at=02:59-03:00":
+        wrong.append("span")
+    if module.ran_line("python -m x", 3, clock, clock) != "- `python -m x` exit=3 at=02:59":
+        wrong.append("one minute")
+    if "`" in module.ran_line("echo `a`", 0, clock)[3:-len("` exit=0 at=02:59")]:
+        wrong.append("backtick")
+    if module.insert_ran("# R\nRAN:\n- `a` exit=0\n\nNEXT: x\n", "- `b` exit=0") != "# R\nRAN:\n- `a` exit=0\n- `b` exit=0\n\nNEXT: x\n":
+        wrong.append("after the RAN block")
+    if module.insert_ran("# R\nNEXT: x\n", "- `b` exit=0") != "# R\nNEXT: x\nRAN:\n- `b` exit=0\n":
+        wrong.append("new RAN block")
+    out = _Out()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(_Out()):
+        try:
+            code = module.main(["--to", str(folder / "m.md"), "--", str(folder / "no_such_program_225")])
+        except Exception:  # a mutant that crashes is a wrong answer
+            code = None
+    if code != 2 or (folder / "m.md").exists():
+        wrong.append("missing program")
+    return wrong
+
+
+RAN_LINE_MUTATIONS = [
+    ("no span", [('        at += "-" + end.strftime("%H:%M")\n', "        pass\n")]),
+    ("no backtick swap", [('        command = command.replace("`", "\'")\n', "        pass\n")]),
+    ("no RAN block end", [("    while end + 1 < len(lines) and RAN_ITEM.match(lines[end + 1]):\n",
+                           "    while False:\n")]),
+    ("no new RAN block", [('else "\\n") + "RAN:\\n" + line', 'else "\\n") + line')]),
+    ("missing program writes", [("            return 2\n        line = ran_line(command_text(command)",
+                                 "            code = 2\n        line = ran_line(command_text(command)")])]
+
+
+@test
+def weird_inputs_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B7): templates/weird_inputs.py writes the awkward-file set a worker feeds
+    its own tool: each file is checked by what it is (bytes, BOM, depth, not UTF-8), not by what the script prints; a
+    folder it cannot write gives one line and exit 2, never a Traceback."""
+    script = TOOLS.parent / "templates" / "weird_inputs.py"
+    out = tmp / "weird_inputs_225"
+    done = run_prog(PY_ARGS + [script, out, "--deep", "50", "--long", "7000"])
+    require(done.returncode == 0 and "Traceback" not in text_of(done),
+            "weird_inputs: exit %s: %s" % (done.returncode, tail(text_of(done), 300)))
+
+    def data(name):
+        path = out / name
+        return path.read_bytes() if path.is_file() else None
+
+    def not_utf8(raw):
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return True
+        return False
+
+    checks = {
+        "empty.txt": lambda b: b == b"",
+        "bom.txt": lambda b: b.startswith(b"\xef\xbb\xbf") and len(b) > 3 and b"\n" in b,
+        "bom_only.txt": lambda b: b == b"\xef\xbb\xbf",
+        "control.txt": lambda b: all(c in b for c in (b"\x00", b"\x07", b"\x1b", b"\x0c", b"\x7f")) and b"\r" in b,
+        "long_line.txt": lambda b: len(b) == 7000 and b"\n" not in b,
+        "deep.json": lambda b: b == b"[" * 50 + b"]" * 50,
+        "deep_parens.txt": lambda b: b.count(b"(") == 50 and b.count(b")") == 50,
+        "bad_utf8.txt": not_utf8,
+        "utf16.txt": lambda b: b[:2] == b"\xff\xfe" and not_utf8(b),
+        "mixed_newlines.txt": lambda b: b"\r\n" in b and b"lf\n" in b and b"\rend" in b,
+        "fullwidth.txt": lambda b: "１２３" in b.decode("utf-8") and "\u0301" in b.decode("utf-8"),
+    }
+    bad = []
+    for name, ok in checks.items():
+        raw = data(name)
+        if raw is None or not ok(raw):
+            bad.append("%s: %r" % (name, raw[:60] if raw is not None else "missing"))
+    require(not bad, "weird_inputs: these files are not what they should be: %s" % bad)
+    blocker = write(tmp / "weird_inputs_225_file", "a file, not a folder\n")
+    done = run_prog(PY_ARGS + [script, blocker / "sub"])
+    require(done.returncode == 2 and "Traceback" not in text_of(done) and "cannot write" in (done.stdout or ""),
+            "weird_inputs: a folder it cannot write gave exit %s: %s" % (done.returncode, tail(text_of(done), 200)))
+    return "%d files checked by their bytes; an unwritable folder: one line, exit 2" % len(checks)
+
+
+@test
+def ran_line_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B1, B9, A5): ran_line.py writes RAN lines and stamps from the clock: run
+    mode returns the command's exit code and records it, record mode (--exit --cmd), --stamp prints / appends
+    YYYY-MM-DD HH:MM, the line goes after the RAN: block (a new RAN: block when there is none), a program that cannot
+    start writes nothing (exit 2, no Traceback). report_vs_audit.py accepts the line it writes against a log call made
+    at that time. With WORK_DIR set the tools put temp files in WORK_DIR/tmp even when TMPDIR names another folder.
+    DS has no browser_check.py: use_work_temp() is checked in evidence_record and release only."""
+    import datetime
+    folder = tmp / "ran_line_225"
+    folder.mkdir()
+    report = write(folder / "r.md", "# REPORT\nSESSION_ID: S1\nRAN:\n- `python -m old` exit=0\n\nNEXT: x\n")
+    code, out, err = ran_line_run("--to", report, "--utc-offset", "+00:00", "--", sys.executable, "-c",
+                                  "import sys; sys.exit(3)")
+    text = report.read_text(encoding="utf-8")
+    require(code == 3 and re.search(r"^- `.+ -c \"?import sys; sys\.exit\(3\)\"?` exit=3 at=\d\d:\d\d(-\d\d:\d\d)?$", text, re.M)
+            and text.index("python -m old") < text.index("exit=3") and text.rstrip().endswith("NEXT: x"),
+            "ran_line run mode: exit %s, report %r, stderr %r" % (code, text, err))
+    before = datetime.datetime.now(datetime.timezone.utc)
+    code, out, err = ran_line_run("--to", report, "--utc-offset", "+00:00", "--exit", "0", "--cmd", "python -m unittest")
+    after = datetime.datetime.now(datetime.timezone.utc)
+    found = re.search(r"^- `python -m unittest` exit=0 at=(\d\d:\d\d)$", report.read_text(encoding="utf-8"), re.M)
+    require(code == 0 and found and found.group(1) in {before.strftime("%H:%M"), after.strftime("%H:%M")},
+            "ran_line record mode: exit %s, line %r (clock %s)" % (code, found and found.group(0), before.strftime("%H:%M")))
+    # the independent oracle: report_vs_audit reads the line ran_line wrote against a log call made now
+    audit = load_tool("audit_log")
+    entry = {"seq": 1, "ts": before.isoformat(timespec="milliseconds"), "session_id": "S1", "agent_id": "w1",
+             "tool": "Bash", "tool_use_id": "t1", "input": audit.summary({"command": "python -m unittest"}),
+             "kind": "result", "result": {"status": "ok"}, "duration_ms": None, "prev": audit.GENESIS}
+    entry["hash"] = audit.digest(entry)
+    log = write(folder / "log.jsonl", audit.canonical(entry) + "\n")
+    oracle = write(folder / "oracle.md", "SESSION_ID: S1\n")
+    ran_line_run("--to", oracle, "--utc-offset", "+00:00", "--exit", "0", "--cmd", "python -m unittest")
+    expect_tool("ran_line: report_vs_audit accepts the line it writes", "report_vs_audit", 0, "--report", oracle, "--log",
+                log, "--utc-offset", "+00:00", says=["OK   command: `python -m unittest`: seq 1", "PASS claims=1 ok=1"])
+    code, out, err = ran_line_run("--stamp", "--utc-offset", "+00:00")
+    require(code == 0 and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d\n", out), "ran_line --stamp: exit %s, %r" % (code, out))
+    log_md = write(folder / "DIRECTOR_LOG.md", "# log\n")
+    code, out, err = ran_line_run("--stamp", "--to", log_md, "--text", "| GATE | WO-1 PASS", "--utc-offset", "+00:00")
+    require(code == 0 and re.fullmatch(r"# log\n\d{4}-\d\d-\d\d \d\d:\d\d \| GATE \| WO-1 PASS\n",
+                                       log_md.read_text(encoding="utf-8")),
+            "ran_line --stamp --to: exit %s, %r" % (code, log_md.read_text(encoding="utf-8")))
+    missing = folder / "missing.md"
+    code, out, err = ran_line_run("--to", missing, "--", folder / "no_such_program_225")
+    require(code == 2 and not missing.exists() and "nothing written" in err and "Traceback" not in err,
+            "ran_line: a program that cannot start: exit %s, wrote %s, %r" % (code, missing.exists(), err))
+    for name, args in (("no mode", []), ("two modes", ["--stamp", "--exit", "0", "--cmd", "x"]),
+                       ("record without --cmd", ["--to", missing, "--exit", "0"]),
+                       ("bad offset", ["--stamp", "--utc-offset", "8"])):
+        code, out, err = ran_line_run(*args)
+        require(code == 2 and "Traceback" not in err, "ran_line %s: exit %s, %r" % (name, code, err))
+    # B9 / A5: TMPDIR wins over TEMP in Python; WORK_DIR wins over both in the DW tools
+    other = folder / "system_tmp"
+    other.mkdir()
+    probe = [sys.executable, "-c", "import tempfile; print(tempfile.gettempdir())"]
+    env = dict(os.environ, TMPDIR=str(other), TEMP=str(folder), TMP=str(folder))
+    env.pop("WORK_DIR", None)
+    shown = subprocess.run([sys.executable, "-I", "-c", "import tempfile; print(tempfile.gettempdir())"], env=env,
+                           capture_output=True, encoding="utf-8").stdout.strip()
+    require(os.path.normcase(shown) == os.path.normcase(str(other)),
+            "B9: Python read TEMP before TMPDIR here (%s); the B9 note needs another reason" % shown)
+    work = folder / "work"
+    work.mkdir()
+    code, out, err = ran_line_run("--print", "--", *probe, env={"TMPDIR": str(other), "TEMP": str(folder),
+                                                                 "TMP": str(folder), "WORK_DIR": str(work)})
+    require(code == 0 and out.splitlines() and os.path.normcase(out.splitlines()[0].strip()) == os.path.normcase(str(work / "tmp")),
+            "B9: with WORK_DIR set, ran_line's command did not get WORK_DIR/tmp: %r %r" % (out, err))
+    for tool in ("evidence_record", "release"):  # upstream also browser_check, which DS does not have
+        module = load_tool(tool)
+        saved = {name: os.environ.get(name) for name in ("WORK_DIR", "TMPDIR", "TEMP", "TMP")}
+        saved_dir = module.tempfile.tempdir
+        try:
+            os.environ["WORK_DIR"] = str(work)
+            got = module.use_work_temp()
+            seen = module.tempfile.gettempdir()
+        finally:
+            module.tempfile.tempdir = saved_dir
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        require(os.path.normcase(str(got)) == os.path.normcase(str(work / "tmp"))
+                and os.path.normcase(seen) == os.path.normcase(str(work / "tmp")),
+                "B9: %s.use_work_temp() gave %s, tempfile %s" % (tool, got, seen))
+    wrong = ran_line_wrong(load_tool("ran_line"), folder)
+    require(not wrong, "ran_line in process gets these cases wrong: %s" % wrong)
+    survived = [name for name, swaps in RAN_LINE_MUTATIONS if not ran_line_wrong(mutated("ran_line", swaps), folder)]
+    require(not survived, "these ran_line mutations get no case wrong: %s" % survived)
+    return "run / record / --stamp / --stamp --to / missing program / 4 usage errors, report_vs_audit oracle, " \
+           "WORK_DIR temp (ran_line, evidence_record, release); %d mutations killed" % len(RAN_LINE_MUTATIONS)
+
+
+def git225(repo, *args, when=None):
+    """git in a 2.2.5 fixture repo; when sets the author and committer date (ISO 8601 with a zone)."""
+    env = dict(os.environ, GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when) if when else None
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "core.autocrlf=false",
+                           *map(str, args)], cwd=str(repo), check=True, capture_output=True, text=True, encoding="utf-8",
+                          env=env).stdout.strip()
+
+
+def commit225(repo, message, files, when=None):
+    for name, text in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    git225(repo, "add", "-A")
+    git225(repo, "commit", "-q", "--allow-empty", "-m", message, when=when)
+    return git225(repo, "rev-parse", "HEAD")
+
+
+GO225_LOG = """# DIRECTOR_LOG
+## 2026-11-14 09:00 +08:00
+PLAN_APPROVED WO-003
+2026-11-14 10:00 +08:00 | PLAN_APPROVED WO-001
+2026-11-14 10:01 +08:00 | SPEC_REVIEW WO-001 tokens=10 issues=1 adopted=1 session=S2
+2026-11-14 10:02 +08:00 | SPEC_REVIEW WO-003 tokens=10 issues=0 adopted=0 session=S2
+2026-11-14 11:00 +08:00 | PLAN_APPROVED WO-002
+2026-11-14 11:01 +08:00 | SPEC_REVIEW WO-002 tokens=1 issues=0 adopted=0 session=S2
+2026-11-14 11:02 +08:00 | PLAN_APPROVED WO-006
+2026-11-14 11:03 +08:00 | PLAN_APPROVED WO-007
+2026-11-14 11:04 +08:00 | PLAN_APPROVED WO-008
+2026-11-14 11:05 +08:00 | SPEC_REVIEW WO-008 tokens=1 issues=0 adopted=0 session=S1
+2026-11-14 11:06 +08:00 | PLAN_APPROVED WO-009
+2026-11-14 11:07 +08:00 | SPEC_REVIEW WO-009 tokens=1 issues=0 adopted=0
+2026-11-14 11:08 +08:00 | PLAN_APPROVED WO-011
+2026-11-14 11:09 +08:00 | SPEC_REVIEW WO-011 tokens=1 issues=0 adopted=0 session=S2
+2026-11-14 12:00 +08:00 | NOTE a later line
+2026-11-14 08:00 +08:00 | PLAN_APPROVED WO-004
+2026-11-14 12:01 +08:00 | SPEC_REVIEW WO-004 tokens=1 issues=0 adopted=0 session=S2
+"""
+# what each order must give: the problem kinds (text before the first colon), worked out by hand from the log above
+# and the commit times in gate_order_225 (approval time vs the first commit naming the order)
+GO225_EXPECTED = {"WO-001": [], "WO-002": ["GATE_ORDER"], "WO-003": [], "WO-004": ["GATE_ORDER"],
+                  "WO-005": ["PLAN_APPROVED", "SPEC_REVIEW"], "WO-006": ["SPEC_REVIEW"], "WO-007": [],
+                  "WO-008": ["SESSION"], "WO-009": [], "WO-011": ["SESSION"]}
+GO225_MUTATIONS = (
+    ("no append-only rule", [("if when is not None and latest is not None and",
+                              "if False and when is not None and latest is not None and")]),
+    ("HEAD only, not every branch", [('"log", "--all", "--format', '"log", "--format')]),
+    ("approval after the work passes", [("if approved > at:", "if False:")]),
+    ("spec review optional", [('problems.append(f"SPEC_REVIEW: no', 'notes.append(f"SPEC_REVIEW: no')]),
+    ("same session passes", [("if theirs and own and theirs == own:", "if False:")]))
+
+
+def gate_order_wrong(module, orders, log, repo, side):
+    """In process: the cases a gate_check module gets wrong for --sequence (for the mutation tests)."""
+    wrong = []
+    log_text = log.read_text(encoding="utf-8")
+    for key, want in GO225_EXPECTED.items():
+        path = orders / ("%s.md" % key)
+        notes = []
+        try:
+            problems = module.sequence_problems(path.read_text(encoding="utf-8"), str(path), log_text, str(log),
+                                                str(repo), notes)
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            wrong.append("%s: crashed %s" % (key, type(error).__name__))
+            continue
+        text = "\n".join(problems + notes)
+        if [p.split(":")[0] for p in problems] != want:
+            wrong.append("%s: %s" % (key, problems))
+        elif key == "WO-002" and side[:10] not in text:
+            wrong.append("WO-002: the first commit is on another branch")
+        elif key == "WO-003" and "(from the dated heading or line above it)" not in text:
+            wrong.append("WO-003: time from the heading")
+        elif key == "WO-004" and "append-only" not in text:
+            wrong.append("WO-004: a backdated line")
+        elif key == "WO-007" and "review file WO-007-SPEC_REVIEW.md" not in text:
+            wrong.append("WO-007: review file")
+        elif key == "WO-009" and "WARN SESSION: SPEC_REVIEW WO-009: no session id for the reviewer" not in text:
+            wrong.append("WO-009: missing session id")
+    return wrong
+
+
+@test
+def gate_order_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B3, A4): gate_check --sequence. For each Standard / Strict order: the
+    PLAN_APPROVED (else DISPATCH) time must not be later than the first commit on any branch whose subject starts with
+    the order ID; a line without a time takes the dated heading above it; the log is append-only (a backdated approval
+    fails). Every order needs a SPEC_REVIEW log line or a reviews/*SPEC_REVIEW* file; a review from the author's session
+    (or a verdict from the task report's session) fails; a missing session id is a WARN note. Direct orders are
+    skipped. Expected values are worked out by hand in GO225_EXPECTED."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    folder = tmp / "gate_order_225"
+    repo, director = folder / "repo", folder / "DIRECTOR"
+    orders = director / "orders"
+    for d in (repo, orders, director / "reviews", director / "gates", director / "reports"):
+        d.mkdir(parents=True)
+    git225(repo, "init", "-q", "-b", "main")
+    commit225(repo, "start", {"a.txt": "0\n"}, when="2026-11-14T08:30:00+08:00")
+    git225(repo, "checkout", "-q", "-b", "side")
+    side = commit225(repo, "WO-002 early try", {"b.txt": "0\n"}, when="2026-11-14T10:20:00+08:00")
+    git225(repo, "checkout", "-q", "main")
+    for subject, when in (("WO-003 start", "09:30"), ("WO-001 start", "10:30"), ("WO-002: work", "10:40"),
+                          ("WO-004 work", "11:00"), ("WO-005 x", "11:30"), ("WO-006 x", "11:30"), ("WO-007 x", "11:30"),
+                          ("WO-008 x", "11:30"), ("WO-009 x", "11:30"), ("WO-010 x", "11:30"), ("WO-011 x", "11:30")):
+        # WO-004's commit is written in UTC (git prints ...Z, which Python 3.9's fromisoformat does not take): same
+        # moment; if it were skipped its GATE_ORDER FAIL would be missed
+        stamp = "2026-11-14T03:00:00+00:00" if subject == "WO-004 work" else "2026-11-14T%s:00+08:00" % when
+        commit225(repo, subject, {"a.txt": subject + "\n"}, when=stamp)
+    for key in list(GO225_EXPECTED) + ["WO-010"]:
+        mode = "Direct" if key == "WO-010" else "Strict" if key == "WO-003" else "Standard"
+        write(orders / ("%s.md" % key), "# %s test\nGOVERNANCE = %s\nSESSION_ID: S1\n" % (key, mode))
+    write(director / "reviews" / "WO-007-SPEC_REVIEW.md", "# SPEC_REVIEW WO-007\nSESSION_ID: S9\n")
+    write(director / "gates" / "WO-001-GATE_VERDICT.md", "SESSION_ID: S3\n")
+    write(director / "reports" / "WO-001-TASK_REPORT.md", "SESSION_ID: S5\n")
+    write(director / "gates" / "WO-011-GATE_VERDICT.md", "SESSION_ID: S4\n")
+    write(director / "reports" / "WO-011-TASK_REPORT.md", "SESSION_ID: S4\n")
+    log = write(director / "DIRECTOR_LOG.md", GO225_LOG)
+    every = [str(orders / ("%s.md" % key)) for key in sorted(list(GO225_EXPECTED) + ["WO-010"])]
+    g = "gate_check"
+    expect_tool("gate order 2.2.5: every case", g, 1, "--sequence", *every, "--dispatch-log", log, "--repo", repo,
+                says=["OK   sequence %s (GOVERNANCE Standard)" % (orders / "WO-001.md"),
+                      "FAIL sequence %s (GOVERNANCE Standard)" % (orders / "WO-002.md"),
+                      "OK   sequence %s (GOVERNANCE Strict)" % (orders / "WO-003.md"),
+                      "SKIP sequence %s (GOVERNANCE Direct: only Standard / Strict)" % (orders / "WO-010.md"),
+                      "  - GATE_ORDER: PLAN_APPROVED WO-002 at 2026-11-14 11:00 +0800 is later than the worker's first "
+                      "commit %s" % side[:10], "  - PLAN_APPROVED: no `PLAN_APPROVED WO-005",
+                      "  - SPEC_REVIEW: no `SPEC_REVIEW WO-006",
+                      "  - SESSION: the SPEC_REVIEW for WO-008 came from session S1, the same as the order's author",
+                      "  - SESSION: the GATE_VERDICT for WO-011 came from session S4, the same as the task report's",
+                      "  ~ WARN SESSION: SPEC_REVIEW WO-009", "(from the dated heading or line above it)",
+                      "comes below a line dated 2026-11-14 12:00"], lacks="Traceback")
+    fine = [str(orders / ("%s.md" % key)) for key, want in GO225_EXPECTED.items() if not want]
+    expect_tool("gate order 2.2.5: approvals before the work pass", g, 0, "--sequence", *fine, "--dispatch-log", log,
+                "--repo", repo, says="OK   sequence", lacks=["FAIL", "Traceback"])
+    expect_tool("gate order 2.2.5: --warn reports and exits 0", g, 0, "--sequence", *every, "--dispatch-log", log,
+                "--repo", repo, "--warn", says="WARN sequence %s" % (orders / "WO-002.md"), lacks="FAIL")
+    expect_tool("gate order 2.2.5: needs --dispatch-log", g, 2, "--sequence", *fine, "--repo", repo)
+    expect_tool("gate order 2.2.5: needs --repo", g, 2, "--sequence", *fine, "--dispatch-log", log)
+    expect_tool("gate order 2.2.5: a folder that is not a git checkout is NOT_CHECKED, not a pass or a crash", g, 0,
+                "--sequence", orders / "WO-001.md", "--dispatch-log", log, "--repo", director,
+                says=["~ NOT_CHECKED", "OK   sequence"], lacks="Traceback")
+    wrong = gate_order_wrong(load_tool("gate_check"), orders, log, repo, side)
+    require(not wrong, "gate order 2.2.5: in process: %s" % wrong)
+    survived = [name for name, swaps in GO225_MUTATIONS
+                if not gate_order_wrong(mutated("gate_check", swaps), orders, log, repo, side)]
+    require(not survived, "these gate order mutations get no case wrong: %s" % survived)
+    return "6 CLI checks, %d orders in process, %d mutations killed" % (len(GO225_EXPECTED), len(GO225_MUTATIONS))
+
+
+@test
+def after_verdict_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B4): gate_check --after-verdict fails by default. A commit after the
+    verdict's candidate that changes code (inside SCOPE too) is `~ FAIL LATE_COMMIT` until a new verdict names the new
+    candidate; documents (DIRECTOR/, a top-level docs/, .md / .rst / .txt) pass; a candidate that is no longer in
+    HEAD's history (the branch was rewritten) is `~ FAIL REWRITTEN`; --warn prints WARN and exits 0."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    folder = tmp / "after_verdict_225"
+    repo, gates, orders = folder / "repo", folder / "DIRECTOR" / "gates", folder / "DIRECTOR" / "orders"
+    for d in (repo, gates, orders):
+        d.mkdir(parents=True)
+    git225(repo, "init", "-q", "-b", "main")
+    first = commit225(repo, "start", {"app.py": "a = 1\n"})
+    write(orders / "WO-002-app.md", AV224_ORDER)
+    cand = commit225(repo, "candidate", {"app.py": "a = 2\n"})
+    verdict = write(gates / "WO-002-GATE.md", AV224_VERDICT.format(wo="WO-002", order="WO-002-app.md", head=cand))
+    g = "gate_check"
+    commit225(repo, "documents", {"docs/diagram.svg": "<svg/>\n", "DIRECTOR/x.json": "{}\n", "notes.MD": "x\n"})
+    expect_tool("after-verdict 2.2.5: documents (docs/, DIRECTOR/, .md) pass", g, 0, "--after-verdict", verdict, "--repo",
+                repo, says=["OK   AFTER_VERDICT", "is 1 commit(s) later, 0 change files that are not documents"],
+                lacks="LATE_COMMIT")
+    inside = commit225(repo, "in scope", {"lib/y.py": "y = 1\n"})
+    expect_tool("after-verdict 2.2.5: code inside SCOPE after the verdict fails by default", g, 1, "--after-verdict",
+                verdict, "--repo", repo, says=["FAIL AFTER_VERDICT", "~ FAIL LATE_COMMIT %s in scope: lib/y.py" % inside[:12],
+                                               "a code change needs a new GATE_VERDICT for the new candidate"])
+    expect_tool("after-verdict 2.2.5: --warn", g, 0, "--after-verdict", verdict, "--repo", repo, "--warn",
+                says=["WARN AFTER_VERDICT", "~ WARN LATE_COMMIT", "--warn, exit unchanged"], lacks="FAIL")
+    second = write(gates / "WO-002-GATE-r2.md", AV224_VERDICT.format(wo="WO-002", order="WO-002-app.md", head=inside))
+    expect_tool("after-verdict 2.2.5: a new verdict for the new candidate passes", g, 0, "--after-verdict", verdict,
+                second, "--repo", repo, says=["OK   AFTER_VERDICT", "HEAD is the candidate"])
+    git225(repo, "checkout", "-q", "-b", "rewritten", first)
+    again = commit225(repo, "candidate again", {"app.py": "a = 2\n", "lib/y.py": "y = 1\n"})
+    expect_tool("after-verdict 2.2.5: a rewritten branch fails", g, 1, "--after-verdict", verdict, second, "--repo", repo,
+                says=["FAIL AFTER_VERDICT: no verdict candidate is in the history of HEAD %s" % again[:12],
+                      "~ FAIL REWRITTEN %s: CANDIDATE_HEAD %s (candidate)" % (verdict, cand[:12]),
+                      "~ FAIL REWRITTEN %s: CANDIDATE_HEAD %s (in scope)" % (second, inside[:12])])
+    expect_tool("after-verdict 2.2.5: a rewritten branch with --warn", g, 0, "--after-verdict", verdict, second,
+                "--repo", repo, "--warn", says=["WARN AFTER_VERDICT: no verdict candidate", "~ WARN REWRITTEN"])
+    old = write(gates / "WO-001-GATE.md", AV224_VERDICT.format(wo="WO-001", order="WO-002-app.md", head=first))
+    expect_tool("after-verdict 2.2.5: one candidate kept, one rewritten", g, 1, "--after-verdict", old, second, "--repo",
+                repo, says=["FAIL AFTER_VERDICT %s candidate %s" % (old, first[:12]), "~ FAIL LATE_COMMIT %s" % again[:12],
+                            "~ FAIL REWRITTEN %s" % second])
+
+    def wrong_with(module):
+        try:
+            lines, count, _ = module.after_verdict([str(old), str(second)], str(repo), None, True)
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            return ["crashed %s" % type(error).__name__]
+        return [] if count == 2 and any("~ FAIL REWRITTEN" in line for line in lines) else ["%s: %s" % (count, lines)]
+    wrong = wrong_with(load_tool("gate_check"))
+    require(not wrong, "after-verdict 2.2.5: in process: %s" % wrong)
+    require(wrong_with(mutated("gate_check", [("if not leads_to(full, head_sha):", "if False:")])),
+            "the mutation 'no rewritten check' gets no case wrong")
+    git225(repo, "checkout", "-q", "main")
+    return "7 CLI checks, 1 in process, 1 mutation killed"
+
+
+FINAL225_REGISTER = """# DECISION_REGISTER
+## B. 決定
+| ID | 日期 | 決定 | 驗收案例 |
+|---|---|---|---|
+| DD-01 | 2026-11-14 | x | `tool run a.csv` -> 3 rows |
+| DD-02 | 2026-11-14 | y |  |
+| DD-03 | 2026-11-14 | SUPERSEDED by DD-05 | |
+
+## C. older table
+| ID | 日期 | 決定 |
+|---|---|---|
+| DD-04 | 2026-11-14 | z |
+"""
+FINAL225_DD_NOTES = ["WARN DD_CASE: DD-02 have no 驗收案例",
+                     "WARN DD_CASE: 1 DD row(s) in DECISION_REGISTER.md are in a table without a 驗收案例 column"]
+FINAL225_MUTATIONS = (
+    ("no E2E rule", [('problems.append(f"E2E: no', 'notes.append(f"E2E: no')]),
+    ("an empty file counts", [("p.is_file() and p.stat().st_size > 0", "p.is_file()")]),
+    ("SUPERSEDED rows count", [(' or any("SUPERSEDED" in c for c in cells)', "")]))
+
+
+def final_wrong(module, base):
+    """In process: the cases a gate_check module gets wrong for --final (base holds DIRECTOR/ and nothing_here/)."""
+    wrong = []
+    run_file = base / "DIRECTOR" / "evidence" / "E2E" / "run.txt"
+    for name, folder, content, want_problem, want_notes, not_notes in (
+            ("no evidence folder", base / "nothing_here", None, True, [], []),
+            ("only an empty file", base / "DIRECTOR", None, True, FINAL225_DD_NOTES, ["DD-03"]),
+            ("evidence", base / "DIRECTOR", "ENTRY_POINT: python -m tool run\n3 rows\n", False, FINAL225_DD_NOTES,
+             ["DD-03", "WARN E2E"])):
+        if content is None:
+            if run_file.exists():
+                run_file.unlink()
+        else:
+            run_file.write_text(content, encoding="utf-8")
+        notes = []
+        try:
+            problems = module.final_problems(str(folder), notes)
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            wrong.append("%s: crashed %s" % (name, type(error).__name__))
+            continue
+        text = "\n".join(notes)
+        if bool(problems) != want_problem or any(s not in text for s in want_notes) or any(s in text for s in not_notes):
+            wrong.append("%s: %s %s" % (name, problems, notes))
+    return wrong
+
+
+@test
+def final_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B5, A4): gate_check --final DIR. No non-empty file under evidence/E2E/
+    fails; a record without `ENTRY_POINT:` is a WARN note; DD rows of DECISION_REGISTER without a 驗收案例 (or in a
+    table without that column) are WARN notes; SUPERSEDED rows are skipped. DIR may be the DIRECTOR folder or the
+    folder holding it. (DS adds the usage lines after these: usage_final_225.)"""
+    base = tmp / "final_225"
+    director = base / "DIRECTOR"
+    e2e = director / "evidence" / "E2E"
+    e2e.mkdir(parents=True)
+    (base / "nothing_here").mkdir()
+    write(director / "DECISION_REGISTER.md", FINAL225_REGISTER)
+    g = "gate_check"
+    expect_tool("final 2.2.5: no E2E evidence fails", g, 1, "--final", director,
+                says=["FAIL final", "  - E2E: no end-to-end evidence in"] + FINAL225_DD_NOTES, lacks=["DD-03", "DD-01,"])
+    expect_tool("final 2.2.5: the folder holding DIRECTOR/ works too", g, 1, "--final", base,
+                says="  - E2E: no end-to-end")
+    expect_tool("final 2.2.5: --warn", g, 0, "--final", director, "--warn", says="WARN final")
+    write(e2e / "empty.txt", "")
+    expect_tool("final 2.2.5: an empty file is no evidence", g, 1, "--final", director, says="  - E2E: no end-to-end")
+    run_file = write(e2e / "run.txt", "python -m tool run a.csv\n3 rows\n")
+    expect_tool("final 2.2.5: evidence without ENTRY_POINT is a WARN", g, 0, "--final", director,
+                says=["OK   final", "~ WARN E2E: no record in", "`ENTRY_POINT:`"])
+    run_file.write_text("ENTRY_POINT: python -m tool run\n3 rows\n", encoding="utf-8")
+    expect_tool("final 2.2.5: evidence with ENTRY_POINT", g, 0, "--final", director, says="OK   final", lacks="WARN E2E")
+    expect_tool("final 2.2.5: a folder that does not exist", g, 2, "--final", base / "nope")
+    wrong = final_wrong(load_tool("gate_check"), base)
+    require(not wrong, "final 2.2.5: in process: %s" % wrong)
+    survived = [name for name, swaps in FINAL225_MUTATIONS if not final_wrong(mutated("gate_check", swaps), base)]
+    require(not survived, "these final mutations get no case wrong: %s" % survived)
+    return "7 CLI checks, 3 cases in process, %d mutations killed" % len(FINAL225_MUTATIONS)
+
+
+SC225_ORDER = """# {wo} shared work
+BASE_REF = main @ {base}（v2.2.4，註解）
+WORKTREE = {worktree}
+SCOPE:
+- app.py
+- lib/**
+FORBIDDEN:
+- secret.py
+"""
+SC225_MUTATIONS = (
+    ("scope no bracket comment", [('BRACKETED.sub(" ", re.split(r"\\s+#", m.group(1))[0])',
+                                   're.split(r"\\s+#", m.group(1))[0]')]),
+    ("scope ID not a whole word", [(r'rf"(?<![\w-]){re.escape(i)}(?!\w)"', "re.escape(i)")]),
+    ("scope main checkout called isolated",
+     [('kind = "共用 checkout（主 checkout）" if same else "隔離 worktree"', 'kind = "隔離 worktree"')]))
+
+
+@test
+def scope_shared_225(tmp):
+    """2.2.5-ds.5 (upstream 2.2.5, WO-DW-225 B10, B11; upstream ported DS ds.4 B2): scope_check --shared counts only the
+    commits naming the order (a whole-word ID) plus its in-scope uncommitted files; the rest prints OTHER; on by itself
+    when WORKTREE says 共用. BASE_REF text in brackets is a comment (scope_check and gate_check --order). A WORKTREE:
+    line comes from git worktree list (main checkout = 共用 checkout, linked = 隔離 worktree). A too-long path gives
+    one line with the path and how far over 259 it is; a bad --base is NOT_RUN."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    folder = tmp / "scope_shared_225"
+    repo = folder / "repo"
+    repo.mkdir(parents=True)
+    git225(repo, "init", "-q", "-b", "main")
+    base = commit225(repo, "base", {"app.py": "1\n", "other.py": "1\n"})
+    mine1 = commit225(repo, "WO-7: app", {"app.py": "2\n"})
+    commit225(repo, "WO-8: other worker", {"other.py": "2\n", "secret.py": "x\n"})
+    commit225(repo, "WO-70 another order", {"other.py": "3\n"})
+    mine2 = commit225(repo, "fix lib (WO-7)", {"lib/a.py": "1\n"})
+    write(repo / "lib" / "b.py", "1\n")
+    write(repo / "loose.py", "1\n")
+    shared = write(folder / "WO-7-shared.md", SC225_ORDER.format(wo="WO-7", base=base, worktree="D:/w/x（共用）"))
+    alone = write(folder / "WO-7-alone.md", SC225_ORDER.format(wo="WO-7", base=base, worktree="D:/w/x"))
+    s = "scope_check"
+    expect_tool("scope 2.2.5: WORKTREE 共用 turns on shared mode; other workers' files are OTHER", s, 0, "--order", shared,
+                "--repo", repo, says=["STATES: own_commits=2 own_uncommitted=1", "OTHER     other.py  (shared checkout",
+                                      "OTHER     secret.py", "OTHER     loose.py", "WORKTREE: 共用 checkout（主 checkout）",
+                                      "SCOPE_CHECK: PASS", "changed=3", "shared=1 others=3"],
+                lacks=["FORBIDDEN", "OUTSIDE"])
+    expect_tool("scope 2.2.5: without shared mode the whole checkout counts", s, 1, "--order", alone, "--repo", repo,
+                says=["FORBIDDEN secret.py", "OUTSIDE   other.py", "SCOPE_CHECK: VIOLATION"], lacks="shared=1")
+    expect_tool("scope 2.2.5: --shared turns it on too", s, 0, "--order", alone, "--repo", repo, "--shared",
+                says="shared=1 others=3")
+    expect_tool("scope 2.2.5: --candidate counts the order's commits up to it", s, 0, "--order", shared, "--repo", repo,
+                "--candidate", mine1, says=["STATES: own_commits=1 own_uncommitted=0", "shared=1 others=0"])
+    none = write(folder / "WO-9.md", SC225_ORDER.format(wo="WO-9", base=base, worktree="shared"))
+    expect_tool("scope 2.2.5: no commit names the order", s, 0, "--order", none, "--repo", repo,
+                says="NOTE: SHARED: no commit in", lacks="Traceback")
+    commit225(repo, "WO-7 more", {"other.py": "4\n"})
+    expect_tool("scope 2.2.5: an out-of-scope file in the order's own commit is OUTSIDE", s, 1, "--order", shared,
+                "--repo", repo, says=["OUTSIDE   other.py", "SCOPE_CHECK: VIOLATION"])
+    git225(repo, "worktree", "add", "-q", "-b", "side", folder / "wt", mine2)
+    expect_tool("scope 2.2.5: a linked worktree says 隔離 worktree", s, 0, "--order", shared, "--repo", folder / "wt",
+                says="WORKTREE: 隔離 worktree")
+    expect_tool("scope 2.2.5: a bad --base is NOT_RUN, no Traceback", s, 2, "--order", alone, "--repo", repo, "--base",
+                "no_such_ref_225", says="SCOPE_CHECK: NOT_RUN", lacks="Traceback")
+    # gate_check --order reads the same BASE_REF with the bracket comment (DS order fixture: wo_text, as base_ref_fresh)
+    bref = folder / "bref"
+    bref.mkdir()
+    rgit(bref, "init", "-q", "--bare", "-b", "main", "origin.git")
+    rgit(bref / "origin.git", "config", "core.longpaths", "true")  # a local remote ignores GIT_CONFIG_COUNT
+    proj = release_clone(bref / "origin.git", bref / "proj")
+    proj, lock = wo_fixture(bref, "proj")
+    rgit(proj, "add", "-A")
+    rgit(proj, "commit", "-q", "-m", "base")
+    rgit(proj, "push", "-q", "origin", "HEAD:refs/heads/main")
+    sha = rgit(proj, "rev-parse", "--short=7", "HEAD")
+    proc, text = wo_run(proj, wo_text(lock).replace("BASE_REF       = main @ abc1234",
+                                                    "BASE_REF       = main @ %s（v2.2.4）" % sha))
+    require(proc.returncode == 0 and "~ BASE_REF %s = origin/main (fetched now)" % sha in text
+            and "WARN BASE_REF" not in text, "BASE_REF 2.2.5: a bracket comment after the commit: " + tail(text))
+    # in process: an independent oracle for each part
+    root = git225(repo, "rev-parse", "--show-toplevel")
+    long_name = "a/" * 140 + "x.txt"
+    want_size = len("D:/r/" + long_name)  # computed here, not by the tool: 290
+    message = "error: unable to create file %s: Filename too long" % long_name
+
+    def scope_wrong(module):
+        got = []
+        try:
+            if module.order_base(shared.read_text(encoding="utf-8")) != base:
+                got.append("BASE_REF bracket")
+            if module.own_commits(root, base, "HEAD", ["WO-7"])[:2] != [mine1, mine2]:
+                got.append("own commits")
+            if not (module.worktree_line(root) or "").startswith("WORKTREE: 共用 checkout"):
+                got.append("main checkout")
+            if "(%d characters, %d over the 259" % (want_size, want_size - 259) not in (module.long_path(message, "D:/r") or ""):
+                got.append("long path")
+        except Exception as error:  # a mutant that crashes is a wrong answer
+            got.append("crashed %s" % type(error).__name__)
+        return got
+
+    def gate_long_wrong(module):
+        shown = module.long_path("fatal: cannot create directory at '%s': Filename too long" % long_name, "D:/r")
+        if not shown or "D:/r/%s (%d characters, %d over" % (long_name, want_size, want_size - 259) not in shown \
+                or module.long_path("fatal: not a git repository", "D:/r") is not None:
+            return ["gate_check gave %r" % shown]
+        return []
+    wrong = scope_wrong(load_tool("scope_check"))
+    require(not wrong, "scope 2.2.5: in process: %s" % wrong)
+    wrong = gate_long_wrong(load_tool("gate_check"))
+    require(not wrong, "long path 2.2.5: %s" % wrong)
+    survived = [] if gate_long_wrong(mutated("gate_check", [("if size > WINDOWS_PATH_MAX", "if False")])) \
+        else ["long path without the size"]
+    survived += [name for name, swaps in SC225_MUTATIONS if not scope_wrong(mutated("scope_check", swaps))]
+    require(not survived, "these scope 2.2.5 mutations get no case wrong: %s" % survived)
+    return "8 scope_check CLI checks, BASE_REF bracket in gate_check --order, 4 parts in process, %d mutations killed" \
+        % (len(SC225_MUTATIONS) + 1)
 
 
 def synthetic_audit(tmp, audit):

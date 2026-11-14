@@ -17,6 +17,7 @@ WORKTREE       = <預設：這張工單自己的 git worktree，派工前用 `ds
 WORK_DIR       = <放報告、RESUME_STATE.md、輸出的資料夾；開工先把 TEMP／TMP／TMPDIR 設成 WORK_DIR/tmp，`dsh_session.py --temp-env <WORK_DIR>` 印出設定行，2.2.4-ds.4>
 BUDGET         = <US$0 | PO 核准的金額>
 HEAVY_RESOURCE = <無 | 需先 TEST REQUEST：類型、預估分鐘>
+WORKER_LIMIT   = <80 輪或 context 60%，先到先停（預設，可改）>   # 到上限就停：寫 HANDOFF.md、回報 lead，lead 開新的 worker 接續（docs/02，2.2.5）
 ```
 
 兩個 `BRIEF_` 欄位是選用的：寫了以後，工單依據的初衷卡列被改掉時，`gate_check.py --order / --match --brief BRIEF.md` 印 `~ BRIEF_STALE`（舊條件驗過，新條件待重驗）；只是提示，不改結果。不寫照樣通過。
@@ -62,6 +63,10 @@ repo 與分支、工作樹乾淨、未提交修改、相關規範、相依、實
 ## D. 實作要求
 沿用現有架構；最小但完整；處理例外；必要的向後相容；補上直接相關的測試；不做無關重構。每項修改做成開關，方便批次驗證（docs/02）。
 
+- 行數上限（2.2.5）：<每個檔或函式的行數上限，或「無」>；worker 自檢時自己量，結果寫進 TASK REPORT。
+- 新增任何上限（大小、筆數、深度）都寫理由，並拿真實資料的最大值確認擋不到（2.2.5）。
+- 程式最上層攔下所有例外，使用者看不到 Traceback；錯誤訊息不回顯控制字元、不顯示原始 Python 例外文字，該報的問題照報（2.2.5）。
+
 ## E. 驗收條件
 | ID | 類型 | 要求 | 驗證方法 | 預期 |
 |---|---|---|---|---|
@@ -90,6 +95,8 @@ CHECKS:
   - 巢狀深度（含 JSON）：讀檔或解析 JSON 時，深層巢狀（例如 1000 層 `[[[…]]]`）也回清楚的錯誤，不透出 RecursionError（2.2.4-ds.4）
   - 預設輸出要列出哪幾筆有問題：批次輸入有錯時，不加參數的預設輸出就列出是哪幾筆（第幾筆或哪個鍵）；問題物件用 dict 或中文名稱，不要用 `XxxError` 類別名當使用者看到的字（2.2.4-ds.4）
   - 需求寫「不當掉／不崩潰」時，至少一條 AC 用極端輸入驗證（例如上面的深度或長度）
+  - 怪檔案（2.2.5）：讀檔的工具拿 `templates/weird_inputs.py <資料夾>` 產生的空檔、BOM、控制字元、超長行、深層巢狀、錯誤編碼逐一餵過
+  - 期望值由獨立的 oracle 或手算表產生，不由寫程式的人邊寫邊抄（2.2.5）
 - 選用的 `追溯` 欄（加在表的最後一欄）：這條 AC 驗證 TRACES_TO 的哪些編號，例如 `DD-03`；沒有寫 `—`。不加這欄也照樣通過；加了之後 `trace_report.py` 每個編號一列，不必猜哪條 AC 服務哪個需求。
 
 - 驗收優先寫 `AUTO`：能用指令判定的就不要寫成 REVIEW／PO。
@@ -110,6 +117,7 @@ TESTS_LOCKED:
 - DELIVERABLES：<檔案、commit / tag、審查包>
 - 完成：一則 TASK REPORT 給總監（templates/TASK_REPORT.md），並用 `send_message` 通知總監。
 - STOP_RULES：同一根因 1 輪沒進展就停並回報；超出 SCOPE 先問；超過測試上限 10 分鐘先停下回報。
+- 到 WORKER_LIMIT 就停（2.2.5）：寫 `HANDOFF.md`（`templates/HANDOFF.md`：做完什麼、還剩什麼、下一步、檔案路徑），用 `send_message` 回報 lead；lead 開新的子代理從 HANDOFF.md 接續。
 
 ## H. 變更紀錄
 只有總監能改本工單。REVISION 1 不用寫；之後每改一次加一列，同步 BRIEF.md、WORK_DIR/tasks.md、WORK_DIR/RESUME_STATE.md，再把新的雜湊告訴 worker（`gate_check.py --order` 對比工單舊的 tasks.md／RESUME_STATE.md 印 `REVISION_SYNC`）。

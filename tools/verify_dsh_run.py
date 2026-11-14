@@ -99,7 +99,8 @@ def git(repo, *args):
 
 
 def save(out, name, text):
-    (out / name).write_text(text, encoding="utf-8", newline="\n")
+    with open(out / name, "w", encoding="utf-8", newline="\n") as handle:  # Path.write_text(newline=) needs 3.10
+        handle.write(text)
 
 
 def last_line(text):

@@ -39,6 +39,17 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 - `audit_log.py`：動作紀錄格式的來源；DSH 只用它的 `verify`／`head`／`cite`／`recover`（`append` 是 Claude hook 用的，DSH 不呼叫）。
 - `vocabulary.json`、`guard_rules.json`：固定用詞與 `dsh_guard.py` 的規則檔。
 
+### 上游 DW 2.2.5 移植（2.2.5-ds.5，WO-DS-009 B7）
+
+- `ran_line.py`（新，上游原樣搬）：`--to 報告 -- 指令` 代跑並寫一行 RAN（exit code 照傳）；`--exit N --cmd "指令"` 剛跑完補記；`--stamp [--to 檔 --text ...]` 印或加一行 `YYYY-MM-DD HH:MM`。時間取時鐘，不手打。設了 `WORK_DIR` 時暫存檔放 `WORK_DIR/tmp`。
+- `gate_check.py`：`--sequence 工單… --dispatch-log DIRECTOR_LOG.md --repo <checkout>`（PLAN_APPROVED 早於 worker 第一個 commit、每張工單有自己的 SPEC_REVIEW、審查與裁決來自別的 session）；`--after-verdict` 預設 FAIL（裁決後改到程式碼，SCOPE 內也算；只改文件放行；`--warn` 回到 WARN）；`--final <DIRECTOR>`：`evidence/E2E/` 沒有非空檔 FAIL，缺 `ENTRY_POINT:`、DD 沒「驗收案例」印 WARN，再加 DS 的 usage.json 行（`~ WARN USAGE`）；git 的 `Filename too long` 印一行寫明路徑和超過多少；BASE_REF 括號裡的字當註解。
+- `scope_check.py`：印 `WORKTREE:` 行（`git worktree list`；`dsh_session.py --worktree-status`、`--report-skeleton` 用同一個函式）；BASE_REF 括號當註解；長路徑一行訊息；任何錯誤 `SCOPE_CHECK: NOT_RUN`，不印 Traceback。`--shared` 是 ds.4 B2，上游 2.2.5 搬回去的就是這一份。
+- `report_vs_audit.py`：H1 誤報修正（全形 `～` 區間、只設 TEMP／TMP／TMPDIR／PYTHONIOENCODING／PYTHONUTF8 的句子不比、相對路徑照該次呼叫的資料夾解開、`/d/x` 等於 `d:/x`、shell 函式展開、可少寫無害選項）；每條 FAIL 標類別（沒跑／時間不符／結束碼不符／格式），最後一行多 `time_mismatch=n not_run=n`；`--tolerance-min` 預設 10；`--lead 檔` 查 lead 自己寫的裁決、DIRECTOR_LOG 時間；最上層攔例外，exit 2 一行。
+- `dsh_audit.py`（對應上游 `transcript_audit.py` 2.2.5）：`build` 預設整條 input 都記，不再截 500 字；`--input-limit N` 截過的行標 `input_cut`。`audit_log.summary(input, limit)` 跟著上游。
+- `evidence_record.py`、`release.py`：設了 `WORK_DIR` 時，`tempfile` 和子行程的 TMPDIR／TEMP／TMP 指到 `WORK_DIR/tmp`（上游原樣搬）。
+- 範本：`templates/weird_inputs.py`（怪檔案產生器）、`templates/HANDOFF.md`（worker 到輪數上限的交接）。
+- 沒搬：`browser_check.py`（DS 本來就沒有）、上游 `selftest.py`（案例改寫進 `selftest_ds.py`）。
+
 ## 已移除（Claude 專屬）
 
 `hook_guard.py`（規則留在 `guard_rules.json`）、`setup_project_settings.py`（改 `.claude/settings.local.json`）、

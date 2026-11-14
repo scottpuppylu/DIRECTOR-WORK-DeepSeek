@@ -656,21 +656,22 @@ def _git(cwd, *args):
 
 
 def worktree_kind(path):
-    """2.2.5-ds.5 (WO-DS-009 B4): ("isolated" | "shared" | None, line) for the checkout holding path, from
-    `git worktree list --porcelain`: the first entry is the main checkout; any other entry is a linked worktree. The
-    line is what a report's WORKTREE field says, so a worker never writes 「隔離 worktree」 by hand."""
+    """2.2.5-ds.5 (WO-DS-009 B4): ("isolated" | "shared" | None, line) for the checkout holding path. The line is
+    scope_check.worktree_line (upstream DW 2.2.5 B10, `git worktree list --porcelain`: the first entry is the main
+    checkout); one copy since B7. It is what a report's WORKTREE field says, so a worker never writes 「隔離 worktree」
+    by hand."""
     code, top = _git(path, "rev-parse", "--show-toplevel")
     if code != 0:
         return None, f"WORKTREE: NOT_A_CHECKOUT {path} ({top})"
-    code, listing = _git(path, "worktree", "list", "--porcelain")
-    entries = [line[len("worktree "):] for line in listing.splitlines() if line.startswith("worktree ")]
-    norm = lambda p: os.path.normcase(os.path.abspath(p))
-    main = entries[0] if entries else top
-    _, branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD")
-    if norm(top) == norm(main):
-        return "shared", (f"WORKTREE: 共用 checkout {top} (the main checkout; {max(len(entries) - 1, 0)} linked "
-                          f"worktree(s); branch {branch})")
-    return "isolated", f"WORKTREE: 隔離 worktree {top} (branch {branch}; main checkout {main})"
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("scope_check_for_session",
+                                                  pathlib.Path(__file__).resolve().with_name("scope_check.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    line = module.worktree_line(top)
+    if line is None:
+        return None, f"WORKTREE: NOT_A_CHECKOUT {path} (git worktree list failed)"
+    return ("isolated" if "隔離 worktree" in line else "shared"), line
 
 
 def worker_worktree(repo, order_id, branch=None, base="HEAD", root=None):

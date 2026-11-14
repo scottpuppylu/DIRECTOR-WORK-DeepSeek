@@ -9,7 +9,9 @@ after the fact, from the append-only session event logs:
 Every nested tool call a run_code program makes (event tool/ptc-dispatch, e.g. pwsh / read / write) and every
 top-level tool call (event tool/call, e.g. run_code / subagent) becomes one line:
   seq, ts (local ISO with offset), session_id, agent_id, tool, tool_use_id, kind (result / failure), input
-  (the tool input masked by tools/secret_mask.py, at most 500 characters), result (status ok / error / interrupted,
+  (the tool input masked by tools/secret_mask.py; 2.2.5-ds.5, as upstream transcript_audit.py 2.2.5: whole, no
+  500-character cut; with --input-limit N cut at N characters and marked "input_cut": true so report_vs_audit.py
+  matches that call on its first part only), result (status ok / error / interrupted,
   sha256 and length of the masked output, never the output itself), duration_ms (when the start event is there),
   prev, hash (the same chain algorithm as audit_log.py: sha256 of the line's other fields as sorted compact JSON;
   64 zeros before the first line). A tool call whose result is not in the log yet is kind=failure status=interrupted.
@@ -25,6 +27,7 @@ REPORT must write SESSION_ID: <that session id> (agent names select sessions in 
 
   python -I -X utf8 tools/dsh_audit.py build --out FILE [--force] [--log-root DIR] [--cache-root DIR]
       [--project-dir PATH] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--session ID|PREFIX|AGENT] [--json]
+      [--input-limit N]
   python -I -X utf8 tools/dsh_audit.py verify --log FILE [--from N --to M] [--anchor-log FILE]
       [--anchor-rev REV --anchor-path PATH [--repo DIR]] [--cite "AUDIT_RANGE ..."]
       (delegates to audit_log.py verify, so the format is not forked; same output and exit codes)
@@ -61,6 +64,7 @@ audit = load_local("audit_log")
 
 TOOL = "dsh_audit"
 BUILD_VERSION = 2  # 2: line 1 is kind=rebuild with a source field (2.2.1-ds.1)
+INPUT_LIMIT = None  # 2.2.5-ds.5: None keeps each input whole (upstream 2.2.5 H1); build --input-limit N sets it
 TOOL_NAMES = {"pwsh": "PowerShell", "powershell": "PowerShell", "bash": "Bash", "sh": "Bash", "zsh": "Bash"}
 
 
@@ -117,7 +121,9 @@ def make_entry(session_id, agent_id, tool, tool_use_id, kind, raw_input, status,
         entry["tool_raw"] = tool_raw
     entry["tool_use_id"] = tool_use_id
     entry["kind"] = kind
-    entry["input"] = audit.summary(raw_input)
+    entry["input"] = audit.summary(raw_input, INPUT_LIMIT)
+    if INPUT_LIMIT is not None and entry["input"] != audit.summary(raw_input, None):
+        entry["input_cut"] = True  # 2.2.5-ds.5: marked, so the reader matches this call on its first part (已截斷)
     entry["result"] = audit.output_record(status, output)
     if duration_ms is not None:
         entry["duration_ms"] = duration_ms
@@ -261,6 +267,8 @@ def chain_lines(entries, source, now=None):
 
 def build(args):
     """Write the audit log; returns the summary dict (raises DshError for cannot-run cases)."""
+    global INPUT_LIMIT
+    INPUT_LIMIT = getattr(args, "input_limit", 0) or None  # 2.2.5-ds.5: 0 / None = keep each input whole
     warnings = []
     log_root = pathlib.Path(args.log_root).expanduser() if args.log_root else dsh.default_sessions_root()
     cache_root = pathlib.Path(args.cache_root).expanduser() if args.cache_root else dsh.default_projcache_root()
@@ -308,7 +316,7 @@ def build(args):
                                    item["_index"], item["_seq"]))
     files = [dict(session_id=item["session_id"], **item.pop("_file")) for item in audited]
     source = {"by": "dsh_audit.py", "version": BUILD_VERSION, "sessions": files, "lines": len(entries),
-              "warnings": len(warnings), "skipped": len(skipped)}
+              "warnings": len(warnings), "skipped": len(skipped), "input_limit": INPUT_LIMIT}
     lines, head = chain_lines([item["entry"] for item in entries], source)
     kinds = {}
     tools = {}
@@ -438,6 +446,9 @@ def main(argv=None):
     build_parser.add_argument("--session", action="append", default=[],
                               help="only this session id / id prefix / agent name (repeatable)")
     build_parser.add_argument("--json", action="store_true", help="print the build summary as JSON")
+    build_parser.add_argument("--input-limit", type=int, default=0,
+                              help="2.2.5-ds.5: cut each input at this many characters (default 0: keep it whole); a cut "
+                                   "line is marked input_cut")
     verify_parser = sub.add_parser("verify", help="delegate to audit_log.py verify (hash chain, anchors)")
     verify_parser.add_argument("--log", required=True, help="audit JSONL file to verify")
     verify_parser.add_argument("--from", dest="from_seq", type=int)
@@ -458,6 +469,9 @@ def main(argv=None):
                 print(f"dsh_audit: --{field} {value} is not YYYY-MM-DD", file=sys.stderr)
                 return 2
     if a.command == "build":
+        if a.input_limit < 0:
+            print("NOT_RUN --input-limit must be 0 (no cut) or more")
+            return 2
         return cmd_build(a)
     return cmd_verify(a)
 

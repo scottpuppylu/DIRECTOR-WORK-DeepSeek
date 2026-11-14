@@ -39,6 +39,15 @@ commits in merge-base..HEAD (or ..--candidate) whose message names the order ID 
 title and file name), plus, without --candidate, uncommitted files inside SCOPE. Anything else changed in the checkout
 prints `OTHER path` and is not checked; an out-of-scope file in this order's own commit is still OUTSIDE. STATES shows
 own_commits= own_uncommitted=, the last line ends with ` shared=1 others=n`. The size is summed over those commits.
+Upstream DW 2.2.5 (B10) took this mode back from ds.4 B2 (each commit's own files, one commit at a time, not the sum
+of the branch); this is the one copy.
+
+From upstream DW 2.2.5 (B10): `BASE_REF = origin/main @ abc1234（v2.2.4）`: text in brackets, and after ` #`, is a
+comment. A `WORKTREE:` line says, from `git worktree list`, whether the folder is a linked worktree (隔離 worktree) or
+the main checkout (共用 checkout); copy it into the report instead of writing it by hand (dsh_session.py
+--worktree-status and gate_check.py --report-skeleton print the same line, from worktree_line here).
+From upstream DW 2.2.5 (B11): a path too long for git on Windows gives one line naming the path and how far over it is.
+Any other error is one `SCOPE_CHECK: NOT_RUN` line (exit 2), never a traceback (2.2.5 B7).
 
 2.2.4-ds.4 (B5, protected tests): the order's TESTS_LOCKED files and the "protected_tests" globs of director_work.json
 may only be added, or grow at their end (new tests appended). Changing or removing content that was there at the merge
@@ -101,8 +110,39 @@ def matches(path, patterns):
 def git(root, *args, stdin=None):
     done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, input=stdin)
     if done.returncode:
-        raise RuntimeError(f"git {' '.join(args)}: {done.stderr.decode('utf-8', 'replace').strip()}")
+        message = done.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(long_path(message, root) or f"git {' '.join(args)}: {message}")
     return done.stdout.decode("utf-8", "replace")
+
+
+def long_path(message, root):
+    """2.2.5 (B11): gate_check's one clear line for git's `Filename too long` (which path, how far over), else None."""
+    if "Filename too long" not in message:
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gate_check_for_scope", pathlib.Path(__file__).with_name("gate_check.py"))
+    try:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.long_path(message, root)
+    except (OSError, ImportError, SyntaxError, AttributeError):
+        return None
+
+
+def worktree_line(root):
+    """2.2.5 (B10): `WORKTREE: 隔離 worktree <root>` for a linked worktree, `WORKTREE: 共用 checkout <root>` for the
+    main checkout, from `git worktree list --porcelain` (its first entry is the main checkout); None when git cannot
+    list them."""
+    try:
+        listed = [line[len("worktree "):].strip() for line in git(root, "worktree", "list", "--porcelain").splitlines()
+                  if line.startswith("worktree ")]
+    except RuntimeError:
+        return None
+    if not listed:
+        return None
+    same = os.path.normcase(os.path.normpath(listed[0])) == os.path.normcase(os.path.normpath(root))
+    kind = "共用 checkout（主 checkout）" if same else "隔離 worktree"
+    return f"WORKTREE: {kind} {root} (git worktree list: {len(listed)})"
 
 
 def hidden_changes(root):
@@ -277,10 +317,14 @@ def check_protected(root, since, candidate, candidates, locked, globs):
     return changed, broken
 
 
+BRACKETED = re.compile(r"[（(][^（()）]*[)）]")
+
+
 def order_base(text):
-    """The base ref of a work order's BASE_REF line (`main @ abc1234` gives abc1234), or None."""
+    """The base ref of a work order's BASE_REF line (`origin/main @ abc1234（v2.2.4） # note` gives abc1234), or None.
+    2.2.5 (B10): text in brackets and after ` #` is a comment."""
     m = re.search(r"^\s*BASE_REF\s*=\s*(.*)$", text, re.M)
-    value = m.group(1).split("@")[-1].split() if m else []
+    value = BRACKETED.sub(" ", re.split(r"\s+#", m.group(1))[0]).split("@")[-1].split() if m else []
     return value[0] if value and not value[0].startswith("<") else None
 
 
@@ -349,7 +393,7 @@ def main():
     if not base:
         return cannot("no usable BASE_REF in the work order; pass --base")
     shared = shared_mode(text, a.shared)
-    notes = []
+    notes, where = [], None
 
     try:
         limits_mod = limits_module()
@@ -358,6 +402,7 @@ def main():
             return cannot(problem)
         notes += limits_mod.legacy_notes(config)
         root = git(a.repo, "rev-parse", "--show-toplevel").strip()
+        where = worktree_line(root)
         merge_base = git(root, "merge-base", base, "HEAD").strip()
         names = ("diff", "--name-only", "--no-renames", "--ignore-submodules=none", "-z")
         commit = git(root, "rev-parse", "--verify", a.candidate + "^{commit}").strip() if a.candidate else None
@@ -466,6 +511,8 @@ def main():
               f"{size[5] or '-'} (test files: test_*.py, *_test.py, tests/)")
     if protected or locked:
         print("PROTECTED_CHANGED: " + (", ".join(guarded) if guarded else "NONE"))
+    if where:
+        print(where)
     print(f"SCOPE_CHECK: {'VIOLATION' if hits else 'PASS'} base={merge_base[:10]} changed={len(changed)} "
           f"forbidden={count} outside={outside}" + (f" protected={len(broken)}" if broken else "")
           + ("" if required is None else f" missing={len(missing)}") + (" oversize=1" if oversize else "")
@@ -510,4 +557,7 @@ if __name__ == "__main__":
         sys.exit(main())
     except UnicodeDecodeError as error:  # 2.2: one line and NOT_RUN (exit 2), never a traceback
         print(f"SCOPE_CHECK: NOT_RUN {not_utf8(error)}")
+        sys.exit(2)
+    except (RuntimeError, OSError, ValueError) as error:  # 2.2.5 (B7): never a traceback
+        print(f"SCOPE_CHECK: NOT_RUN {type(error).__name__}: {' '.join(str(error).split())[:300]}")
         sys.exit(2)

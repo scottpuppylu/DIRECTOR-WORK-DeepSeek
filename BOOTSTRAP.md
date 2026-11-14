@@ -161,6 +161,8 @@ DSH 沒有 `MEMORY.md` 記憶索引。會被每次載入的是 `AGENTS.md`（專
 
 在 `ACTIVE_WORKSTREAMS.md` 寫草案：要幾條 worker 線（子代理）、各做什麼、要不要總管和清理員、各線的 effort（`docs/05`）、cwd 和工作副本。第 2 步記下沒有產品方向時，草案寫成假設，等第 14 步初衷卡鎖定後再定。**開子代理會花用量，第一批由 PO 同意後才開**（同一棵樹最多 8 個作用中子代理、深度 1）。小白模式由總監照 `docs/05` 定第一批並登記 DD；開線的同意併進第 14 步那一則回覆（卡片對，請開助手），不另外問第二次。
 
+開 worker 的提示加一句（2.2.5，上游 DW 2.2.5 B9 的更正）：設環境變數 `WORK_DIR`，DW 的 `ran_line.py`、`evidence_record.py`、`release.py` 會自己把暫存檔放到 `WORK_DIR/tmp`；自寫的指令在**同一個呼叫裡**設 `TEMP`／`TMP`／`TMPDIR`（Git Bash 自己匯出 TMPDIR，Python 先讀 TMPDIR；每次呼叫是新的 shell，上一次的設定不留）。
+
 ## 13. 第一份回報給 PO
 
 回報前一定先跑 `python -I -X utf8 <RULES>/tools/dsh_setup_check.py <WS>/DIRECTOR`，要 exit 0；沒過就先修 `DIRECTOR_STATE.md`／`PO_PENDING.md`（第 6 步），不送回報。再跑 `dsh_doctor.py`，記下 VERIFIED / NOT_VERIFIED。

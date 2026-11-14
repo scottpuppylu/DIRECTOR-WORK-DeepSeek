@@ -9,7 +9,7 @@ TASK_ID / WORKER / MODEL / BRANCH / BASE / HEAD / WORKTREE_CLEAN(yes|no)
   HEAD 寫 git rev-parse HEAD 的完整 40 位（Strict 一定要 40 位，總監拿它和審查的 commit 比）
 ORDER: <WO-檔名.md> REVISION <n>（REVISION 要和工單現在的相同）
 ORDER_SHA256: <開工時跑 gate_check.py --hash 工單 的 64 位輸出>
-WORKTREE: <隔離 worktree | 共用 checkout ...；由 `dsh_session.py --worktree-status <checkout>` 或 `--report-skeleton` 產生，不手填（2.2.5-ds.5）>
+WORKTREE: <隔離 worktree | 共用 checkout ...；由 `scope_check.py`、`dsh_session.py --worktree-status <checkout>` 或 `--report-skeleton` 印出，照抄，不手填（2.2.5-ds.5；同一個函式，上游 DW 2.2.5 B10）>
 CANDIDATE_ID: <給 PO 看的成品 id，和 PO_ACCEPTANCE 紀錄的 candidate_id 相同；同一個 commit 有兩份以上成品時必填，只有一份可省>
   成品的 commit、入口檔與其 SHA-256、manifest 的 SHA-256 以 PO_ACCEPTANCE 紀錄為準，報告不重抄；trace_report 靠這個 id 找到那筆紀錄（2.2.0）
 RESULT: PASS | PARTIAL | BLOCKED | FAIL
@@ -28,7 +28,8 @@ AGENT_NAME: （選用）本子代理名稱（例：w1）；有動作紀錄時一
 RAN: （選用）一行一個實際跑過的指令：- `指令` exit=N at=HH:MM
   總監用 report_vs_audit.py 拿 RAN 和 TESTS / EVIDENCE / DONE 裡的 selftest、Unity、Blender、雜湊指令
   對動作紀錄（--log <dsh_audit.py 產生的紀錄>）；沒有動作紀錄時記 UNKNOWN，不當成通過或失敗
-  長指令若被動作紀錄截斷（dsh_audit input 最多 500 字），在被截斷處用 ... 表示尾端；完整指令寫在 TESTS
+  2.2.5 起 RAN 行用 ran_line.py 產生，不手打：ran_line.py --to 報告 -- 指令（代跑）或 --exit N --cmd "指令"（剛跑完補記）
+  dsh_audit 2.2.5-ds.5 起整條指令都記（不再截 500 字）；用 --input-limit 截過的行標 input_cut，報告照抄整條即可
   自寫腳本和暫存輸出放 WORK_DIR，不放 scratchpad 或系統暫存資料夾（算工作區外，總監重跑不到；docs/02）；開工先把 TEMP／TMP／TMPDIR 設成 WORK_DIR/tmp（`dsh_session.py --temp-env <WORK_DIR>`）
 ACCEPTANCE: 工單 E 節每條一列，不增不減。狀態：AUTO 填 PASS / FAIL / BLOCKED / UNVERIFIED；
   REVIEW 最多填 READY_FOR_REVIEW；PO 只填 PENDING_PO。AUTO 填 PASS 時證據欄寫 evidence_record 的 .json 檔名。
@@ -46,3 +47,4 @@ NEXT: 下一步與資源需求（重資源分鐘數）
 ```
 
 不寫分數或 PASS 進盲審層；中途進度寫 RESUME_STATE，不另外發訊息。
+摘要段＝首行到 RESULT 那幾行（2.2.5）：lead 預設只讀這段和 HANDOFF.md（`templates/HANDOFF.md`），要查細節才往下讀，所以結論和缺口都要寫在這段。
