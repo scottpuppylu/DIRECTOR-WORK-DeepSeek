@@ -129,6 +129,9 @@ Runs, on this machine and offline:
   rename_236    2.3.0-ds.6 B6: no wrongly written product name in any repo file, the old name only as the old-name note /
               old CHANGELOG sections / upstream log / fixtures, the entry documents and the README prompt name
               dsh-DIRECTOR-WORKER, the release title
+  readme_236    2.3.0-ds.6 A.5 / B10: README in plain language: the launch prompt first and byte for byte pinned, the
+              first-time / glossary / diagrams / FAQ / file map sections in order, 6+ mermaid diagrams GitHub draws with
+              quoted Chinese labels, no HTML, no private paths, the DSH points; 5 mutations
   rules_236     2.3.0-ds.6 A.3: the three rules in WORK_ORDER, RESUME_STATE and docs/07; docs/09 uses --chain
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
@@ -4978,6 +4981,83 @@ def rules_236(tmp):
     memory = (root / "docs" / "09_memory.md").read_text(encoding="utf-8")
     check230("docs/09: one command for the chain", "memory_size_check.py --chain" in memory and "--max-bytes 65536" in memory)
     return "3 files x 6 phrases, docs/09"
+
+
+README_PROMPT_SHA256_236 = "12820a9284b2bee14d1b50db42c548dfec66a1dc7663bcde7a2d30db31df2c26"
+README_SECTIONS_236 = ("## 第一次用 AI agent？先看這裡", "## 名詞小抄", "## 圖解", "## 常見問題", "## 檔案地圖")
+MERMAID_TYPES_236 = ("flowchart", "sequenceDiagram", "stateDiagram-v2")
+HTML_TAG_236 = re.compile(r"</?(?:br|details|summary|div|span|p|img|a|table|tr|td|th|ul|ol|li|b|i|u|em|strong|font|"
+                          r"center|sup|sub|hr|pre|code|kbd)\b[^>]*>", re.I)
+CJK_236 = re.compile("[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]")
+
+
+def readme_problems_236(text):
+    """What B10 asks of README.md: the launch prompt is the first code block and unchanged; the plain-language
+    sections in order; at least 6 mermaid diagrams GitHub draws (flowchart / sequenceDiagram / stateDiagram-v2) with
+    Chinese labels in double quotes; no HTML; no private paths; the DSH points (no pre-blocking, the 65536-byte chain,
+    loops, --chain)."""
+    problems = []
+    blocks = re.findall(r"^```([^\n]*)\n(.*?)^```", text, re.S | re.M)
+    if not blocks or blocks[0][0] != "text":
+        problems.append("the first code block is not the ```text launch prompt")
+    elif hashlib.sha256(blocks[0][1].encode("utf-8")).hexdigest() != README_PROMPT_SHA256_236:
+        problems.append("the launch prompt changed")
+    places = [text.find(heading + "\n") for heading in README_SECTIONS_236]
+    if -1 in places or places != sorted(places):
+        problems.append("sections missing or out of order: %s" % list(zip(README_SECTIONS_236, places)))
+    prompt_end = text.find("```", text.find("```text") + 3)
+    if places and places[0] != -1 and places[0] < prompt_end:
+        problems.append("the first-time section comes before the launch prompt")
+    diagrams = [body for lang, body in blocks if lang == "mermaid"]
+    if len(diagrams) < 6:
+        problems.append("%d mermaid diagrams, need 6" % len(diagrams))
+    for number, body in enumerate(diagrams, 1):
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+        kind = lines[0].split()[0] if lines else ""
+        if kind not in MERMAID_TYPES_236:
+            problems.append("mermaid %d: type %r" % (number, kind))
+            continue
+        for line in lines[1:]:
+            if kind == "sequenceDiagram":
+                continue  # messages and aliases are free text in GitHub's sequenceDiagram
+            bare = re.sub(r'"[^"]*"', '""', line)
+            if kind == "stateDiagram-v2" and "-->" in bare:
+                bare = bare.split(":", 1)[0]  # a transition label after ':' cannot be quoted
+            if CJK_236.search(bare):
+                problems.append("mermaid %d: Chinese text outside double quotes: %s" % (number, line))
+    for match in HTML_TAG_236.finditer(text):
+        problems.append("HTML: %s" % match.group(0))
+    for private in ("C:/" + "Users", "C:\\" + "Users", "D:/", "D:\\", "/home/", "/" + "Users/"):
+        if private in text:
+            problems.append("private path: %s" % private)
+    for words in ("PreToolUse", "65536", "dsh_audit.py loops", "--chain", "ask_user_question", "事後"):
+        if words not in text:
+            problems.append("does not say: %s" % words)
+    return problems
+
+
+@test
+def readme_236(tmp):
+    """2.3.0-ds.6 A.5 / B10: README.md in plain language: the launch prompt is the first code block, byte for byte
+    the pinned one (ds.5's with only the name changed); 「第一次用 AI agent？先看這裡」, 名詞小抄, 圖解, 常見問題,
+    檔案地圖 in that order; 6+ mermaid diagrams of the types GitHub draws, Chinese labels in double quotes; no HTML,
+    no private paths; says DSH has no PreToolUse (checks after the fact), the 65536-byte chain, loops and --chain.
+    5 mutations."""
+    text = (TOOLS.parent / "README.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    problems = readme_problems_236(text)
+    check230("README passes the B10 checks", not problems, problems)
+    diagrams = len(re.findall(r"^```mermaid\n", text, re.M))
+    first = text.index("```mermaid\n")
+    mutants = {
+        "prompt changed": text.replace("（dsh-DIRECTOR-WORKER。", "（dshdw。", 1),
+        "a <br/> in a label": text[:first] + text[first:].replace('"]', '<br/>"]', 1),
+        "an unquoted Chinese label": text[:first] + re.sub(r'\["([^"]*)"\]', r"[\1]", text[first:], count=1),
+        "first-time section gone": text.replace("## 第一次用 AI agent？先看這裡\n", "## 第一次用\n", 1),
+        "too few diagrams": re.sub(r"```mermaid\n", "```text\n", text, count=diagrams - 5),
+    }
+    for name, mutant in mutants.items():
+        check230("mutation %s is caught" % name, mutant != text and readme_problems_236(mutant), name)
+    return "%d mermaid diagrams, %d mutations killed" % (diagrams, len(mutants))
 
 
 def main(argv=None):

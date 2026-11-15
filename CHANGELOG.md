@@ -23,6 +23,11 @@ WO-DS-011。產品改名為 **dsh-DIRECTOR-WORKER**（簡稱 **dshdw**；舊名 
 - `release.py` 和 `director_work.example.json` 的 Release 標題改為 `v{version} — dsh-DIRECTOR-WORKER`；`bootstrap_repo.py` 寫進專案 `.gitignore` 的註解行改為 `# dshdw bootstrap`。
 - 不改：版本號格式（2.3.0-ds.N）、tag 名稱、工具檔名、設定鍵、CHANGELOG 舊段落、上游 DW 的名稱與網址、repo 網址、提示詞的用法。`PURPOSE.md` 沒有產品名字樣，沒有改。
 
+### README 白話重寫
+- 照 DW README 新版（白話、多圖）的結構重寫：最上面是要複製的啟動提示詞，接著「第一次用 AI agent？先看這裡」（AI agent 是什麼、怎麼在 DSH 開對話貼提示詞、詞彙比喻、git 怎麼走、為什麼分總監和 worker、DSH 不會事先擋只會事後查）、名詞小抄、圖解、常見問題、檔案地圖，再來是防護、已知限制、原則、授權。
+- 10 張 mermaid 圖（flowchart、sequenceDiagram、stateDiagram-v2），中文標籤都加雙引號，不用 HTML；原本圖裡的 `<br/>` 拿掉。
+- 換成 dshdw 的實際情況：沒有 PreToolUse，只能事後檢查；指示鏈上限 65536 bytes；待決用 `ask_user_question`＋`PO_PENDING.md`；`loops` 和 `--chain` 用白話說明。啟動提示詞和上面「改名」那一條一樣，只換名稱字樣。
+
 ### 一起發布的 2.3.0-ds.5（WO-DS-010；細節見下方 2.3.0-ds.5 段）
 - 跟上上游 DW 2.3.0（tag v2.3.0）：新工具 `completion.py`、`sim_check.py`、`waiver.py`、`line_brief.py`、`pre_tr.py`、`pack_check.py`、`hash_check.py`、`flag_check.py`；`gate_check.py --feasibility` 與 `--verdict` 的自己查證證據；`dsh_doctor.py --licenses`；非 UTF-8 主控台的 `--help` 修正。
 - DS 專屬：`dsh_session.py --cwd-check <工作區>`，lead 開工第一步先確認在對的資料夾。
@@ -37,14 +42,15 @@ WO-DS-011。產品改名為 **dsh-DIRECTOR-WORKER**（簡稱 **dshdw**；舊名 
 - 完成前先驗證：superpowers（verification-before-completion），https://github.com/obra/superpowers ，MIT。
 
 ### 驗證
-- `selftest_ds.py`：2.3.0-ds.5 是 73 項，這一版 80 項；Python 3.11 和 3.9 各跑一次，都是 80/80、skip=0。
-  - 新增 7 項：`loops_fixtures_236`（每類一個正例、一個反例，CLI 和程式內各跑一次；fork 的副本只算一次；20 次內才算重試；8 個 mutation）、`loops_privacy_236`（假的金鑰和標記文字不會出現在一般輸出、`--json`、`--out`；1 個 mutation）、`loops_real_236`（最新一個真實 DSH session）、`loops_status_236`（status_gen 的 `loops` 段；1 個 mutation）、`chain_236`（`--chain`；3 個 mutation）、`rename_236`（錯誤寫法 0 處、舊名只出現在該出現的地方、提示詞與 Release 標題）、`rules_236`（三條規則與 docs/09）。
+- `selftest_ds.py`：2.3.0-ds.5 是 73 項，這一版 81 項；Python 3.11 和 3.9 各跑一次，都是 81/81、skip=0。
+  - 新增 8 項：`loops_fixtures_236`（每類一個正例、一個反例，CLI 和程式內各跑一次；fork 的副本只算一次；20 次內才算重試；8 個 mutation）、`loops_privacy_236`（假的金鑰和標記文字不會出現在一般輸出、`--json`、`--out`；1 個 mutation）、`loops_real_236`（最新一個真實 DSH session）、`loops_status_236`（status_gen 的 `loops` 段；1 個 mutation）、`chain_236`（`--chain`；3 個 mutation）、`rename_236`（錯誤寫法 0 處、舊名只出現在該出現的地方、提示詞與 Release 標題）、`rules_236`（三條規則與 docs/09）、`readme_236`（README：提示詞排第一個、逐位元組和固定值相同；五個段落的順序；mermaid ≥ 6 張、只用 GitHub 會畫的三種、中文標籤在雙引號裡；沒有 HTML、沒有私人路徑；5 個 mutation）。
   - 每組 mutation 先確認沒改過的工具答對，再看 mutant 有沒有答錯。
   - 安全閘門的 11 項（`safety_*_225`、`spec_review_224`、`spec_fields_shared_225`、`order_oversize`、`order_limits_224`、`protected_*_224`）一項不少，內容沒改，都通過；`safety_gate.py` 和 `safety` 區塊沒改。
 - `test_verify_dsh_run.py` 33 項（Python 3.11、3.9 都 OK）。
 - 本機真實紀錄（只讀）：103 個 DSH session、42,319 次呼叫，`loops` 找到 70 個（repeat 32、retry_same_error 2、ping_pong 0、poll_no_progress 32、bad_args 4：edit 2、PowerShell 1、read 1）。呼叫數含 fork session 帶來的重複事件。
 - fixture 全是合成資料（`tools/fixtures/loops/`），沒有真實紀錄的內容。
 - 每輪必讀（docs/01、03、06、08，用 `--chain` 量，LF）：10,964 → 10,963 bytes（docs/08 的「DSH 版」改成「dshdw」）。
+- README 的 10 張 mermaid 圖只用規則檢查語法（`readme_236`）；本機沒有實際畫出來（NOT_VERIFIED），推送後看 GitHub 頁面。
 
 ## 2.3.0-ds.5（2026-11-15）
 
