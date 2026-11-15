@@ -14,7 +14,7 @@
 完整流程和開關見 `docs/13_safety_gates.md`。下面每條都是 `director_work.json` 的 `"safety"` 開關，預設全開。
 
 - **OpenSpec 已移除（2.2.5-ds.5）**：`SPEC_CHANGE`、`openspec validate`、`openspec_bin`、`require_spec_*` 不再使用。理由：WO-DS-008 r2 的隱藏測試，開 SDD 85/107、關 SDD 101/107，OpenSpec 本身沒有量到正確性效益。需求改寫在工單 ACCEPTANCE 和 `templates/WORK_ORDER.md` E 節的邊界與壓力清單。舊設定檔的 `"sdd"` 區塊照讀，安全開關印「請搬到 safety」，OpenSpec 的鍵印「此鍵被忽略」。
-- **規格審查**：Standard 也必做（Claude 版只有 Strict）；`--match` 查 `SPEC_REVIEW <WO>` 那一行（`spec_review_for_standard`）。
+- **規格審查**：Standard 也必做（Claude 版 2.2.5 起也是；Direct 不做）；`--match` 查 `SPEC_REVIEW <WO>` 那一行（`spec_review_for_standard`）。
 - **測試先寫**：驗收測試在派工前寫好、commit 到 BASE_REF，用 `tools/safety_gate.py --lock-tests` 把雜湊寫進工單的 `TESTS_LOCKED:`，跑法寫進 `CHECKS:`。worker 不得改測試，改了 gate 判不過（`tests_first`）。
 - **工單大小**：一張工單最後結果最多 3 個檔、約 200 行（新增＋刪除）；超過就拆。`scope_check.py` 印 `OVERSIZE` 並判越界（頂層 `order_limits`）。
 - **計畫閘門**：worker 第一步只交 `<WORK_DIR>/<WO>/PLAN.md`（`- [ ] 1.1 …`），總監核准後在 `DIRECTOR_LOG` 寫 `PLAN_APPROVED <WO> sha=<64>`（`safety_gate.py --plan-hash` 印），worker 才可以寫程式；交件時 PLAN.md 只准比核准版多打勾，而且要全部勾完（`plan_gate`）。
@@ -90,7 +90,7 @@
 
 ### 發版（2.2.2-ds.3，同上游 2.2.2）
 
-- 用 `python -I -X utf8 tools/release.py`：先 dry run，乾淨再加 `--execute`。它從 HEAD 讀 VERSION 和 CHANGELOG，工作樹有沒 commit 的改動就停並印下一步；遠端主線比本機新就停（落後），分岔要 `--merge` 另開 `release/<版本>`；「(上游版本, ds 序號)」整組要比遠端所有 tag 新、tag 還不存在（2.2.3-ds.3 起；`DEEPSEEK-PORT.md` 第 10 節）；selftest 和公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）過了才 push、打 annotated tag、建 GitHub Release（Latest），每步用 ls-remote／`gh release view` 驗。細節見 `tools/README.md`。
+- 用 `python -I -X utf8 tools/release.py`：先 dry run，乾淨再加 `--execute`。它從 HEAD 讀 VERSION 和 CHANGELOG，工作樹有沒 commit 的改動就停並印下一步；遠端主線比本機新就停（落後），分岔要 `--merge` 另開 `release/<版本>`；「(上游版本, ds 序號)」整組要比遠端所有 tag 新、tag 還不存在（2.2.3-ds.3 起；`DEEPSEEK-PORT.md` 第 10 節）；selftest 和公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）過了才 push、打 annotated tag、建 GitHub Release（Latest），每步用 ls-remote／`gh release view` 驗；2.4.0-ds.6 起最後把 GitHub repo 描述裡的版本號改成新版（`gh repo edit --description`，再用 `gh repo view` 驗；描述沒寫版本就 SKIP，要自己補）。細節見 `tools/README.md`。
 - 有 PR 和 CI 時照順序：PR → CI 全綠 → merge → 在 merge 後的主線 commit 跑 `release.py`，這時 push 是 SKIP，只打 tag 和建 Release。CI 沒全綠不發版。
 - push、tag、Release 都要 PO 核准（`docs/08`）；release.py 不代替核准。
 
@@ -131,7 +131,7 @@
 - 四階段審查擋住最常見的問題：worker 偷偷縮小驗收範圍、把「跑過」說成「通過」。驗收條件只有總監能改，worker 改了就等於自己批准自己的交件。
 - v0.10 以前，工單的驗收表同時放結果欄：worker 要填結果就得改工單，規格有沒有被動也就查不出來。所以規格留在工單，結果放報告，再用 `--match` 逐條對照。
 - 原專案一段展示影片的工程數字全部正確，角色卻朝反方向動作：審查只看了被問到的部位，看的角度也由作者自己挑。所以要用眼睛看的條件，開工前就寫明誰看、怎麼看，實作者不能自己判過。
-- 規格審查會花用量，Claude 版只在 Strict 必做。dshdw 的 worker 判斷力較弱，派工前多看一眼比事後返工便宜，所以 ds.2 起 Standard 也做；照樣記下花費和抓到的問題，用數字決定要不要繼續做。
+- 規格審查會花用量，但 Strict 和 Standard 都必做（Direct 不做，見上面「規格審查」一條；dshdw 的 worker 判斷力較弱，派工前多看一眼比事後返工便宜，所以 ds.2 就先做 Standard，Claude 版 2.2.5 起也一樣）；每次記下花費和抓到的問題，要不要降回選用由 PO 看這些數字決定（2.4.0-ds.6 更正：這裡原本寫「Claude 版只在 Strict 必做」「用數字決定要不要繼續做」，和上面矛盾）。
 - 測試、計畫先寫死再實作（`docs/13`）：弱模型的錯會變成程式查得到的失敗，而不是「看起來做完了」。
 - 狀態分開寫，是因為一個面向 PASS 常被拿來蓋過其他面向沒驗。
 - 規則只寫在文件裡，靠模型自律就會漏；能在交件時用程式檢查的就用程式檢查（`scope_check.py`、`gate_check.py`、`dsh_audit.py`），DSH 沒有 hook 在動手前幫你擋。報告裡的「沒超出範圍」「測試通過」是自述，要能重跑、能對上動作紀錄才算證據。

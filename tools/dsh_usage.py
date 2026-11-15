@@ -4,7 +4,7 @@ Reads the DSH projection cache (plain JSON, no Node needed) and prints numbers o
 
   python -I -X utf8 <WS>/DIRECTOR/tools/dsh_usage.py [--sessions-root DIR] [--cache-root DIR]
       [--project-dir PATH] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--session ID|PREFIX|AGENT]
-      [--json] [--out FILE] [--from-jsonl | --no-fallback]
+      [--json] [--out FILE] [--from-jsonl | --no-fallback] [--loops [--loops-config FILE]]
 
 Per session: id, role (director/worker/unknown), agent name, cwd, started (local time), turns, steps, token totals
 (input = uncached input, output, cacheRead, cacheWrite, total), last prompt tokens (= input + cacheRead + cacheWrite of
@@ -25,6 +25,11 @@ not under a repo a worker edits; therefore --project-dir <REPO> does not find wo
 (<WS>, the director's startup folder) for a project report, and --session <agent> for one worker line. Repeatable.
 --since / --until are local dates (YYYY-MM-DD), both inclusive, compared with the session start time.
 --json prints the report as JSON; --out FILE always writes the JSON report to FILE (and says so on stderr).
+--loops (2.4.0-ds.6, DW 2.4.0 usage_mix's LOOPS line) adds one line, `LOOPS repeat=n retry_same_error=n ... calls=n
+sessions=n`, from `dsh_audit.py loops` over the same sessions and filters (counts only; "loops" in --json). It is off by
+default, unlike DW: it decodes the event logs, which needs Node and took about 105 s for 103 sessions here, while this
+report reads only the plain-JSON cache. --loops-config FILE passes a loops config (thresholds, allow list). When the
+logs cannot be read the line is `LOOPS NOT_RUN <reason>` and the report is unchanged.
 
 Exit codes: 0 report written, 2 nothing found (NO_DATA: ...) or a root is missing, 2 also for usage errors.
 
@@ -425,6 +430,24 @@ def make_report(rows, warnings, args, cache_root, sessions_root, projections, se
     }
 
 
+def loops_section(args):
+    """2.4.0-ds.6: the LOOPS line (dsh_audit.py loops over the same sessions and filters), or None without --loops."""
+    if not getattr(args, "loops", False):
+        return None
+    if getattr(args, "no_fallback", False):
+        return {"status": "NOT_RUN", "line": "LOOPS NOT_RUN --no-fallback: loops read the event logs (Node)"}
+    try:
+        tool = load_local("dsh_audit")
+        result = tool.loops(argparse.Namespace(
+            log_root=args.sessions_root, cache_root=args.cache_root, project_dir=args.project_dir, since=args.since,
+            until=args.until, session=args.session, events=None, config=getattr(args, "loops_config", None)))
+    except Exception as error:  # noqa: BLE001 - a missing Node or log must not cost the usage report
+        return {"status": "NOT_RUN", "line": f"LOOPS NOT_RUN {type(error).__name__}: {error}"}
+    return {"status": "OK", "line": tool.summary_line(result), "counts": result["counts"],
+            "findings_total": result["findings_total"], "not_verified": result["not_verified"],
+            "calls": result["calls"], "sessions": result["sessions"]}
+
+
 def render_text(report):
     lines = []
     source = report["source"]
@@ -463,6 +486,8 @@ def render_text(report):
     lines.append(f"{'TOTAL':10} {totals['sessions']:>8} {totals['turns']:>6} {human_tokens(totals['input']):>8} "
                  f"{human_tokens(totals['output']):>8} {human_tokens(totals['cacheRead']):>8} "
                  f"{human_tokens(totals['cacheWrite']):>8} {human_tokens(totals['total']):>8}")
+    if report.get("loops"):
+        lines.append(report["loops"]["line"])
     if report["warnings"]:
         lines.append(f"WARNINGS {len(report['warnings'])}")
         for warning in report["warnings"][:10]:
@@ -545,6 +570,9 @@ def main(argv=None):
     ap.add_argument("--effort-check", metavar="ORDER", help="2.2.4-ds.4: print `EFFORT_ACTUAL <WO> ...` for the "
                     "sessions of the order's PRIMARY_WORKER and a shadow WARN when their effort differs from the "
                     "order's MODEL / EFFORT (exit 0; paste the line into DIRECTOR_LOG)")
+    ap.add_argument("--loops", action="store_true", help="2.4.0-ds.6: add the LOOPS line (dsh_audit.py loops over the "
+                    "same sessions; needs Node, slow on many sessions)")
+    ap.add_argument("--loops-config", help="loops config JSON for --loops (thresholds, allow list)")
     fallback = ap.add_mutually_exclusive_group()
     fallback.add_argument("--from-jsonl", action="store_true",
                           help="confirm roles/lineage from the event-log headers (needs Node)")
@@ -585,6 +613,9 @@ def main(argv=None):
             print(line)
         write_no_data(a, reason, warnings)
         return 2
+    looped = loops_section(a)
+    if looped is not None:
+        report["loops"] = looped
     if a.out:
         out = pathlib.Path(a.out).expanduser()
         out.parent.mkdir(parents=True, exist_ok=True)

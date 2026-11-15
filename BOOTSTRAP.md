@@ -54,7 +54,7 @@
 
 ## 1. 取得規則包並讀完
 
-1. 把本規則包放到專案外的位置：`git clone https://github.com/scottpuppylu/DIRECTOR-WORK-DeepSeek <RULES>`（PO 給了本機路徑就直接用）。第 3 步再把整個 `tools/` 複製到 `DIRECTOR/tools/`。
+1. 把本規則包放到專案外的位置：`git clone https://github.com/scottpuppylu/dsh-DIRECTOR-WORKER <RULES>`（PO 給了本機路徑就直接用）。第 3 步再把整個 `tools/` 複製到 `DIRECTOR/tools/`。
    沒有 git 程式時，PO 可以從 GitHub 下載 ZIP 解開放到 `<RULES>`，版本的 commit 記 `NONE (ZIP)`；這樣只能讀規則、跑不需要 git 的工具，完整導入和派工要 git（第 0 步第 2 點）。
    PO 給了連結，就算同意下載這一個專案。跑工具前先讀過它的程式碼；第一輪會跑 `dsh_setup_check.py`、`dsh_doctor.py`、`dsh_usage.py`、`memory_size_check.py`、`gate_check.py`，其他的等要用時再讀。**每支只讀一次**：讀過的工具之後不再重讀原始碼、不跑 `--help`，用法和參數查 `tools/DSH-TOOLS.md`，報告格式用 `gate_check.py --report-skeleton`（2.2.3-ds.3：WO-DS-004 的 lead 把 `dsh_setup_check.py` 讀了 4 次、`gate_check.py` 3 次，還跑了 `--help`，多花約 76 萬 token）。
    記下規則包的版本（`<RULES>/VERSION` 加上 `git -C <RULES> rev-parse --short HEAD`），第 3 步寫進 `DIRECTOR_OPERATING_RULES.md`。
@@ -104,6 +104,7 @@ DIRECTOR/
 
 1. PO 在啟動提示、專案和使用者層 AGENTS.md 裡給過的指示，逐條登記成 `PO-01`、`PO-02`……，附來源。不知道 PO 何時說的，時間欄填讀到的時間並註明。
 2. 寫總監自己的 `RESUME_STATE.md`，頂部四行（PROGRESS / DOING / NEXT_STEP / COMMS）一定要填。
+3. 中斷或 DSH 自動壓縮後，第一件事是跑 `python -I -X utf8 <RULES>/tools/resume_inject.py --file <WS>/DIRECTOR/RESUME_STATE.md`（印頂部四行和未結段，最多 2 KB；2.4.0-ds.6），再照 `docs/06b` 的恢復程序做。DSH 沒有 SessionStart，沒有東西會替你跑。
 
 ## 6. PO 待決帳
 

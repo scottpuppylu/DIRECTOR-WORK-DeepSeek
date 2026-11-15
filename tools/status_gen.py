@@ -22,7 +22,8 @@ Director sections (any of them, all optional):
   AUDIT    per action log (audit_log.py) of "globs": lines, blocked (deny / pause) and log reads (the built-in
            log-read rules of L-041) in the last "hours" (default 1), and how many sessions
   LOOPS    (2.3.0-ds.6) the JSON that `dsh_audit.py loops --out FILE` wrote: one line with the finding counts per
-           category and the file's age, only when it has findings (none: no line); a missing or unreadable file is
+           category (2.4.0-ds.6: the categories with findings, and NOT_VERIFIED ones) and the file's age, only when
+           it has findings (none: no line); a missing or unreadable file is
            MISSING. Findings do not change the exit code. Refresh the file with dsh_audit.py loops at a checkpoint
 
   {"po_pending": {"path": "PO_PENDING.md", "counts": [{"label": "pending open", "regex": "..."},
@@ -387,7 +388,8 @@ def director():
         else:
             if total:
                 say(f"LOOPS {os.path.basename(loops['path'])} (modified {age(loops['path'])} ago): findings={total} "
-                    + " ".join(f"{k}={v}" for k, v in counts.items())
+                    + " ".join(f"{k}={v}" for k, v in counts.items() if v)  # 2.4.0-ds.6: non-zero only (width)
+                    + "".join(f" {k}=NOT_VERIFIED" for k in data.get("not_verified") or [])
                     + f"; sessions={data.get('sessions')}; lines: dsh_audit.py loops")
 """
 

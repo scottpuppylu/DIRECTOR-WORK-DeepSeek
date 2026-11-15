@@ -6,6 +6,7 @@
 
 ### 恢復程序（任何 session 被打斷後第一件事）
 
+0. 恢復或壓縮後先跑一次（2.4.0-ds.6，上游 2.4.0 的 SessionStart hook 在 DSH 沒有，改成自己跑）：`python -I -X utf8 <RULES>/tools/resume_inject.py --file <自己的 RESUME_STATE.md>`。它只印表頭四行（PROGRESS / DOING / NEXT_STEP / COMMS）和未結段（`未結`、`OPEN_DECISIONS`、`IN_FLIGHT` 這類標題或 `KEY:` 行），超過 2048 bytes 從整行處截斷並註明；其餘內容需要時才讀全檔。DSH 自動壓縮後也一樣先跑，不憑壓縮後的摘要接著做。
 1. 重讀：工單 → 自己的 RESUME_STATE → 專案 `AGENTS.md` → 本專案版規則（總監另讀 `DIRECTOR_STATE.md`）。
 2. `git status`、`git log -3`，和 RESUME_STATE 的 HEAD 比對；不一致先查原因，不覆寫。
 3. IN_FLIGHT：只檢查自己的背景 job（`job_list`）與子代理（`list_agents`）。job 不在了就看完成判定檔；不完整就列入重做。**中斷的擷取、量測、打包、匯入一律重做，不沿用。**
@@ -13,6 +14,8 @@
 5. 自己設的排程、背景等待、等待中的子代理：全部視為可能失效，逐項確認或重建（`schedule_list`、`job_list`、`list_agents`）。
 6. 更新 RESUME_STATE（時間 + 恢復說明），先處理 COMMS 裡欠別人的，才繼續 NEXT_STEP。
 7. 第一則給總監的訊息只有一行：`RESUMED <TASK_ID> at <checkpoint>; next=<step>; waiting=<誰或 NONE>; redo=<第 3 步列入重做的輸出或 NONE>`。沒有需要總監知道的事就不發。總監把收到的這一行（或自己恢復時的同一行）記進 `DIRECTOR_LOG`，`metrics_report.py` 從這裡數中斷後遺失的工作。
+
+子代理的動作怎麼查（2.4.0-ds.6，改寫自上游 2.4.0 的「hook 在 subagent 裡的限制」）：上游發現 hook 不一定是 subagent 的唯一防線，要事後重建 subagent 的動作。dshdw 本來就沒有任何 hook（沒有 PreToolUse／PostToolUse／SessionStart），所以**全靠事後檢查**，主代理和子代理一樣：每個子代理在 DSH 有自己的 session 紀錄，`dsh_audit.py build` 會一起重建（`agent_id` 是子代理名稱），再用 `report_vs_audit.py` 對照 TASK REPORT；`dsh_audit.py loops`（打轉）和 `dsh_audit.py inject`（工具輸出裡的命令式文字）也一起讀子代理的 session。沒有任何東西會在動作發生前攔下來，所以派子代理的工作線，在 checkpoint 和交件時跑這幾支。
 
 worker 是子代理，恢復方式一樣：總監用 `list_agents()` 找回、`send_message` 叫醒；子代理醒來先讀自己的 RESUME_STATE 跑這個程序，名稱登記在 `ACTIVE_WORKSTREAMS.md`。
 

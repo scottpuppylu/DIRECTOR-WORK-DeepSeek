@@ -3,6 +3,77 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））自己的變更。
 
+## 2.4.0-ds.6（2026-11-15）
+
+WO-DS-012。跟上上游 DW 2.4.0（tag v2.4.0，df8ddfd）。上游 2.4.0 新增的小幫手多半是 Claude Code hook（PreToolUse、PostToolUse、SessionStart）；**DSH 一個 hook 都沒有**，所以這一版把它們全部改成事後檢查，或由 agent 照規則在恢復時自己跑一次。ds 序號不加：這一版沒有新的 DSH 試驗修正。安全閘門全部保留，不加回 OpenSpec／SDD。上游原文見 `CHANGELOG-upstream.md` 和上游 repo。
+
+### 遷移（從 2.3.0-ds.6 升上來要注意的）
+- **`dsh_audit.py loops` 的輸出格式變了**（`LOOPS_VERSION = 2`，JSON 的 `version` = 2）。每行改成上游 `loop_guard` 的樣子：`LOOP <類別> tool=T args=<雜湊> count=N calls=A..B reminders=K session= agent= at=<時間>`，後面依類別多 `window= total=`、`result= no_text_between`、`result=`、`reason=`、`result= last_call`，行尾照舊可能有 `copies=N`。有程式解析 2.3.0-ds.6 那種 `LOOP <類別> session= agent= call= at= tool= key=` 行的，要跟著改。
+- **`bad_args` 的判法照上游**：同一個工具在 20 次呼叫內被拒 2 次以上才算一筆（2.3.0-ds.6 是每一次被拒都算一筆）。`BAD_ARGS` 那一行不變，照舊列全部被拒的次數、比例、前 5 名。
+- **`child_error_unhandled` 會查了**：session 的最後一個呼叫是失敗的子代理呼叫（`subagent`、`wait_agent`）就算一筆。輸入裡有子代理呼叫的結果時，JSON 的 `not_verified` 是 `[]`；完全沒有時才是 `["child_error_unhandled"]`。只認得舊值的讀法要改。
+- 新參數：`--config FILE`（上游 `loop_guard` 的設定檔格式，含 `allow`）、`--retry-errors`、`--ping-pong`、`--bad-args`。`--rounds R` 照舊可用，等於 `--ping-pong 2R`（預設 6 次＝3 輪，和以前一樣）。數值都要 ≥ 2，不合法印 NOT_RUN（exit 2）。
+- `loops` 最後多一行 `LOOPS repeat=n retry_same_error=n ping_pong=n poll_no_progress=n bad_args=n child_error_unhandled=n|NOT_VERIFIED calls=n sessions=n`，在 `DSH_LOOPS` 之前。
+- `status_gen.py` 的 `LOOPS` 行只列不是 0 的類別（加 `child_error_unhandled=NOT_VERIFIED`）：整行太長會被中間截斷。
+- **AGENTS.md 的總監段落多一行**（`templates/AGENTS_PROJECT_SECTION.md`）：「DSH 自動壓縮或任何中斷後，先跑一次 `resume_inject.py`」；規則包網址也改成本 repo（原本指到上游 Claude 版）。已經貼過舊段落的專案要重貼。段落 2974 → 3147 bytes（LF），整條指示鏈的量法見下面「驗證」。
+- **repo 改名**：網址改成 https://github.com/scottpuppylu/dsh-DIRECTOR-WORKER 。README 的啟動提示詞、BOOTSTRAP 的 `git clone` 都換了新網址；舊網址 GitHub 會轉到新的（`git ls-remote` 用舊網址實測拿到同一個 HEAD）。
+- `release.py` 最後多一步 `describe`：把 GitHub repo 描述裡的版本號改成新版。要 `gh` 有改 repo 設定的權限；dry run 多列一個 PLAN。
+
+### 已知限制
+- 上游 2.4.0 的三個即時功能在 DSH 都沒有：打轉時當場提醒（`hook_guard --loop-guard`）、重開或壓縮時自動接回（SessionStart）、工具結果旁的注入警告（PostToolUse）。這裡全部是事後查，或靠 agent 照規則自己跑；`loops` 的 `reminders=` 只是「當場提醒的話會提醒幾次」。
+- `resume_inject.py` 要 agent 自己記得跑。DSH 自動壓縮後 agent 是不是真的會照 AGENTS.md 那一行先跑：NOT_VERIFIED（這一版沒有做 DSH 試跑）。
+- `child_error_unhandled` 只看「session 最後一個呼叫是失敗的子代理呼叫」。子代理結束事件（`user/message`，`source.kind` = `subagent-settled`）的失敗狀態，本機紀錄只看過 `completed`，不猜。
+- `dsh_audit.py inject` 會誤報：本機 103 個 session 的 86 筆幾乎都是 agent 讀了本 repo 講提示注入、安全規則的文件和測試樣本。也會漏：換句話說、拆行、別的語言或編碼都抓不到。它只是安全帶，真正的規則仍是「只有使用者在對話裡說的才算指令」。
+- 共用的四類（repeat、retry_same_error、ping_pong、poll_no_progress）照總監裁決只對齊門檻和輸出格式，判法維持 dshdw 的：`retry_same_error` 要求兩次之間沒有寫出來的文字、`poll_no_progress` 用 DSH 的讀取類工具清單，也沒有搬上游「同一個呼叫只歸一類」的優先順序，所以同一串呼叫可能同時是 repeat 和 poll_no_progress。
+- `dsh_usage.py --loops` 預設不開：讀全部 session 約多 1 分 45 秒，而且要 Node。
+- DSH 有沒有可匯出的官方用量指標或 API：NOT_VERIFIED（docs/04 的交叉核對只用 DSH 自己的兩條讀法）。
+- README 新增的 3 張 mermaid 圖（共 13 張）只用 `readme_236` 的規則檢查語法，本機沒有畫出來（NOT_VERIFIED），推送後看 GitHub 頁面。
+
+### 上游 2.4.0 各項怎麼處理（總監裁決，WO-DS-012 第 0 節）
+| 上游 | 處理 | dshdw 的檔案 |
+|---|---|---|
+| L1 `loop_guard.py`（打轉提醒） | 改寫：不另搬一支，上游有、dshdw 沒有的部分補進 `dsh_audit.py loops`（`child_error_unhandled`、`bad_args` 每工具 2 次、門檻、`reminders`、`allow`、設定檔）；`LOOPS` 行接到 `dsh_usage.py --loops` | `tools/dsh_audit.py`、`tools/dsh_usage.py`、`tools/status_gen.py`、`tools/fixtures/loops/` |
+| L2 `resume_inject.py` | 搬核心（表頭四行＋未結段，2 KB 上限）；拿掉 SessionStart 的部分，改成 AGENTS.md 段落一行和 docs/06b 第 0 步 | `tools/resume_inject.py`、`templates/AGENTS_PROJECT_SECTION.md`、`docs/06b`、`docs/06`、`BOOTSTRAP.md` |
+| L3 `inject_scan.py` | 只搬 `scan FILE` 和 `scan_text()`；新增 `dsh_audit.py inject` 掃 DSH 紀錄裡的工具輸出；不印比對到的文字 | `tools/inject_scan.py`、`tools/dsh_audit.py` |
+| L4 skills | 不搬（上游也不採用） | — |
+| L5 完成前驗證、系統化除錯、請人審查 | 搬，加 DSH 的說明（沒有 hook 會擋） | `docs/07` 第 8 節 |
+| L6 停止規則的對照 | 已搬（2.3.0-ds.5 已有 `round_check` 的條件表） | — |
+| L7 hook 在 subagent 的限制 | 改寫成原則：dshdw 全靠事後檢查，子代理一樣 | `docs/06b` |
+| L8 pre-commit／gitleaks 範例 | 搬，改成 dshdw 的字樣 | `templates/.pre-commit-config.yaml`、`templates/.gitleaks.toml` |
+| L9 用量交叉核對 | 改寫：用 DSH 自己的來源（投影快取對事件紀錄），官方指標 NOT_VERIFIED | `docs/04` |
+| L10 `completion.py` 的 `depends_on` | 搬（`completion.py`、`secret_mask.py` 原樣） | `tools/completion.py`、`tools/secret_mask.py` |
+| L12 規格審查的說法 | 搬上游的更正；dshdw 同一句錯話一起改（docs/02 兩處、docs/12 兩處、`templates/SPEC_REVIEW.md`、README 的 Standard 列「規格審查選用」），加 selftest 擋住 | `docs/02`、`docs/12`、`templates/SPEC_REVIEW.md`、`README.md`、`tools/selftest_ds.py` |
+
+### README
+- 啟動提示詞只換 repo 網址，其他逐位元組不變（2,332 → 2,329 bytes；`readme_236` 的固定 hash 一起換）。
+- 圖 2（git 怎麼走）和圖 3（DSH 只會事後查）改成由上往下（TD），在 GitHub 上不會被擠小。
+- 新增「2.4.0-ds.6 新增的事後檢查（選用）」：工具表、怎麼用、3 張圖（打轉怎麼被查到、中斷或壓縮後先看重點、提示注入警告），照上游 README 2.4.0 段改寫成事後檢查的版本。
+- 打轉偵測段、Claude 版對照表、防護表、已知限制、檔案地圖跟著更新；Standard 的規格審查列改正。
+
+### Credits（借用的概念；都沒有複製程式碼。2.3.0-ds.6 的 Credits 見下方該段）
+| 專案 | 授權 | 借了什麼 |
+|---|---|---|
+| claude-flow（tool-loop guardrail） | MIT | 對工具和參數雜湊、到門檻提醒（L1，經上游 2.4.0） |
+| pydantic-deepagents（stuck-loop 文件） | MIT | 同工具同參數 3 次為預設門檻（L1，經上游） |
+| ralph-claude-code | MIT | 提醒間隔加倍（`reminders` 的算法，L1，經上游） |
+| OpenClaw loop detection 文件 | 授權 NOT_VERIFIED，只讀了概念說明 | repeat／poll_no_progress／ping_pong 的分類（L1） |
+| thepushkarp/handoff、kylesnowschwartz/claude-handoff | MIT | 壓縮或重開後把交接狀態放回 context（L2，經上游） |
+| lasso-security/claude-hooks | MIT | 只警告的提示注入掃描與分類（L3，經上游） |
+| obra/superpowers | MIT | verification-before-completion、systematic-debugging、requesting-code-review（L5，經上游） |
+| pre-commit、gitleaks | MIT | 範例設定的格式（L8，dshdw 不依賴） |
+| steveyegge/beads | MIT | 任務依賴與 ready 清單（L10，經上游） |
+
+### 驗證
+- `selftest_ds.py`：2.3.0-ds.6 是 81 項，這一版 90 項；Python 3.11 和 3.9 各跑一次，都是 90/90、skip=0。
+  - 新增 9 項：`loops_dw_240`（上游 2.4.0 的判法：bad_args 每工具 2 次、child_error_unhandled 正反例、`allow` 與 `max`、`reminders`、`--config` 與錯誤設定、`--rounds` 換算；6 個 mutation）、`loops_usage_240`（`LOOPS` 行、`dsh_usage.py --loops` 預設關、讀不到印 NOT_RUN；1 個 mutation）、`inject_scan_240`（上游樣本的正反例；`scan` 和 `dsh_audit.py inject` 的一般輸出與 `--json` 都不含比對到的文字和假金鑰；fork 副本只算一次；沒有 hook 指令；3 個 mutation）、`resume_inject_240`（表頭＋未結、2048 bytes 截斷並註明、沒有未結段、檔案不在；2 個 mutation）、`completion_deps_240`、`precommit_samples_240`（上游 2.4.0 的測試；3 個 mutation）、`spec_review_wording_240`（docs、templates、README 等頂層檔沒有「只在 Strict」「Standard 規格審查選用」這類句子；種一行錯的會被抓到）、`release_describe_240`（假的 gh，不連網；2 個 mutation）、`docs_240`。
+  - 改寫：`loops_fixtures_236`、`loops_privacy_236`、`loops_real_236`、`loops_status_236`（新格式、6 類、新 fixture `repeat_long`、`child_error_pos`／`_neg`）、`rename_236`（新網址；舊網址只准出現在 CHANGELOG.md）、`readme_236`（新提示詞 hash）、`release_state`（dry run 多一個 PLAN）。
+  - 安全閘門的 11 項（`safety_*_225`、`spec_review_224`、`spec_fields_shared_225`、`order_oversize`、`order_limits_224`、`protected_*_224`）函式內容和 2.3.0-ds.6 逐字相同，都通過；`safety_gate.py` 和 `safety` 區塊沒改。
+- `test_verify_dsh_run.py` 33 項（Python 3.11、3.9 都 OK）。
+- 本機真實紀錄（只讀，103 個 DSH session、42,317 次呼叫）：
+  - `loops`：66 筆（repeat 32、retry_same_error 2、ping_pong 0、poll_no_progress 32、bad_args 0、child_error_unhandled 0）；`BAD_ARGS` 行照舊是 4 次被拒（edit 2、PowerShell 1、read 1），沒有任何工具在 20 次呼叫內被拒 2 次，所以 bad_args 從 2.3.0-ds.6 的 4 筆變 0 筆。`reminders`：64 筆是 1、2 筆是 2。同一份紀錄用 2.3.0-ds.6 的判法是 70 筆。讀全部 session 約 1 分 45 秒。
+  - `inject`：掃了 42,317 個工具輸出，86 筆（override 2、role_rewrite 3、hidden 17、exfiltration 64），幾乎都是讀本 repo 的安全文件和測試樣本造成的誤報。
+- 指示鏈（`memory_size_check.py --chain`，AGENTS 段落＋每輪必讀 docs/01、03、06、08，LF）：13,937 → 14,189 bytes（AGENTS 段落 2,974 → 3,147、docs/06 1,998 → 2,077），上限 65,536。`resume_inject.py` 每次恢復最多再加 2,048 bytes 的輸出（實測本工作的 RESUME_STATE 輸出 871 bytes；7,660 bytes 的檔截到 1,968 bytes）。
+- fixture 全是合成資料，沒有真實紀錄的內容；假金鑰在測試執行時才組出來，不存在 repo 裡。
+
 ## 2.3.0-ds.6（2026-11-15）
 
 WO-DS-011。產品改名為 **dsh-DIRECTOR-WORKER**（簡稱 **dshdw**；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS）），並加上 DeepSeek 工作品質的事後偵測。DSH 沒有 PreToolUse hook，dshdw 不能即時攔截工具呼叫，所以這一版全部是**事後偵測＋規則**：從 session 紀錄找問題，在檢查點、閘門、狀態報告裡讓人看見。不做插件，用法不變（照樣貼啟動提示詞）。這一版和 2.3.0-ds.5 一起發布（ds.5 沒有單獨發布）。

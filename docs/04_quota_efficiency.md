@@ -44,6 +44,11 @@ python -I -X utf8 <WS>/DIRECTOR/tools/dsh_usage.py --session <agent 名稱> --si
 
 GUI 的 token meter／context 顯示可以對照當下數字；兩邊不一致時以 GUI 的帳號用量頁為準，記下差異。
 
+**交叉核對（2.4.0-ds.6，改寫自上游 2.4.0；選用）**：`dsh_usage.py` 讀的是 DSH 的本機投影快取（`session_projcache`），格式不是官方介面。用另一個獨立來源對一次同一段時間的總 token（輸入、輸出、快取讀、快取寫）：
+- **DSH 自己的事件紀錄**：`dsh_usage.py --cache-root <一個空資料夾>` 找不到快取，就改從 session 事件紀錄逐一重算（要 Node），和預設的快取讀法是兩條路（2.4.0-ds.6 實測：同一天 25 個 session，兩條路的總 token 相同）；差很多時先看範圍是否相同（`--project-dir`、`--since`、含不含子代理）。
+- **DSH 帳號頁／GUI 的用量顯示**：上游用的 ccusage 和 Claude Code OpenTelemetry 指標只適用 Claude Code，dshdw 不用。DSH 有沒有可匯出的官方用量指標或 API：NOT_VERIFIED（本機沒有找到；查到之前不假設有）。
+- 兩邊差超過一成：記下兩個數字和範圍，當成「量法不同」回報，不挑一個當真值。
+
 **讀不到記 UNKNOWN，不記 0。** `dsh_usage.py` 印 `NO_DATA` 時，代表還沒有可讀的 session 紀錄（例如剛建置），不是用量是 0。
 
 ## 停工線與用量重置（dshdw）

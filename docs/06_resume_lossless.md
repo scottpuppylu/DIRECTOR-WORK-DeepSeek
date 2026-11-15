@@ -15,7 +15,7 @@
 
 ### 恢復
 
-任何 session 被打斷後，第一件事照 `docs/06b` 的恢復程序做。中斷的擷取、量測、打包、匯入一律重做，不沿用。
+任何 session 被打斷或 DSH 自動壓縮後，第一件事照 `docs/06b` 的恢復程序做（第 0 步先跑 `tools/resume_inject.py`，2.4.0-ds.6）。中斷的擷取、量測、打包、匯入一律重做，不沿用。
 worker 是子代理：總監用 `list_agents()` 找回、`send_message` 叫醒，子代理名稱登記在 `ACTIVE_WORKSTREAMS.md`。
 
 ### 每輪第一步

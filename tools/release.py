@@ -33,6 +33,10 @@ Steps, in order; each prints `STEP <name>: OK | FAIL | SKIP | PLAN ...`, and a F
              ls-remote must show the tag peeled to HEAD
   release    gh release create v<version> --verify-tag --latest, notes = the CHANGELOG section of <version>, title from
              the config; then gh release view must show the release
+  describe   (2.4.0-ds.6) the GitHub repository description names the new version: every version in it
+             (<major>.<minor>.<patch>[-<label>.<n>], with or without a leading v) becomes <version>, through
+             gh repo edit --description, then gh repo view must show it. A description with no version is left alone
+             (SKIP, with a NEXT-style note to add one by hand); one that already says <version> is SKIP
 A rerun after a failure skips what is already done (branch already at HEAD, tag already at HEAD, release present).
 
 Config: the optional "release" object of director_work.json (--config), keys remote, branch, title ({version} is
@@ -135,6 +139,17 @@ def load_config(path):
 def gh_repo_from_url(url):
     m = re.search(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", url or "")
     return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+DESCRIBED_VERSION = re.compile(r"(?<![\w.])(v?)\d+\.\d+\.\d+(?:-[A-Za-z]+\.\d+)?(?![\w.])")
+
+
+def described(description, version):
+    """The repository description with every version in it replaced by `version` (a leading v is kept), or None when
+    it holds no version (2.4.0-ds.6: the release also updates the version the description shows)."""
+    if not DESCRIBED_VERSION.search(description or ""):
+        return None
+    return DESCRIBED_VERSION.sub(lambda m: m.group(1) + version, description)
 
 
 def secret_module():
@@ -472,6 +487,43 @@ class Release:
         data = json.loads(view.stdout)
         self.step("release", "OK", f"{data.get('url')} (draft={data.get('isDraft')})")
 
+    def describe_step(self, version):
+        """2.4.0-ds.6 (WO-DS-012 A.5): the repository description shows the released version."""
+        repo_name = self.config["gh_repo"] or gh_repo_from_url(git(self.repo, "remote", "get-url", self.remote))
+        gh = shutil.which("gh")
+        if not (repo_name and gh):
+            if not self.execute:
+                self.planned.append(f"gh repo edit {repo_name or '<owner/name>'} --description <version -> {version}>"
+                                    + ("" if gh else "  (gh is not on PATH: --execute will stop here)"))
+                return
+            raise Stop("cannot update the repository description: " + ("gh is not on PATH" if repo_name else
+                       "cannot tell the GitHub repository from the remote URL"),
+                       f"put {version} in the description by hand (GitHub repository page, About)")
+        view = run([gh, "repo", "view", repo_name, "--json", "description"], self.repo)
+        if view.returncode != 0:
+            raise Stop(f"gh repo view failed: {(view.stderr or view.stdout).strip()[-300:]}",
+                       f"check gh auth status, or put {version} in the description by hand")
+        current = json.loads(view.stdout).get("description") or ""
+        wanted = described(current, version)
+        if wanted is None:
+            self.step("describe", "SKIP", f"the description names no version; add {version} by hand if it should")
+            return
+        if wanted == current:
+            self.step("describe", "SKIP", f"the description already says {version}")
+            return
+        if not self.execute:
+            self.planned.append(f"gh repo edit {repo_name} --description {wanted!r}  (was {current!r})")
+            return
+        proc = run([gh, "repo", "edit", repo_name, "--description", wanted], self.repo)
+        if proc.returncode != 0:
+            raise Stop(f"gh repo edit failed: {(proc.stderr or proc.stdout).strip()[-300:]}",
+                       f"put {version} in the description by hand; branch, tag and release are kept")
+        after = run([gh, "repo", "view", repo_name, "--json", "description"], self.repo)
+        shown = json.loads(after.stdout).get("description") if after.returncode == 0 else None
+        if shown != wanted:
+            raise Stop(f"after gh repo edit the description is {shown!r}, not {wanted!r}", "look at the repository page")
+        self.step("describe", "OK", repr(wanted))
+
 
 def use_work_temp():
     """2.2.5 (B9): with WORK_DIR set, temp files go to WORK_DIR/tmp (tempfile.tempdir and TMPDIR / TEMP / TMP for child
@@ -521,10 +573,12 @@ def main(argv=None):
             job.planned.append(f"git push {job.remote} HEAD:refs/heads/{job.branch}  (the merge, fast-forward)")
             job.planned.append(f"git tag -a {job.tag} on the merge; git push {job.remote} refs/tags/{job.tag}")
             job.planned.append(f"gh release create {job.tag} --verify-tag --latest")
+            job.planned.append(f"gh repo edit --description <version -> {version}>")
         else:
             job.push()
             job.tag_step(version)
             job.release_step(version)
+            job.describe_step(version)
     except Stop as stop:
         print(f"STEP FAIL: {stop}\nNEXT: {stop.next_step}\nRELEASE: FAIL")
         return 1

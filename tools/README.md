@@ -18,7 +18,7 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 | `dsh_guard.py` | 動手前的自律檢查：force push、push、刪除、送出/發布、付款、改設定、秘密、永遠禁止的 git/程序模式、PAUSE 旗標；預設只提醒 | 不寫 |
 | `safety_gate.py` | 安全閘門（ds.2 `sdd_gate.py` 改名，2.2.5-ds.5 拿掉 OpenSpec，docs/13）：`--lock-tests` 印工單的 `TESTS_LOCKED:`、`--plan-hash` 印 `PLAN_APPROVED` 行；`gate_check.py` 用它查鎖定測試、PLAN.md、SPEC_REVIEW、輪數、安全開關不得自行關閉；也讀 `order_limits`／`protected_tests` 給 `scope_check.py`。舊的 `sdd` 區塊照讀：安全開關印「請搬到 safety」，OpenSpec 的鍵印「此鍵被忽略」 | 不寫 |
 | `bootstrap_repo.py` | 2.2.3-ds.3 BOOTSTRAP 10.5 的機械步驟：把 `.memsearch/` 加進 `<REPO>/.git/info/exclude`。做過的跳過，`--check` 只報告。2.2.5-ds.5：`--config` 只讀，舊設定的 `sdd` 區塊只印 WARN，不找、不裝、不寫任何 CLI（L-061） | 只寫 exclude |
-| `release.py` | 2.2.2-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ 工作樹有沒 commit 的 tracked 檔就停 → VERSION 與 CHANGELOG（都從 HEAD 讀）最上段一致、tag 排序高於遠端所有 tag（2.2.3-ds.3 起比「(上游版本, ds 序號)」整組，ds 序號不單獨比） → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create`，每步用 ls-remote／`gh release view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
+| `release.py` | 2.2.2-ds.3 發版一次到位：fetch → 比對 origin/main（落後／分岔／領先；分岔加 `--merge` 開 `release/<版本>` 合併，有衝突就停並列檔名）→ 工作樹有沒 commit 的 tracked 檔就停 → VERSION 與 CHANGELOG（都從 HEAD 讀）最上段一致、tag 排序高於遠端所有 tag（2.2.3-ds.3 起比「(上游版本, ds 序號)」整組，ds 序號不單獨比） → selftest → 公開掃描（金鑰、私人 email、使用者路徑、DIRECTOR/、_work/、session 檔）→ push → tag → `gh release create` → repo 描述的版本號（2.4.0-ds.6，`gh repo edit --description`），每步用 ls-remote／`gh release view`／`gh repo view` 驗。預設 dry run，`--execute` 才動遠端 | 只有 `--execute` 動遠端；`--merge --execute` 開本機分支 |
 | `verify_dsh_run.py` | 2.2.2-ds.3 DSH 試跑驗證器（由 ds.2 的 WO-101 `verify_run.py` 通用化）：R01–R21 看 repo（候選 commit、各階段改了哪些檔、鎖定測試雜湊、總監重跑測試與隱藏 oracle、gate_check、evidence 重跑、DIRECTOR_LOG），D01–D14 看 DSH session 紀錄（模型、寫入範圍、禁止動作、偷看隱藏測試、閘門、測試先寫、report_vs_audit）。工單專屬的檔名、代理名、oracle 寫在設定檔（`templates/VERIFY_DSH_RUN.json`）；單元測試 `test_verify_dsh_run.py` | 只寫 `--out` 資料夾 |
 | `selftest_ds.py` | 離線冒煙測試整組工具（help、usage、audit+report、setup fixture、status 產生、doctor、guard、gate hash、evidence、報告比對、worktree、--final 用量檢查） | 只寫暫存資料夾 |
 
@@ -64,17 +64,31 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 
 DSH 沒有事前攔截（沒有 PreToolUse hook），下面兩項都是事後從紀錄或檔案查，在檢查點、閘門、狀態報告裡讓人看見。概念來源見 CHANGELOG 2.3.0-ds.6 的 Credits；程式是自己用標準函式庫寫的。
 
-- `dsh_audit.py loops`：讀和 `build` 一樣的 DSH session（同樣的 `--session`／`--project-dir`／`--since`／`--until`），找出打轉的呼叫。每個發現一行：類別、session、agent、session 裡第幾次呼叫、時間、工具名、雜湊；**不印參數、輸出或訊息內容**。
-  - `repeat`：同一個呼叫（工具＋參數遮罩後的雜湊）在 20 次呼叫內出現 3 次（`--repeat`、`--window`）。
-  - `retry_same_error`：同一個呼叫在 20 次呼叫內又失敗、錯誤一樣，中間 agent 沒寫任何文字（思考不算；規則要的是寫出來的一行）。
-  - `ping_pong`：A、B 兩個呼叫交替 3 輪（`--rounds`），結果都沒變。
-  - `poll_no_progress`：讀取／查詢類工具（read、grep、glob、list_agents、job_list、job_output、team_task_*、acp_status、web_fetch、web_search 等）連續 3 次結果一樣（`--poll`）。
-  - `bad_args`：工具拒收參數（DSH 紀錄的 `INVALID_ARGS`／`ToolArgsError`），或頂層參數字串不是 JSON；印次數、占全部呼叫的比例、前 5 名工具。
-  - `child_error_unhandled`：本機 DSH 紀錄裡子代理結束的事件是 `user/message`（`source.kind` = `subagent-settled`），`stopReason` 只看過 `completed`，沒看過失敗的子代理事件；所以這類只印 `~ NOT_VERIFIED`，不猜事件名。
-  - `wait_agent` 不算 repeat／retry／ping_pong／poll（等子代理本來就要一直叫它）。fork 出來的 session 帶著母 session 的事件：同類別、同呼叫、同時間的發現只算一次（行尾 `copies=N`）。
-  - `--json` 印 JSON；`--out FILE` 另外寫一份 JSON 給 `status_gen.py`。`--events FILE...` 讀純 JSONL 事件檔（合成 fixture，`tools/fixtures/loops/`）。exit 0 沒發現、1 有發現、2 讀不到。
+- `dsh_audit.py loops`：讀和 `build` 一樣的 DSH session（同樣的 `--session`／`--project-dir`／`--since`／`--until`），找出打轉的呼叫。2.4.0-ds.6 起類別、門檻、提醒次數和 `allow` 照上游 2.4.0 的 `loop_guard`（見下面「上游 DW 2.4.0 移植」）；**不印參數、輸出或訊息內容**。
 - `status_gen.py` 的 `"loops": {"path": "loops.json"}`：讀 `dsh_audit.py loops --out` 寫的 JSON，有發現時多印一行 `LOOPS loops.json (modified …): findings=n repeat=… …`，沒有發現不印；檔案不在印 MISSING。發現不改 exit code。選 status_gen 不選 line_brief：loops 是整個專案所有 session 的事，和 status_gen 的 AUDIT 段（動作紀錄）同一類；line_brief 只看一條工作線的看板、git、結果和 log。
 - `memory_size_check.py --chain FILE... [--max-bytes N]`：一條指示鏈的檔一起量：每檔一行（bytes；有 CRLF 另列 LF bytes；~token 照舊用 bytes/2），加總超過 `--max-bytes` 印 FAIL（exit 1）；各檔之間重複 3 行以上的段落印 `DUP a:起-迄 = b:起-迄 (n lines)`（空行略過；只有標點的行不當段落開頭），只列不判 FAIL。最後一行 `CHAIN: PASS|FAIL|MISSING files= bytes= (limit …) lf_bytes= ~tokens= dups=`。單檔和 `--kind resume` 的輸出不變。
+
+### 上游 DW 2.4.0 移植（2.4.0-ds.6，WO-DS-012）
+
+上游 2.4.0 的三個新工具都是 Claude Code hook（PreToolUse、SessionStart、PostToolUse）；DSH 一個 hook 都沒有，所以全部改成事後檢查，或由 agent 照規則自己跑。
+
+- `dsh_audit.py loops`（版本 2，`LOOPS_VERSION = 2`）。所有類別都在同一個 session 的 W 次呼叫內算（`--window`，預設 20）：
+  - `repeat`：同一個呼叫（工具＋遮罩後參數的雜湊）出現 N 次以上（`--repeat`，預設 3）。
+  - `retry_same_error`：同一個呼叫連續失敗、錯誤一樣 N 次（`--retry-errors`，預設 2），中間 agent 沒寫任何文字（思考不算；這個條件是 dshdw 自己的）。
+  - `ping_pong`：A、B 兩個呼叫輪流 N 次以上（`--ping-pong`，預設 6；2.3.0-ds.6 的 `--rounds R` 等於 `--ping-pong 2R`，仍可用），結果都沒變。
+  - `poll_no_progress`：讀取／查詢類工具（read、grep、glob、list_agents、job_list、job_output、team_task_list、team_task_get、acp_status、web_fetch、web_search、read_image、get_goal、search_context、list_subagent_models）連續 N 次結果一樣（`--poll`，預設 3）。
+  - `bad_args`：同一個工具 N 次以上因參數被拒（`--bad-args`，預設 2；DSH 紀錄的 `INVALID_ARGS`／`ToolArgsError`，或頂層參數字串不是 JSON）。`BAD_ARGS` 行照舊列全部被拒的次數、占全部呼叫的比例、前 5 名工具。
+  - `child_error_unhandled`：session 的最後一個呼叫是失敗的子代理呼叫（`child_tools`，預設 `subagent`、`wait_agent`），之後沒有任何處理。輸入裡完全沒有子代理呼叫的結果時印 `~ NOT_VERIFIED child_error_unhandled`，不算 0。
+  - 每一筆：`LOOP <類別> tool=T args=<雜湊> count=N calls=A..B reminders=K session= agent= at=<時間>`，後面依類別多 `window= total=`、`result= no_text_between`、`result=`、`reason=`、`result= last_call`；fork 出來的 session 同一筆只算一次（行尾 `copies=N`）。`count` 是那一段最多到幾次；`reminders` 是上游的即時 hook 會提醒幾次（門檻一次，之後 2 倍、4 倍、8 倍各一次）。
+  - 合法的重複（例如每分鐘看一次 build）寫進 `--config FILE` 的 `allow`：`{"tool": "PowerShell", "input": "<對遮罩後參數的 regex>", "max": 20, "why": "..."}`，`max` 以內不算。設定檔格式和上游 `loop_guard` 一樣（`schema_version`、`window`、`repeat`、`retry_errors`、`poll`、`ping_pong`、`bad_args`、`child_tools`、`allow`，都可省）；值不合法印 NOT_RUN（exit 2）。順序：預設 → `--config` → 命令列。
+  - 最後印一行和上游 `usage_mix` 同格式的 `LOOPS repeat=n retry_same_error=n ping_pong=n poll_no_progress=n bad_args=n child_error_unhandled=n|NOT_VERIFIED calls=n sessions=n`，再印 `DSH_LOOPS`。
+  - `--json` 印 JSON；`--out FILE` 另外寫一份 JSON 給 `status_gen.py`。`--events FILE...` 讀純 JSONL 事件檔（合成 fixture，`tools/fixtures/loops/`）。exit 0 沒發現、1 有發現、2 讀不到。
+- `dsh_usage.py --loops [--loops-config FILE]`：用量報表在 TOTAL 後多一行上面那行 `LOOPS`（同一批 session）。預設不跑：全部 session 約多 1 分 45 秒，而且要 Node；`--no-fallback` 時印 `LOOPS NOT_RUN`。
+- `status_gen.py` 的 LOOPS 行只列不是 0 的類別（加 `child_error_unhandled=NOT_VERIFIED`），避免整行被截斷。
+- `resume_inject.py --file RESUME_STATE.md [--max-bytes 2048] [--section NAME ...]`：印 RESUME_STATE 的前四行和未結段（`OPEN ITEMS`、`OPEN_DECISIONS`、`IN_FLIGHT`、`未結`、`未完成`、`待辦` 這類標題或 `KEY:` 行），超過上限從整行處截斷並註明。沒有 SessionStart，所以由 agent 在恢復或 DSH 自動壓縮後自己先跑一次（AGENTS.md 段落一行、docs/06b 第 0 步）。檔案不在印一行說明（exit 0）。
+- `inject_scan.py scan FILE... [--json]`、`dsh_audit.py inject [篩選] [--events FILE...] [--tool T] [--json]`：工具輸出裡有像在下命令的文字（`override`、`role_rewrite`、`hidden`、`encoded`、`exfiltration`）時列出類別、行號（`inject` 另有工具、第幾個呼叫、session、agent、時間）；**不印那段文字**。只警告：不擋、不改。`FOUND` exit 1、`NONE` exit 0、讀不到 exit 2。會誤報（講提示注入的文件、測試樣本），也會漏（換句話說、拆行、其他編碼）。上游的 hook 模式不搬。
+- `completion.py`、`secret_mask.py`：上游 2.4.0 原樣。`completion.py` 可加 `depends_on / 依賴 / 前置` 欄，多印 `READY_NOW:`（還沒到 100、依賴全部算 100 的項目）和每個卡住的項目一行 `BLOCKED`；依賴的 ID 不在表裡或繞成一圈印 WARN。沒有這一欄的舊表輸出不變。
+- `templates/.pre-commit-config.yaml`、`templates/.gitleaks.toml`：commit 前掃秘密的範例，開頭寫 `SAMPLE ONLY`；dshdw 本身不裝。
 
 ## 已移除（Claude 專屬）
 
@@ -117,8 +131,14 @@ python -I -X utf8 tools/dsh_session.py --worktree-status <checkout>
 python -I -X utf8 tools/dsh_usage.py --project-dir <WS> --out DIRECTOR/usage.json
 python -I -X utf8 tools/gate_check.py --final DIRECTOR
 
-# 總監：打轉偵測（2.3.0-ds.6；事後查，DSH 擋不住）
+# 總監：打轉偵測（2.3.0-ds.6，2.4.0-ds.6 照上游 loop_guard；事後查，DSH 擋不住）
 python -I -X utf8 tools/dsh_audit.py loops --project-dir <WS> --out DIRECTOR/loops.json
+
+# 總監：工具輸出裡的提示注入（2.4.0-ds.6；只警告）
+python -I -X utf8 tools/dsh_audit.py inject --project-dir <WS>
+
+# 任何 agent：恢復或 DSH 自動壓縮後第一步（2.4.0-ds.6）
+python -I -X utf8 tools/resume_inject.py --file <自己的 RESUME_STATE.md>
 
 # 總監：整條指示鏈的大小與重複段落（2.3.0-ds.6，docs/09）
 python -I -X utf8 tools/memory_size_check.py --chain <REPO>/AGENTS.md <REPO>/AGENTS.local.md --max-bytes 65536
@@ -255,6 +275,8 @@ python -I -X utf8 flag_check.py --flags 開關.json --log 執行.log [--before "
 - `dsh_audit.py` 需要 Node 22+（zstd）；`dsh_doctor.py` 會確認。
 - `dsh_guard.py` 只檢查指令文字，不是攔截器；真正擋檔案的是 DSH 沙箱，核准政策是 session 設定。
 - `report_vs_audit.py` 的 `UNVERIFIED` 要人看：工具只能說「可能在截斷處」，不能判斷有沒有跑。
+- 2.4.0-ds.6 的打轉、恢復、注入檢查都是事後或自己跑的：上游 2.4.0 的即時提醒、重開時自動接回、工具結果旁的警告，在 DSH 都沒有。
+- `loops` 的 `child_error_unhandled` 只看「最後一個呼叫是失敗的子代理呼叫」；子代理結束事件（`subagent-settled`）的失敗狀態本機紀錄還沒看過，不猜。
 
 ### 已知限制（2.2.4-ds.4，Windows 長路徑，同上游 2.2.4）
 

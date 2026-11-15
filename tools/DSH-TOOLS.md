@@ -42,6 +42,20 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   bad_args (INVALID_ARGS / ToolArgsError, arguments that are not JSON: count, share, top 5 tools); child_error_unhandled
   prints only `~ NOT_VERIFIED` (no event for a failed child seen in the local logs). Tool names and hashes only, never
   inputs, outputs or messages; a forked session's copy of a finding is counted once. exit 0 none, 1 found, 2 cannot read.
+  2.4.0-ds.6 (upstream 2.4.0 loop_guard, after the fact): loops version 2 adds `--config FILE` (the loop_guard schema,
+  allow list included), `--retry-errors 2`, `--ping-pong 6` (`--rounds R` = 2R), `--bad-args 2`, DW's thresholds,
+  bad_args per tool, child_error_unhandled (the session's last call is a failed subagent / wait_agent call; NOT_VERIFIED
+  only with no child result), the LOOP line `LOOP <cat> tool= args= count= calls=A..B reminders= session= agent= at=`
+  and a `LOOPS ...` summary line (also `dsh_usage.py --loops`). `dsh_audit.py inject [same session filters]
+  [--events FILE...] [--tool T] [--show 40] [--json]` runs inject_scan.scan_text on every tool output the logs hold:
+  `INJECT <category> tool= call= line= session= agent= at=`, never the matched text; exit 1 found, 0 none, 2 cannot read.
+- inject_scan.py (2.4.0-ds.6, upstream 2.4.0 without its PostToolUse hook mode) - text in a file that tries to give
+  the agent orders (override, role_rewrite, hidden, encoded, exfiltration): `inject_scan.py scan FILE... [--json]`,
+  one `INJECT <category> line=N file=F` per finding, never the text. Warns only. exit 1 found, 0 none, 2 missing file.
+- resume_inject.py (2.4.0-ds.6, upstream 2.4.0 without SessionStart) - the RESUME_STATE header and open-items sections
+  (未結, OPEN_DECISIONS, IN_FLIGHT ...), at most --max-bytes (2048): `resume_inject.py --file RESUME_STATE.md
+  [--max-bytes N] [--section NAME ...]`. The agent runs it itself after a resume or a DSH compaction (AGENTS.md
+  section, docs/06b step 0). exit 0 (a missing file is one line), 2 bad arguments.
 - dsh_doctor.py - environment self-check: python, node, DSH home / sessions / projection cache, latest session decode,
   profile model / effort, latest session sandbox / approval, git, required tools, docs and templates; with --config
   the project director_work.json (one WARN line when it still has the block removed in 2.2.5-ds.5).
@@ -78,6 +92,8 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   and the tag sorts above every remote tag, selftest, a scan of everything about to go public, then push (no --force),
   annotated tag, `gh release create --verify-tag --latest`, each checked with ls-remote / gh release view. Dry run by
   default. Glue over git and gh: release-please / semantic-release need CI and conventional commits (see CHANGELOG).
+  2.4.0-ds.6: then the repository description's version (gh repo edit --description, checked with gh repo view;
+  no version in it is SKIP).
   `release.py [--repo DIR] [--config FILE] [--version X] [--merge] [--execute]`
   exit 0 dry run clean or release done, 1 a step failed (a NEXT: line says what to do), 2 cannot run.
 - verify_dsh_run.py (2.2.2-ds.3) - verify a DSH trial run of one work order from the files it left and the session

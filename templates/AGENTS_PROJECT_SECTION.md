@@ -1,10 +1,10 @@
 <!-- 貼在專案 AGENTS.md 最上方。把 <...> 換掉後刪除本行。 -->
 ## 總監制（Director mode）
 
-本專案用總監制開發，規則包：https://github.com/scottpuppylu/DIRECTOR-WORK（本機：<RULES>）。本專案的規則和 PO 指示永遠優先於規則包。
+本專案用總監制開發，規則包：https://github.com/scottpuppylu/dsh-DIRECTOR-WORKER（本機：<RULES>）。本專案的規則和 PO 指示永遠優先於規則包。
 
 - **總監**：DSH 根 session（代理名 `lead`），是 PO 的代理人。Worker 是總監用 `subagent` 開的具名子代理，接總監的工單（`<DIRECTOR>/orders/WO-*.md`），在 gate 完成、卡住、需要決定時，用 `send_message` 送一則完整的 TASK REPORT 給總監（`<RULES>/templates/TASK_REPORT.md`）。只有總監說可以時才直接找 PO；子代理不能直接問 PO。
-- **狀態寫檔**：每條工作線在自己的工作資料夾維護 `RESUME_STATE.md`，頂部四行 PROGRESS / DOING / NEXT_STEP / COMMS，每個 checkpoint 更新。任何中斷後，先照 `<RULES>/docs/06b_on_demand_procedures.md` 的恢復程序做。
+- **狀態寫檔**：每條工作線在自己的工作資料夾維護 `RESUME_STATE.md`，頂部四行 PROGRESS / DOING / NEXT_STEP / COMMS，每個 checkpoint 更新。DSH 自動壓縮或任何中斷後，先跑一次 `python -I -X utf8 <RULES>/tools/resume_inject.py --file <自己的 RESUME_STATE.md>`（印表頭四行和未結段，最多 2 KB），再照 `<RULES>/docs/06b_on_demand_procedures.md` 的恢復程序做。
 - **訊息**：用 `send_message`，只在 gate 報告、需要決定、要對方立刻改行動時發；不回 ACK；給同一人的內容一次發完。
 - **要 PO 回覆的事**：先報總監（標題 `PO_REPLY_NEEDED`），由總監記進待決帳（`<DIRECTOR>/PO_PENDING.md`）並用 `ask_user_question` 問 PO。
 - **上下文短**：長輸出寫檔、只看結論；大量閱讀和看圖交給 `off`／`low` 的子代理；DSH 會自動壓縮，一有進度就更新 `RESUME_STATE`，不為了縮上下文換 session。DSH 沒有專案級設定，新目錄或新 session 都不用跑專案設定工具。

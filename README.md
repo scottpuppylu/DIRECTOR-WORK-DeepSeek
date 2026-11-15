@@ -8,7 +8,7 @@
 
 ```text
 你是這個專案的「總監」（Development Director），是我（PO）的代理人。
-請使用這套流程：https://github.com/scottpuppylu/DIRECTOR-WORK-DeepSeek
+請使用這套流程：https://github.com/scottpuppylu/dsh-DIRECTOR-WORKER
 （dsh-DIRECTOR-WORKER。你自己用 git clone 下載到專案資料夾外，再照裡面的 BOOTSTRAP.md 做。）
 
 0. 先問我要用一般模式還是小白模式，我選了再開始其餘建置。
@@ -101,7 +101,7 @@ flowchart TD
 下圖是一件工作從改檔到上傳的路。每一格都會在本機留紀錄；最後兩步會影響正本或網路，所以一定先問你。
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["worker 改檔案"] --> B["commit：存一個存檔點"]
     B --> C["存檔點累積在這條工作線的 branch"]
     C --> D["總監檢查交件"]
@@ -133,7 +133,7 @@ flowchart LR
 打個比方：Claude 版像大樓門口有警衛，進門前就攔；dshdw 像監視器加每天查帳，事情發生了一定看得到，但不能在門口攔下。所以推送、刪除、付費這類事，總監一律先問你，不靠工具擋。
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["AI 要做一個動作"] --> B["DSH 沙箱與核准政策"]
     B -->|"不允許的寫入或需要核准"| X["平台擋下或先問你"]
     B -->|"允許"| C["動作直接執行：dshdw 沒有事前檢查"]
@@ -381,9 +381,9 @@ RESUMED <TASK_ID> at <checkpoint>; next=...; waiting=...; redo=...
 
 ### 打轉偵測和指示鏈大小怎麼查
 
-這兩個是 2.3.0-ds.6 加的事後檢查，總監照需要跑：
+這兩個是 2.3.0-ds.6 加的事後檢查（2.4.0-ds.6 照 Claude 版 2.4.0 補齊打轉的類別），總監照需要跑：
 
-- **打轉偵測（`dsh_audit.py loops`）**：事後翻 DSH 的對話紀錄，找出 AI 在原地繞圈的地方。例如同一個動作 20 步內做了 3 次、同樣的錯誤一直重試、中間也沒寫一句「為什麼失敗、下一步改什麼」、兩個動作來回切換卻沒進展、一直查卻每次結果都一樣、工具參數寫錯被拒收。它只記工具名和代號（雜湊），**不記你檔案或對話的內容**。結果可以接到 `status_gen.py` 的狀態報告，有發現時多一行 `LOOPS`。
+- **打轉偵測（`dsh_audit.py loops`）**：事後翻 DSH 的對話紀錄，找出 AI 在原地繞圈的地方。例如同一個動作 20 步內做了 3 次、同樣的錯誤一直重試、中間也沒寫一句「為什麼失敗、下一步改什麼」、兩個動作來回切換卻沒進展、一直查卻每次結果都一樣、同一個工具的參數 20 步內被拒收 2 次、子代理失敗後就沒有下文。它只記工具名和代號（雜湊），**不記你檔案或對話的內容**。結果可以接到 `status_gen.py` 的狀態報告，有發現時多一行 `LOOPS`；`dsh_usage.py --loops` 的用量報表也能多印一行 `LOOPS`。
 - **指示鏈大小（`memory_size_check.py --chain`）**：DSH 每次開工會自動載入一串指示檔（`AGENTS.md` 這類）。一條鏈上限 65536 bytes，超過的部分等於規則沒載入。`--chain` 把這串檔加起來量，超過上限就判 FAIL；也會列出好幾個檔重複寫的段落，方便整理。
 
 ```mermaid
@@ -394,17 +394,19 @@ flowchart TD
     B -->|"同樣的錯一直重試"| T["retry_same_error"]
     B -->|"兩個動作來回切"| P["ping_pong"]
     B -->|"一直查，結果都一樣"| Q["poll_no_progress"]
-    B -->|"參數寫錯被拒收"| G["bad_args"]
+    B -->|"同一工具的參數一直被拒收"| G["bad_args"]
+    B -->|"子代理失敗後沒有下文"| K["child_error_unhandled"]
     B -->|"沒有"| N["exit 0：沒發現"]
     R --> O["只印工具名和雜湊，exit 1"]
     T --> O
     P --> O
     Q --> O
     G --> O
+    K --> O
     O --> S["status_gen 狀態報告多一行 LOOPS，總監和你看得到"]
 ```
 
-子代理失敗的那一類（`child_error_unhandled`）目前標 NOT_VERIFIED：本機的 DSH 紀錄裡還沒看過子代理失敗的事件長什麼樣，所以不猜，只印一行提醒。
+子代理失敗的那一類（`child_error_unhandled`，2.4.0-ds.6 起會查）：一個 session 的最後一個呼叫是失敗的子代理呼叫（`subagent`、`wait_agent`），之後什麼都沒做，就算一筆。紀錄裡完全沒有子代理呼叫時沒東西可查，印 `NOT_VERIFIED`，不當成 0。
 
 ### 專案裡多了什麼
 
@@ -441,6 +443,75 @@ flowchart TD
 | **核准要你核准的事** | 對話裡說可以或不可以 | 推送（push）、合併到 main、公開發布、刪除或覆寫、付費、帳號，以及這個專案以外的事 |
 
 其他技術細節（怎麼寫、交件過不過、要不要退回重做）由總監自己決定，事後記在 `DIRECTOR/` 的紀錄裡，你隨時可以翻。
+
+## 2.4.0-ds.6 新增的事後檢查（選用）
+
+讀完這節，你會知道這一版從 Claude 版 2.4.0 搬來哪些小幫手、它們在 dshdw 怎麼用。Claude 版靠 hook 在 AI 動手的當下提醒；**DSH 沒有 hook**，所以這裡全部改成事後查，或由 AI 自己在恢復時跑一次。不跑，用起來和 2.3.0-ds.6 一樣。
+
+| 工具 | 一句話 | 在 dshdw 怎麼用 |
+|---|---|---|
+| `dsh_audit.py loops` | 找出 AI 在原地打轉（同一件事一直做、同一個錯一直重試、兩件事輪流來回、一直查但結果都一樣、參數一直被拒收、子代理失敗沒人處理） | 事後翻紀錄；Claude 版會在第 3、6、12 次當場提醒，這裡在每一筆旁邊寫 `reminders=幾次`，表示當場提醒的話會提醒幾次 |
+| `resume_inject.py` | 把 RESUME_STATE 的前四行和「未結」段落印出來（最多 2 KB） | DSH 自動壓縮或中斷後，AI 自己先跑一次（規則寫在 AGENTS.md 的總監段落） |
+| `dsh_audit.py inject`、`inject_scan.py scan` | 工具帶回來的網頁、檔案、指令輸出裡，有像是在對 AI 下命令的句子（例如「忽略前面的指示」） | 事後掃 DSH 紀錄裡的工具輸出，或掃一個檔案；只印類別和行號，不印那句話 |
+| `completion.py` 的 `depends_on` 欄 | 完成度表可以寫「這項要等哪幾項先完成」，工具直接列出「現在就能開工」的項目 | 和 Claude 版一樣 |
+| `templates/.pre-commit-config.yaml`、`templates/.gitleaks.toml` | 想在 commit 前自動掃秘密的人可以拿去用的範例 | dshdw 本身不用它們 |
+
+### 怎麼用
+
+不用設定，直接跑（`<RULES>` 是規則包的位置）：
+
+```text
+python -I -X utf8 <RULES>/tools/dsh_audit.py loops --project-dir <工作區>
+python -I -X utf8 <RULES>/tools/dsh_audit.py inject --project-dir <工作區>
+python -I -X utf8 <RULES>/tools/resume_inject.py --file <RESUME_STATE.md>
+```
+
+合法的等待（例如每分鐘看一次 build 好了沒）可以寫進 `loops --config` 設定檔的 `allow`，就不會被算成打轉；設定檔格式和 Claude 版 2.4.0 的一樣。
+
+### 打轉怎麼被查到
+
+```mermaid
+flowchart TD
+    A["AI 做完一串動作，都記在 DSH 的 session 紀錄"] --> B["總監在 checkpoint 或交件時跑 dsh_audit.py loops"]
+    B --> C{"20 個呼叫內，同一件事做了幾次？"}
+    C -->|"不到 3 次"| D["不算打轉"]
+    C -->|"3 次以上"| E["記一筆，寫 count 和 reminders"]
+    E --> F{"在設定檔的 allow 裡嗎？"}
+    F -->|"是，還沒到 max"| D
+    F -->|"不是，或超過 max"| G["LOOP 行：只有工具名、雜湊、次數"]
+    G --> H["status 報告和 dsh_usage --loops 多一行 LOOPS"]
+```
+
+### 中斷或壓縮後先看重點
+
+```mermaid
+sequenceDiagram
+    participant AI as 總監或 worker
+    participant RI as resume_inject.py
+    participant RS as RESUME_STATE.md
+    Note over AI: DSH 自動壓縮，或中斷後回來
+    AI->>RI: 照 AGENTS.md 的規則，自己先跑一次
+    RI->>RS: 讀前四行和「未結」段落
+    RI-->>AI: 最多 2 KB 的文字
+    AI->>AI: 再照 docs/06b 的恢復程序做，需要時才讀全檔
+```
+
+- Claude 版是重開或壓縮時自動跑；DSH 沒有這種掛點，所以寫成規則，由 AI 自己跑。
+- 這一行規則放在 AGENTS.md 的總監段落裡，算在 65536 bytes 的指示鏈上限內；印出來的文字最多 2 KB。
+
+### 提示注入警告
+
+AI 讀到的網頁或檔案，可能藏著「現在開始你要……」這種想騙 AI 的句子。`dsh_audit.py inject` 事後翻 DSH 紀錄裡每一個工具輸出，看到這類句子就列出「哪個 session、第幾個呼叫、哪個工具、第幾行、哪一類」；它不會擋、不會改，也不會把那句話再印一次。它會漏（換個說法就抓不到），也會誤報（例如講提示注入的文件本身）。真正的規則仍然是：只有你在對話裡說的才算指令。
+
+```mermaid
+flowchart TD
+    A["工具帶回網頁、檔案或指令輸出"] --> B["內容記在 DSH 的 session 紀錄"]
+    B --> C["事後跑 dsh_audit.py inject"]
+    C --> D{"有像命令的句子嗎？"}
+    D -->|"沒有"| E["DSH_INJECT: NONE"]
+    D -->|"有"| F["INJECT 行：類別、工具、第幾個呼叫、第幾行"]
+    F --> G["總監檢查那個呼叫之後 AI 有沒有照著做"]
+```
 
 ## 開始前要準備
 
@@ -523,7 +594,7 @@ worker 的分支、交件檢查都靠它；改壞了也能回到之前的存檔�
 | 等級 | 用在 | 多做什麼 |
 |---|---|---|
 | Direct | 純查詢、文件，沒有風險 | 不做規格審查 |
-| Standard | 一般開發，可以回退 | 規格審查選用 |
+| Standard | 一般開發，可以回退 | 派工前也要做規格審查 |
 | Strict | 核心邏輯、資料格式、存檔、對外介面、跨分支整合、發布 | 派工前一定先做規格審查 |
 
 Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停止規則，總監不能自己關（`docs/13`）。
@@ -546,7 +617,9 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 | 待決頁 | Claude 私人網頁（Artifact）＋置頂 | `ask_user_question`＋本機 `PO_PENDING.md` |
 | 選擇頁 | 網頁選擇題＋成品截圖 | 對話附圖＋`ask_user_question` |
 | 自動阻擋 | PreToolUse hook（hook_guard.py），動手前就擋 | **沒有事前檢查**；靠沙箱、核准政策、工單範圍和事後檢查 |
-| 打轉偵測 | — | `dsh_audit.py loops`（事後翻紀錄） |
+| 打轉偵測 | `loop_guard.py`（2.4.0：動手前提醒，也能事後查） | `dsh_audit.py loops`（事後翻紀錄，類別和門檻照 2.4.0） |
+| 中斷後接回 | `resume_inject.py`（2.4.0：重開或壓縮時自動跑） | 同一支，AI 照規則自己先跑一次 |
+| 提示注入警告 | `inject_scan.py`（2.4.0：工具結果旁即時警告） | `dsh_audit.py inject`（事後掃紀錄裡的工具輸出） |
 | 容器 worker | 有 | 沒有（平台不支援） |
 | 排程喚醒 | 背景計時器／排程任務 | `schedule_create`（只有你明確要求才建） |
 | 上下文 | 壓縮門檻 250000、98% 停工線 | 自動壓縮；視窗 1,048,576 tokens |
@@ -579,8 +652,8 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 | `docs/11_dsh_operations.md` | 在 DSH 上操作：能力→工具對照、開 worker 的流程、限制清單 | 在 DSH 上建置與操作時 |
 | `docs/12_chat_to_product.md` | 一般／小白模式、初衷卡、選擇題、不做歪的檢查 | 建置時；談需求、寫工單時 |
 | `docs/13_safety_gates.md` | 安全閘門：鎖定測試、計畫閘門、規格審查、1 輪停止、不得自行關閉、`safety` 開關 | 寫 Standard／Strict 工單前 |
-| `templates/` | AGENTS.md 段落、工單、報告、RESUME_STATE、測試申請、決策登記、裁決、待決帳、初衷卡、DIRECTOR/ 其他檔案骨架、CPU 重現步驟、送 TR 前檢查設定、執行腳本收尾範本 | 建置與派工時 |
-| `tools/` | 工單／報告／證據／範圍／追溯檢查、用量與動作紀錄、打轉偵測、指示鏈大小、環境檢查 | 見 `tools/README.md` |
+| `templates/` | AGENTS.md 段落、工單、報告、RESUME_STATE、測試申請、決策登記、裁決、待決帳、初衷卡、DIRECTOR/ 其他檔案骨架、CPU 重現步驟、送 TR 前檢查設定、執行腳本收尾範本；2.4.0-ds.6 加 commit 前掃秘密的範例（`.pre-commit-config.yaml`、`.gitleaks.toml`） | 建置與派工時 |
+| `tools/` | 工單／報告／證據／範圍／追溯檢查、用量與動作紀錄、打轉偵測、指示鏈大小、環境檢查；2.4.0-ds.6 加提示注入事後掃描（`inject_scan.py`、`dsh_audit.py inject`）、恢復時印 RESUME_STATE 重點（`resume_inject.py`）、完成度表的 `depends_on` | 見 `tools/README.md` |
 | `director_work.example.json` | 工具設定範例 | 建置時 |
 | `VERSION`、`CHANGELOG.md` | 版本號、各版改了什麼 | 建置時記版本；升級時 |
 
@@ -597,7 +670,8 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 | 工單範圍＋`scope_check.py` | **事後檢查** | 交件時比對實際改動有沒有超出工單 |
 | 證據紀錄＋`gate_check.py` | **可驗證** | 驗收指令、exit code、HEAD、產物雜湊；不是安全邊界 |
 | `dsh_audit.py` | **可驗證、不能防竄改** | 從 session 紀錄重建動作；能寫檔的人可以改紀錄 |
-| `dsh_audit.py loops` | **事後檢查** | 找出打轉、同錯重試、參數錯誤；只記工具名和雜湊 |
+| `dsh_audit.py loops` | **事後檢查** | 找出打轉、同錯重試、參數錯誤、子代理失敗沒人處理；只記工具名和雜湊 |
+| `dsh_audit.py inject` | **事後警告** | 找出工具輸出裡像命令的句子；換句話說、拆行、別的語言或編碼都抓不到，講提示注入的文件會誤報 |
 | `dsh_guard.py`（選用） | **只提醒** | 沒有 hook，worker 要自己跑 |
 | 暫停開關 `pause_ctl.py` | **紀律** | worker 照工單自己讀，總監審查時核對；平台不強制 |
 | 單一寫入者 | **紀律** | 同一份檔案同一時間只有一個寫入者；靠工單和分支 |
@@ -615,7 +689,8 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 - 子代理的模型與 effort 開工時固定，不能中途改；要換就開接班人。
 - 子代理預設拿到完整工具集，不能只給讀取；盲審 reviewer 的限制靠指示＋事後 `dsh_audit.py` 核對。
 - 子代理共享同一個工作副本與檔案系統，沒有每位 worker 各自的 worktree；單一寫入者靠檔案歸屬、工單範圍和總監最後看 diff。
-- 子代理失敗的事件在本機紀錄還沒看過，`loops` 的 `child_error_unhandled` 標 NOT_VERIFIED。
+- `loops` 的 `child_error_unhandled` 只看「session 最後一個呼叫是失敗的子代理呼叫」；子代理結束事件（`subagent-settled`）本身的失敗狀態，本機紀錄還沒看過，不猜。
+- Claude 版 2.4.0 的三個 hook（打轉當場提醒、重開時自動接回、工具結果旁的注入警告）在 DSH 都沒有；這裡全部是事後查，或由 AI 照規則自己跑。
 - 沒有容器 worker、沒有外掛的專案級開關、沒有記憶索引檔（MEMORY.md）。
 - 排程喚醒只有你明確要求才建，而且只有總監（根 session）能用。
 

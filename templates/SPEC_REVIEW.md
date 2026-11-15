@@ -48,4 +48,4 @@ Strict 和 Standard 工單必做（ds.2 起 Standard 也要，開關 `safety.spe
 1. 決定改或不改工單，改了就 `REVISION` 加 1、記變更紀錄。
 2. 鎖定測試之前（2.2.3，L-049）：第 11 項每個字面期望值都要重算過（subagent 手算，或總監另寫一支不呼叫被測程式的獨立程式），重算表寫進審查紀錄（DIRECTOR_LOG 那一行旁邊的審查檔，例：`DIRECTOR/reviews/WO-<編號>_SPEC_REVIEW.md`）。有「不符」或「算不出」就不鎖，先修測試或工單（測試已鎖就改測試或規格、重鎖雜湊、REVISION 加 1），再重審。
 3. 在 `DIRECTOR_LOG` 記一行（整行，`gate_check.py --match --dispatch-log` 會找它）：`SPEC_REVIEW WO-<編號> tokens=<數字> issues=<P0/P1/P2 各幾個> adopted=<採用幾個> session=<審查子代理的 DSH session id>`（2.2.5 加 `session=`；時間用 `ran_line.py --stamp` 印，不手打）；審查檔放 `reviews/` 時寫 `SESSION_ID:` 一行。`gate_check.py --sequence` 拿它和寫工單那一方（DISPATCH 行的 `session=` 或工單的 `SESSION_ID:`）比：相同就 FAIL，缺一邊就 WARN；tokens 用 `tools/dsh_usage.py` 看該子代理 session 的用量，分不出來或讀不到就記 UNKNOWN。
-4. 之後這張工單如果返工，查一下規格審查有沒有提過；用這些紀錄決定 Standard 要不要繼續做（`docs/02`）。
+4. 之後這張工單如果返工，查一下規格審查有沒有提過；記下這些紀錄；Standard 要不要降回選用由 PO 看這些數字決定（`docs/02`；2.4.0-ds.6 更正：原本寫成用紀錄自己決定）。
