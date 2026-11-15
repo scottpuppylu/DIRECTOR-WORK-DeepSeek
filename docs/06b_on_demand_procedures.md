@@ -44,7 +44,7 @@ PO 手動停止後再讓它繼續，也要先完整跑一次這個程序：停�
 | 7. 改版 | 「再加『只看沒勾的』，能切回全部，原本功能都要留」；看到新卡回「對，照這張做」 | 保留 r1，B-3 改成 r2 DRAFT 給 PO 確認；鎖 r2 後才改工單（REVISION +1、重算雜湊、受影響 AC 重驗），沿用原 worker | 一次改版、一次新卡確認；新功能有當前候選的證據 |
 | 8. 收貨 | 打開總監給的候選入口檔逐條試；符合就回「對，可以收貨」 | 審查、用 `present` 宣告入口檔、把這則回覆綁到候選（`docs/07`） | B-1 至 B-5 都能指出位置並驗到 |
 
-**記錄**：每步的時間讀 `date`。決策事件（`asked` / `answer_received` / `applied` / `closed`）和 PO 的實際操作（`po_action`，例如選項、送出、關對話）照 `tools/README.md`「metrics_report --run」寫進 `DIRECTOR/research/<run>/events/`，`metrics_report.py --run` 算到第一個可用預覽的時間、同題重問次數和 PO 操作數；跟一般模式比，加 `--compare <基準 run>`。工具做不到的步驟照實記卡在哪裡，不改劇本；DSH 版總監可以直接開子代理，開線通常不會是卡點。
+**記錄**：每步的時間讀 `date`。決策事件（`asked` / `answer_received` / `applied` / `closed`）和 PO 的實際操作（`po_action`，例如選項、送出、關對話）照 `tools/README.md`「metrics_report --run」寫進 `DIRECTOR/research/<run>/events/`，`metrics_report.py --run` 算到第一個可用預覽的時間、同題重問次數和 PO 操作數；跟一般模式比，加 `--compare <基準 run>`。工具做不到的步驟照實記卡在哪裡，不改劇本；dshdw 總監可以直接開子代理，開線通常不會是卡點。
 
 ### git 細節（2.1.0 從 `docs/08` 移來）
 

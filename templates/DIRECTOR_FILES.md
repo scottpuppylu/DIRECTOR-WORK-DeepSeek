@@ -71,7 +71,7 @@ PLAN_APPROVED 要早於 worker 在這張工單的第一個 commit（標題以 `W
 | 機制 | 擁有者 | 中斷會怎樣 | 怎麼檢查 | 重建指令 |
 ```
 
-DSH 版的機制：模型與 effort、子代理上限與深度、沙箱模式與核准政策、待決帳（`ask_user_question`＋`PO_PENDING.md`）、用量檢查（`dsh_usage.py`）、動作紀錄（`dsh_audit.py`）、排程喚醒（只有 PO 明確要求才建；用 `schedule_list` 檢查）、背景 job（`job_list`）、快照。
+dshdw 的機制：模型與 effort、子代理上限與深度、沙箱模式與核准政策、待決帳（`ask_user_question`＋`PO_PENDING.md`）、用量檢查（`dsh_usage.py`）、動作紀錄（`dsh_audit.py`）、排程喚醒（只有 PO 明確要求才建；用 `schedule_list` 檢查）、背景 job（`job_list`）、快照。
 
 ## BASELINE_METRICS.md
 

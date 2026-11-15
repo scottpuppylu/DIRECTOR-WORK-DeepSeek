@@ -55,7 +55,7 @@ import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
-DEFAULTS = {"remote": "origin", "branch": "main", "title": "v{version} — DIRECTOR-WORK DeepSeek Harness 版",
+DEFAULTS = {"remote": "origin", "branch": "main", "title": "v{version} — dsh-DIRECTOR-WORKER",
             "tag_message": "v{version}", "selftest": "python -I -X utf8 tools/selftest_ds.py", "gh_repo": None}
 VERSION_SHAPE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.(\d+))?$")
 PRIVATE_PATHS = [(re.compile(r"(^|/)DIRECTOR/"), "a DIRECTOR/ file (project state, never public)"),

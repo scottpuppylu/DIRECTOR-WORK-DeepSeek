@@ -1,4 +1,4 @@
-"""Pause flag for every session (read by the workers themselves in the DSH edition), and a CPU report of a process
+"""Pause flag for every session (read by the workers themselves in dshdw), and a CPU report of a process
 tree after a stop.
 
   python -I -X utf8 pause_ctl.py on --director DIR --reason TEXT [--by NAME]   write DIR/PAUSE, log "PAUSE on" in DIR/DIRECTOR_LOG.md

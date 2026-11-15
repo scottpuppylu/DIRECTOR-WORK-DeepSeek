@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke tests for the DIRECTOR-WORK DeepSeek Harness (DSH) edition toolchain.
+"""Smoke tests for the dsh-DIRECTOR-WORKER (dshdw) toolchain, DIRECTOR-WORK on DeepSeek Harness (DSH).
 
   python -I -X utf8 tools/selftest_ds.py [--verbose] [--keep]
 
@@ -117,6 +117,19 @@ Runs, on this machine and offline:
   verdict_self_check_keys_230 2.3.0-ds.5: dsh_setup_check accepts verdict_self_check warn / fail, flags strict / true
               (shadow; --strict FAIL); bootstrap_repo --config prints the CONFIG line for warn / fail / unset and a WARN
               line for a bad value, config unchanged; 2 mutations
+  loops_fixtures_236 2.3.0-ds.6 (WO-DS-011 B2): dsh_audit.py loops on tools/fixtures/loops: a positive and a negative
+              file per category (repeat, retry_same_error, ping_pong, poll_no_progress, bad_args), CLI and in process;
+              child_error_unhandled only `~ NOT_VERIFIED`; a forked session copy counted once; 8 mutations
+  loops_privacy_236 2.3.0-ds.6 B4: made-up secrets and marker text (and real-shaped keys built at run time) never reach
+              the plain output, --json or --out; LOOP lines hold only names and hashes; 1 mutation
+  loops_real_236 2.3.0-ds.6 B3 smoke: loops on the newest real DSH session log (SKIP without one or without Node)
+  loops_status_236 2.3.0-ds.6: status_gen "loops" section: a LOOPS line only with findings, MISSING, bad key; 1 mutation
+  chain_236     2.3.0-ds.6 B5: memory_size_check --chain: FAIL over --max-bytes, LF bytes, MISSING, shared passages of
+              3+ lines between files with positions; single-file and --kind resume output unchanged; 3 mutations
+  rename_236    2.3.0-ds.6 B6: no wrongly written product name in any repo file, the old name only as the old-name note /
+              old CHANGELOG sections / upstream log / fixtures, the entry documents and the README prompt name
+              dsh-DIRECTOR-WORKER, the release title
+  rules_236     2.3.0-ds.6 A.3: the three rules in WORK_ORDER, RESUME_STATE and docs/07; docs/09 uses --chain
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -129,7 +142,9 @@ Exit codes: 0 all tests passed (SKIP is not a failure), 1 any FAIL, 2 cannot run
 Standard library only; no network; the temp folder is removed unless --keep.
 """
 import argparse
+import contextlib
 import hashlib
+import io
 import importlib.util
 import json
 import os
@@ -3011,7 +3026,7 @@ def setup_shadow(tmp):
     warn = "\"sdd\" 區塊是空的"
     require("keys no tool reads: colour (a typo?)" in text and "sdd" not in text.split("keys no tool reads: ")[-1]
             and text.count(warn) == 1, "an empty sdd block: not one WARN, or called a typo: " + tail(text))
-    for said in ("Claude-only keys the DSH edition does not read: window", "keys no tool reads: colour",
+    for said in ("Claude-only keys dshdw does not read: window", "keys no tool reads: colour",
                  "resume keys no tool reads: keep_days", "base_ref key no tool reads: strct",
                  "ACT-002 (line", "no CREATED line", "`ID: CH-003` is not OD-xx / ACT-xx"):
         require(said in text, "expected the note %r: %s" % (said, tail(text)))
@@ -4652,6 +4667,317 @@ def verdict_self_check_keys_230(tmp):
     mutant = mutated("bootstrap_repo", [('    if value not in ("warn", "fail"):\n', "    if False:\n")])
     killed("bootstrap_repo without the bad-value WARN", not mutant.verdict_self_check_line(paths["strict"]).startswith("WARN"))
     return done230(start, 2)
+
+
+# ---------------------------------------------------------------- 2.3.0-ds.6 (WO-DS-011)
+
+LOOP_FIXTURES = TOOLS / "fixtures" / "loops"
+
+
+class QuietOut(io.StringIO):
+    """A stdout for an in-process tool run whose lines are not the test's output (the tools reconfigure stdout)."""
+
+    def reconfigure(self, **_):
+        pass
+# expected finding counts per synthetic fixture (category: count; the others 0); each category has a positive and a
+# negative file, plus secret_leak for the privacy test
+LOOP_EXPECTED = {
+    "repeat_pos": {"repeat": 1}, "repeat_neg": {},
+    "retry_pos": {"retry_same_error": 1}, "retry_neg": {},
+    "ping_pong_pos": {"repeat": 2, "ping_pong": 1}, "ping_pong_neg": {"repeat": 2},
+    "poll_pos": {"repeat": 1, "poll_no_progress": 1}, "poll_neg": {"repeat": 1},
+    "bad_args_pos": {"bad_args": 2}, "bad_args_neg": {},
+    "secret_leak": {"repeat": 1, "retry_same_error": 1, "bad_args": 1},
+}
+LOOP_CATEGORIES = ("repeat", "retry_same_error", "ping_pong", "poll_no_progress", "bad_args")
+
+
+def loop_counts(module, *paths, **settings):
+    """loops() of a dsh_audit module (the real one or a mutant) on fixture files, in process: the counts dict."""
+    values = {"repeat": 3, "window": 20, "rounds": 3, "poll": 3}
+    values.update(settings)
+    return module.loops(argparse.Namespace(events=[str(p) for p in paths], **values))["counts"]
+
+
+def want_counts(name):
+    return {category: LOOP_EXPECTED[name].get(category, 0) for category in LOOP_CATEGORIES}
+
+
+@test
+def loops_fixtures_236(tmp):
+    """2.3.0-ds.6 B2: dsh_audit.py loops on the synthetic fixtures in tools/fixtures/loops: each category's positive
+    file is caught and its negative file is not (counts per fixture, CLI --json and exit code 1 / 0, in process too);
+    child_error_unhandled prints only `~ NOT_VERIFIED`; a forked copy of a session (same events, other id) is counted
+    once with copies=2; bad --repeat is NOT_RUN. 8 mutations."""
+    start = CLI_CALLS[0]
+    real = load_tool("dsh_audit")
+    for name in sorted(LOOP_EXPECTED):
+        path = LOOP_FIXTURES / (name + ".jsonl")
+        check230("fixture %s exists" % name, path.is_file())
+        out = expect_tool("loops --json " + name, "dsh_audit", 1 if LOOP_EXPECTED[name] else 0, "loops", "--events",
+                          path, "--json")
+        data = json.loads(out)
+        check230("loops %s counts" % name, data["counts"] == want_counts(name), data["counts"])
+        check230("loops %s in process" % name, loop_counts(real, path) == want_counts(name))
+        check230("loops %s: child_error_unhandled not verified" % name, data["not_verified"] == ["child_error_unhandled"])
+    plain = expect_tool("loops plain", "dsh_audit", 1, "loops", "--events", LOOP_FIXTURES / "retry_pos.jsonl",
+                        says=["LOOP retry_same_error session=session-fx-retry_pos agent=lead call=2 ",
+                              "~ NOT_VERIFIED child_error_unhandled", "DSH_LOOPS sessions=1 calls=2 findings=1 "],
+                        lacks=["LOOP child_error"])
+    check230("loops plain: one LOOP line", plain.count("\nLOOP ") + plain.startswith("LOOP ") == 1, plain)
+    events = (LOOP_FIXTURES / "retry_pos.jsonl").read_text(encoding="utf-8")
+    fork = write(tmp / "loops236" / "fork.jsonl", events.replace("session-fx-retry_pos", "session-fx-retry_fork"))
+    expect_tool("loops forked copy counted once", "dsh_audit", 1, "loops", "--events", LOOP_FIXTURES / "retry_pos.jsonl",
+                fork, says=["findings=1 ", "copies=2"])
+    lines = events.splitlines()  # the same two failures with 3 other calls between them (the retry is 4 calls apart)
+    reads = [json.dumps({"type": "tool/ptc-dispatch", "seq": 100 + i, "time": 1700000100000 + i,
+                         "data": {"name": "read", "subCallId": "far%d" % i, "arguments": {"path": "notes/far%d.md" % i},
+                                  "isError": False, "content": [{"type": "text", "text": "far %d" % i}]}}) for i in range(3)]
+    far = write(tmp / "loops236" / "far.jsonl", "\n".join(lines[:5] + reads + lines[5:]) + "\n")
+    expect_tool("loops --repeat 1", "dsh_audit", 2, "loops", "--events", fork, "--repeat", "1", says="NOT_RUN")
+    expect_tool("loops missing file", "dsh_audit", 2, "loops", "--events", tmp / "loops236" / "none.jsonl", says="NOT_RUN")
+    f = lambda name: LOOP_FIXTURES / (name + ".jsonl")
+    mutants = [
+        ("retry without the written-line check", [('                     and not any(before["pos"] < p < after["pos"] '
+                                                     'for p in texts))', "                     and True)")],
+         lambda m: loop_counts(m, f("retry_neg"))["retry_same_error"] != 0),
+        ("wait_agent not left out", [('WAIT_TOOLS = ("wait_agent",)', "WAIT_TOOLS = ()")],
+         lambda m: loop_counts(m, f("poll_neg"))["repeat"] != 1),
+        ("ping_pong without the result check", [('and c["result"] == (a, b)[j % 2]["result"]', "and True")],
+         lambda m: loop_counts(m, f("ping_pong_neg"))["ping_pong"] != 0),
+        ("repeat without the window", [('window = looped[max(0, i - settings["window"] + 1):i + 1]', "window = looped[:i + 1]")],
+         lambda m: loop_counts(m, f("repeat_neg"))["repeat"] != 0),
+        ("bad_args without the DSH error code / name", [('BAD_ARGS_CODES = ("INVALID_ARGS",)', "BAD_ARGS_CODES = ()"),
+                                                        ('BAD_ARGS_NAMES = ("ToolArgsError",)', "BAD_ARGS_NAMES = ()")],
+         lambda m: loop_counts(m, f("bad_args_pos"))["bad_args"] != 2),
+        ("poll without the result check", [('"ok" and before["result"] == after["result"]', '"ok"')],
+         lambda m: loop_counts(m, f("poll_neg"))["poll_no_progress"] != 0),
+        ("no forked-session dedupe", [("            if same in first:\n", "            if False:\n")],
+         lambda m: loop_counts(m, f("retry_pos"), fork)["retry_same_error"] != 1),
+        ("retry without the window", [('                     and place[after["n"]] - place[before["n"]] <= settings["window"]\n', "")],
+         lambda m: loop_counts(m, far, window=2)["retry_same_error"] != 0),
+    ]
+    check230("retry 4 calls apart: found within --window 20", loop_counts(real, far)["retry_same_error"] == 1)
+    check230("retry 4 calls apart: not a retry with --window 2", loop_counts(real, far, window=2)["retry_same_error"] == 0)
+    for name, swaps, wrong in mutants:
+        killed(name, wrong(mutated("dsh_audit", swaps)))
+    return done230(start, len(mutants))
+
+
+LEAK_MARKERS = ("FAKE_SECRET_IN_ARGS", "FAKE_PASSWORD_VALUE", "FAKEBEARERTOKENVALUE", "FAKE_SECRET_IN_MESSAGE",
+                "MARKER_ARGUMENT_TEXT", "MARKER_OUTPUT_TEXT", "MARKER_MESSAGE_TEXT", "MARKER_PATH_TEXT", "MARKER_ERROR_TEXT",
+                "deploy --api-key", "Authorization")
+LOOP_LINE = re.compile(r"LOOP (repeat|retry_same_error|ping_pong|poll_no_progress|bad_args) session=\S+ agent=\S+ call=\d+ "
+                       r"at=\S+ tool=\S+ key=[0-9a-f]{12} (count=\d+/\d+ total=\d+|result=[0-9a-f]{12} previous_call=\d+ "
+                       r"no_text_between|other=\S+:[0-9a-f]{12} rounds=\d+|result=[0-9a-f]{12} times=\d+|reason=[A-Z_]+)"
+                       r"( copies=\d+)?")
+
+
+@test
+def loops_privacy_236(tmp):
+    """2.3.0-ds.6 B4: loops prints tool names and hashes only. The secret_leak fixture holds made-up secrets and marker
+    text in inputs, outputs and messages; a copy holds real-shaped keys (built here, never stored): none of it is in
+    the plain output, --json or the --out file, and every LOOP line has only the allowed fields. 1 mutation."""
+    start = CLI_CALLS[0]
+    source = (LOOP_FIXTURES / "secret_leak.jsonl").read_text(encoding="utf-8")
+    shaped = ["sk-" + "ant-" + "Q7x" * 9, "gh" + "p_" + "Zr4" * 13]
+    copy = write(tmp / "leak236" / "shaped.jsonl", source.replace("FAKE_SECRET_IN_ARGS", shaped[0])
+                 .replace("FAKEBEARERTOKENVALUE", shaped[1]))
+    out_file = tmp / "leak236" / "loops.json"
+    texts = []
+    for path in (LOOP_FIXTURES / "secret_leak.jsonl", copy):
+        texts.append(expect_tool("loops plain " + path.name, "dsh_audit", 1, "loops", "--events", path,
+                                 says="findings=3 ", lacks=list(LEAK_MARKERS) + shaped))
+        texts.append(expect_tool("loops --json " + path.name, "dsh_audit", 1, "loops", "--events", path, "--json",
+                                 "--out", out_file, lacks=list(LEAK_MARKERS) + shaped))
+        written = out_file.read_text(encoding="utf-8")
+        check230("loops --out %s leaks nothing" % path.name, not any(m in written for m in LEAK_MARKERS + tuple(shaped)))
+    for line in texts[0].splitlines():
+        if line.startswith("LOOP "):
+            check230("LOOP line has only the allowed fields", LOOP_LINE.fullmatch(line), line)
+    mutant = mutated("dsh_audit", [('    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]\n',
+                                    "    return text[:200]\n")])
+    leaked = mutant.loops(argparse.Namespace(events=[str(LOOP_FIXTURES / "secret_leak.jsonl")], repeat=3, window=20,
+                                             rounds=3, poll=3))
+    killed("a key that is the input itself", any(m in json.dumps(leaked) for m in LEAK_MARKERS))
+    return done230(start, 1)
+
+
+@test
+def loops_real_236(tmp):
+    """2.3.0-ds.6 B3 smoke: loops reads the newest real DSH session log (read-only) and prints its summary and the
+    NOT_VERIFIED line; exit 0 (nothing found) or 1 (found). SKIP without a session log or Node."""
+    log = newest_session_log()
+    if log is None:
+        raise Skip("no DSH session log under " + str(dsh_home() / "sessions"))
+    proc = run_tool("dsh_audit", "loops", "--session", log.parent.name, "--json")
+    text = text_of(proc)
+    if proc.returncode == 2 and "node" in text.lower():
+        raise Skip("Node is needed to decode the session log: " + tail(text, 200))
+    require(proc.returncode in (0, 1), "loops on the newest session exit %s: %s" % (proc.returncode, tail(text)))
+    data = json.loads(proc.stdout)
+    require(data["sessions"] >= 1 and data["calls"] >= 0 and data["not_verified"] == ["child_error_unhandled"],
+            "loops summary: " + tail(json.dumps({k: data[k] for k in ("sessions", "calls", "counts")})))
+    require((proc.returncode == 1) == bool(data["findings_total"]), "exit code does not follow the findings")
+    return "newest session: %d calls, %d findings" % (data["calls"], data["findings_total"])
+
+
+@test
+def loops_status_236(tmp):
+    """2.3.0-ds.6 A.1 wiring: status_gen's "loops" section prints one LOOPS line when the loops JSON has findings,
+    nothing when it has none, MISSING (exit 1) when the file is not there; an unknown key in the section is a config
+    FAIL. 1 mutation."""
+    start = CLI_CALLS[0]
+    folder = tmp / "status236"
+    found, none = folder / "found.json", folder / "none.json"
+    folder.mkdir(parents=True)
+    expect_tool("loops --out found", "dsh_audit", 1, "loops", "--events", LOOP_FIXTURES / "retry_pos.jsonl", "--out", found)
+    expect_tool("loops --out none", "dsh_audit", 0, "loops", "--events", LOOP_FIXTURES / "retry_neg.jsonl", "--out", none)
+
+    def status(name, loops, module=None):
+        config = write(folder / ("c_%s.json" % name), json.dumps({"schema_version": 1, "name": name, "loops": loops}))
+        script = folder / ("s_%s.py" % name)
+        if module is None:
+            CLI_CALLS[0] += 1
+            made = run_tool("status_gen", "--config", config, "--out", script, "--force")
+        else:
+            made = None
+            with contextlib.redirect_stdout(QuietOut()):  # its WROTE line is not this test's output
+                module.main(["--config", str(config), "--out", str(script), "--force"])
+        if made is not None and made.returncode:
+            return made.returncode, text_of(made)
+        done = subprocess.run(PY_ARGS + [str(script)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        return done.returncode, text_of(done)
+
+    code, out = status("found", {"path": "found.json"})
+    check230("status LOOPS line with findings", code == 0 and "LOOPS found.json (modified " in out
+             and "findings=1 repeat=0 retry_same_error=1" in out, out)
+    code, out = status("none", {"path": "none.json"})
+    check230("status: no LOOPS line without findings", code == 0 and "LOOPS" not in out, out)
+    code, out = status("absent", {"path": "absent.json"})
+    check230("status: missing loops file", code == 1 and "LOOPS MISSING" in out, out)
+    code, out = status("badkey", {"path": "none.json", "hours": 1})
+    check230("status_gen: unknown loops key", code == 2 and "loops: unknown key(s) hours" in out, out)
+    mutant = mutated("status_gen", [("            if total:\n", "            if True:\n")])
+    code, out = status("none_mutant", {"path": "none.json"}, mutant)
+    killed("status prints LOOPS without findings", "LOOPS" in out)
+    return done230(start, 1)
+
+
+@test
+def chain_236(tmp):
+    """2.3.0-ds.6 B5: memory_size_check --chain: the sum against --max-bytes (over: FAIL exit 1; under or no limit:
+    PASS), LF bytes of a CRLF file, a missing file is MISSING (exit 1), shared passages of 3+ lines between files are
+    listed with positions (blank lines skipped; a 2-line repeat and the same file are not), --chain takes no --kind;
+    the single-file and --kind resume output is unchanged. 3 mutations."""
+    start = CLI_CALLS[0]
+    folder = tmp / "chain236"
+    a = write(folder / "A.md", "# A\nRule one is here\nRule two is here\n\nRule three is here\nRule four\nend a\n")
+    b = write(folder / "B.md", "start\n---\nRule one is here\nRule two is here\nRule three is here\nRule four\n"
+                                "Rule one is here\nRule two is here\nother\n")
+    c = folder / "C.md"
+    c.write_bytes(b"line x\r\nline y\r\n")
+    total = sum(p.stat().st_size for p in (a, b, c))
+    out = expect_tool("--chain under the limit", "memory_size_check", 0, "--chain", a, b, c, "--max-bytes", total,
+                      says=["DUP %s:2-6 = %s:3-6 (4 lines)" % (a, b), "CHAIN: PASS files=3 bytes=%d (limit %d)" % (total, total),
+                            "lf_bytes=%d" % (total - 2), "(LF 14)", "dups=1"])
+    check230("--chain: one DUP line (the 2-line repeat is not one)", out.count("DUP ") == 1, out)
+    expect_tool("--chain over the limit", "memory_size_check", 1, "--chain", a, b, c, "--max-bytes", total - 1,
+                says=["CHAIN: FAIL files=3", "over the limit"])
+    expect_tool("--chain without a limit", "memory_size_check", 0, "--chain", a, b, says="(limit none)")
+    expect_tool("--chain missing file", "memory_size_check", 1, "--chain", a, folder / "none.md",
+                says=["NOT_FOUND", "CHAIN: MISSING files=1", "missing=1"])
+    expect_tool("--chain one file repeating itself", "memory_size_check", 0, "--chain", b, says="dups=0")
+    expect_tool("--chain with --kind", "memory_size_check", 2, "--chain", a, "--kind", "resume", says="--chain takes only")
+    size = a.stat().st_size
+    expect_tool("single file unchanged", "memory_size_check", 0, "--file", a,
+                says="OK   A.md: %d bytes (limit 6144), ~%d tokens, 7 lines, 0 links" % (size, size // 2), lacks="CHAIN")
+    expect_tool("--kind resume unchanged", "memory_size_check", 0, "--kind", "resume", "--file", a,
+                says=["OK   %s: %d bytes (limit 20480)" % (a, size), "SIZE: PASS files=1 over=0"], lacks="CHAIN")
+    real = load_tool("memory_size_check")
+    files = [(p, real.kept_lines(p.read_bytes())) for p in (a, b)]
+    check230("shared_passages in process", real.shared_passages(files) == [(0, 1, (2, 6), (3, 6), 4)],
+             real.shared_passages(files))
+    m2 = mutated("memory_size_check", [("def shared_passages(files, least=3):", "def shared_passages(files, least=2):")])
+    killed("passages of 2 lines", len(m2.shared_passages(files)) != 1)
+    m_sub = mutated("memory_size_check", [("                    continue  # inside a longer run that starts before\n",
+                                           "                    pass\n")])
+    killed("runs inside a longer run listed again", len(m_sub.shared_passages(files)) != 1)
+    m_over = mutated("memory_size_check", [("    over = max_bytes is not None and total > max_bytes\n", "    over = False\n")])
+    with contextlib.redirect_stdout(QuietOut()):
+        exit_code = m_over.chain([str(a), str(b)], 10)
+    killed("no limit check", exit_code != 1)
+    return done230(start, 3)
+
+
+def repo_text_files():
+    """(relative path, text) of the repo's files: git ls-files when there is a git checkout, else a walk."""
+    root = TOOLS.parent
+    names = []
+    if (root / ".git").exists() and shutil.which("git"):
+        done = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, timeout=60)
+        if done.returncode == 0:
+            names = [n for n in done.stdout.decode("utf-8", "replace").split("\0") if n]
+    if not names:
+        names = [str(p.relative_to(root)).replace("\\", "/") for p in root.rglob("*")
+                 if p.is_file() and ".git" not in p.parts and "__pycache__" not in p.parts]
+    for name in names:
+        try:
+            yield name, (root / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+
+@test
+def rename_236(tmp):
+    """2.3.0-ds.6 B6: the product is dsh-DIRECTOR-WORKER (dshdw). No file holds a wrongly written name (case-sensitive;
+    the wrong spellings are built here so this file is not a hit); the entry documents name it with the old-name note;
+    the README launch prompt names it and keeps the repo URL; the release title says it; the old name appears only as
+    the note, in old CHANGELOG sections, the verbatim upstream log or fixture data."""
+    wrong = re.compile("|".join(re.escape(w) for w in ("dsh-" + "director-worker", "dsh-" + "Director-Worker", "dsh-" + "dw")))
+    old_name, old_short = "DIRECTOR-WORK" + " DeepSeek", "DW" + "-DS"  # built here: this file is not a hit either
+    note = "舊名 %s 版（%s）" % (old_name, old_short)
+    note_en = "old name %s edition, %s" % (old_name, old_short)
+    old = re.compile(re.escape(old_name) + "|" + re.escape(old_short))
+    hits, old_hits, files = [], [], 0
+    for name, text in repo_text_files():
+        files += 1
+        for number, line in enumerate(text.splitlines(), 1):
+            if wrong.search(line):
+                hits.append("%s:%d" % (name, number))
+            if old.search(line) and note not in line and note_en not in line \
+                    and name not in ("CHANGELOG.md", "CHANGELOG-upstream.md") and not name.startswith("tools/fixtures/"):
+                old_hits.append("%s:%d" % (name, number))
+    check230("no wrongly written product name", not hits, hits)
+    check230("the old name only as the note, old CHANGELOG sections, upstream log or fixtures", not old_hits, old_hits)
+    root = TOOLS.parent
+    for name in ("README.md", "BOOTSTRAP.md", "DEEPSEEK-PORT.md", "tools/README.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        check230(name + " names dsh-DIRECTOR-WORKER with the old-name note",
+                 "dsh-DIRECTOR-WORKER（簡稱 dshdw；" + note + "）" in text)
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    prompt = re.search(r"```text\n(.*?)```", readme, re.S).group(1)
+    check230("README prompt names the product and keeps the repo URL",
+             "（dsh-DIRECTOR-WORKER。你自己用 git clone" in prompt
+             and "https://github.com/scottpuppylu/DIRECTOR-WORK-DeepSeek\n" in prompt)
+    release = load_tool("release")
+    check230("release title", release.DEFAULTS["title"] == "v{version} — dsh-DIRECTOR-WORKER", release.DEFAULTS["title"])
+    return "%d files read" % files
+
+
+@test
+def rules_236(tmp):
+    """2.3.0-ds.6 A.3: the three rules (reflect after two failures, report a timed-out or failed subtask, RAN line
+    before claiming done) in templates/WORK_ORDER.md, templates/RESUME_STATE.md and docs/07; docs/09 measures the
+    chain with --chain."""
+    root = TOOLS.parent
+    for name in ("templates/WORK_ORDER.md", "templates/RESUME_STATE.md", "docs/07_quality_gates.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        for words in ("同一呼叫失敗兩次", "為什麼失敗、下一步改什麼", "逾時", "不可靜默等待", "宣告完成前", "RAN 行"):
+            check230("%s: %s" % (name, words), words in text)
+    memory = (root / "docs" / "09_memory.md").read_text(encoding="utf-8")
+    check230("docs/09: one command for the chain", "memory_size_check.py --chain" in memory and "--max-bytes 65536" in memory)
+    return "3 files x 6 phrases, docs/09"
 
 
 def main(argv=None):

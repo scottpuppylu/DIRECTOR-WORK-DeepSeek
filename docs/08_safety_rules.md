@@ -41,7 +41,7 @@ PO 核准是一次一件、一次一個 session，不推廣到之後的動作。
 - 下載的東西和開源工具照 `docs/06b`「下載與開源工具」隔離、先讀再跑、登記；是否需要 PO 事先同意，照本專案規則。
 - 不抽取或複製其他產品受保護的資產、程式或非公開資料；不繞過 DRM 或加密。
 
-### DSH 版能擋到什麼
+### dshdw 能擋到什麼
 
 - 沙箱只有三種模式（read-only / workspace-write / danger-full-access），只管檔案效果；核准政策依 session 設定。**沒有 hooks**，`hook_guard.py` 不移植。
 - push、merge、刪除、發布不會被自動擋，只能靠規則＋PO 核准＋`dsh_audit.py` 事後核對，不可宣稱自動擋；子代理共享檔案系統、預設全工具，越界靠工單範圍＋`scope_check.py`＋總監 diff（`docs/11`）。

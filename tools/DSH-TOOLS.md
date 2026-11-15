@@ -1,6 +1,6 @@
-# DSH edition tools
+# dshdw tools
 
-Tools of the DIRECTOR-WORK DeepSeek Harness (DSH) edition. Run every Python tool as:
+Tools of dsh-DIRECTOR-WORKER (dshdw; old name DIRECTOR-WORK DeepSeek edition, DW-DS), on DeepSeek Harness (DSH). Run every Python tool as:
 
     python -I -X utf8 tools/<tool>.py ...
 
@@ -36,6 +36,12 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   [--until DATE] [--session ID|PREFIX|AGENT] [--json]`
   `dsh_audit.py verify --log FILE [--from N --to M] [--anchor-log FILE] [--anchor-rev REV --anchor-path PATH [--repo DIR]]`
   exit 0 written / verified, 1 refused (output exists) or write problem, 2 cannot run.
+  2.3.0-ds.6: `dsh_audit.py loops [same session filters] [--events FILE...] [--repeat 3] [--window 20] [--rounds 3]
+  [--poll 3] [--show 20] [--json] [--out FILE]` finds calls that go in circles, after the fact (DSH has no hook to stop
+  them): repeat, retry_same_error (same failure again with no written line between), ping_pong, poll_no_progress,
+  bad_args (INVALID_ARGS / ToolArgsError, arguments that are not JSON: count, share, top 5 tools); child_error_unhandled
+  prints only `~ NOT_VERIFIED` (no event for a failed child seen in the local logs). Tool names and hashes only, never
+  inputs, outputs or messages; a forked session's copy of a finding is counted once. exit 0 none, 1 found, 2 cannot read.
 - dsh_doctor.py - environment self-check: python, node, DSH home / sessions / projection cache, latest session decode,
   profile model / effort, latest session sandbox / approval, git, required tools, docs and templates; with --config
   the project director_work.json (one WARN line when it still has the block removed in 2.2.5-ds.5).
@@ -102,9 +108,10 @@ for SCOPE_CHECK PASS before the agent's last commit; 2.2.4-ds.4 as upstream 2.2.
 possibly in the cut part of a matched call is UNVERIFIED - its own status, counted as unverified=n at the end of the last line, exit code unchanged - WO-DS-006 false FAILs 64 -> 0, 18 of them UNVERIFIED),
 gate_check.py --after-verdict VERDICT... --repo DIR [--orders DIR] [--strict] (2.2.4-ds.4 as upstream 2.2.4, shadow:
 `~ WARN LATE_COMMIT` for commits after the last verdict's candidate that change non-document files outside its SCOPE),
-trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit; PENDING_METHOD instead of PO_PAGE_URL; 2.2.4-ds.4: a line longer than
+trace_report.py, round_check.py, status_gen.py (po_pending / orders / audit / loops (2.3.0-ds.6); PENDING_METHOD instead of PO_PAGE_URL; 2.2.4-ds.4: a line longer than
 the width keeps both ends, the middle of its longest path becomes "…", so the status word stays),
-metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md; 2.2.2-ds.3 as upstream 2.2.2: --kind resume,
+metrics_report.py, memory_size_check.py (defaults to the nearest AGENTS.md; 2.3.0-ds.6: --chain FILE... sums one
+instruction chain against --max-bytes and lists passages of 3+ lines two files share; 2.2.2-ds.3 as upstream 2.2.2: --kind resume,
 several --file, --glob, --workstreams, one line per file and `SIZE: PASS|OVER|MISSING`), resume_archive.py
 (2.2.2-ds.3, upstream 2.2.2 unchanged: moves old RESUME_STATE sections word for word to RESUME_HISTORY_<YYYYMMDD>.md;
 dry-run by default, --execute backs up, verifies and restores on any failed check), secret_mask.py, pause_ctl.py (no hook

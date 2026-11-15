@@ -159,7 +159,7 @@ Lines starting with `~` are notes for the newer format (v0.10): they never fail 
                after the work began); no approval line at all fails. A log time without a zone is read in the
                commit's zone. No commit, or no time for the approval, is a NOT_CHECKED note.
              - its own spec review: a whole line `SPEC_REVIEW <WO-ID> tokens=.. issues=.. adopted=..` in the log, else
-               a reviews/*SPEC_REVIEW* file whose name holds the ID (ported from the DeepSeek port's ds.4 B4). None
+               a reviews/*SPEC_REVIEW* file whose name holds the ID (ported from dshdw's ds.4 B4). None
                fails; a line without the three fields is noted.
              - the reviews come from other sessions: the spec review's session (`session=<id>` on its line, or
                `SESSION_ID:` in its file) must differ from the author's (`session=` on the DISPATCH line, or
@@ -1952,7 +1952,7 @@ def sequence_problems(order_text, order_path, log_text, log_path, repo, notes):
                                 "work began")
             else:
                 notes.append(f"gate order: {kind} {name} at {shown}, first commit {sha[:10]} at {at.isoformat()}")
-    # its own spec review (ported from the DeepSeek port's ds.4 B4 spec_review_problems)
+    # its own spec review (ported from dshdw's ds.4 B4 spec_review_problems)
     reviews = mine(timed_events(log_text, SPEC_REVIEW_EVENT))
     review_files = files_naming(pathlib.Path(log_path).resolve().parent / "reviews", ids, "SPEC_REVIEW")
     reviewer = None

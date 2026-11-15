@@ -40,7 +40,7 @@
   "release": {
     "remote": "origin",
     "branch": "main",
-    "title": "v{version} — DIRECTOR-WORK DeepSeek Harness 版",
+    "title": "v{version} — dsh-DIRECTOR-WORKER",
     "tag_message": "v{version}",
     "selftest": "python -I -X utf8 tools/selftest_ds.py",
     "gh_repo": null

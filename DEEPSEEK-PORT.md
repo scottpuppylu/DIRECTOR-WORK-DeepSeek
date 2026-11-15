@@ -1,4 +1,6 @@
-# DIRECTOR-WORK → DeepSeek Harness 版：移植報告
+# DIRECTOR-WORK → dsh-DIRECTOR-WORKER：移植報告
+
+本 repo 的產品名是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））。
 
 本檔說明這次移植：動了什麼、為什麼、哪些搬不過去、怎麼驗證、以後怎麼跟上上游。
 
@@ -38,7 +40,7 @@
 
 ## 3. 能力對照表
 
-| DIRECTOR-WORK 需要的能力 | Claude 版做法 | DeepSeek 版做法 | 狀態 |
+| DIRECTOR-WORK 需要的能力 | Claude 版做法 | dshdw 做法 | 狀態 |
 |---|---|---|---|
 | 開一條 worker 工作線 | `start_session` | `subagent({name, cwd, prompt, reasoning_effort})` | 移植 |
 | 傳訊息給 worker | `SendMessage` | `send_message({agent, message})` | 移植 |
@@ -67,7 +69,7 @@
 
 | 檔案 | 改寫幅度 | 內容 |
 |---|---|---|
-| `README.md` | 大 | 啟動提示詞、流程、FAQ、檔案地圖改 DSH；新增「Claude 版和 DeepSeek 版有什麼不同」、防護對照、限制 |
+| `README.md` | 大 | 啟動提示詞、流程、FAQ、檔案地圖改 DSH；新增「Claude 版和 dshdw 有什麼不同」、防護對照、限制 |
 | `PURPOSE.md` | 無 | 原文保留（只有 PO 能改）；平台字樣屬歷史，PO 可自行更新 |
 | `BOOTSTRAP.md` | 大 | 0～14 步重寫：待決帳、DSH 設定、子代理名額、指示載入驗證、`dsh_usage.py` 基準、開子代理、第一份回報 |
 | `docs/01` | 小 | 角色改根 session／子代理；子代理上限與深度；reviewer 限制說明 |
@@ -80,7 +82,7 @@
 | `docs/07` | 小 | 盲審 reviewer 改子代理（無法限工具）；成品用 `present`／聊天圖 |
 | `docs/08` | 小 | 保留核准清單；新增「DSH 能擋到什麼」；移除權限模式與 hook 敘述 |
 | `docs/09` | 中 | AGENTS.md 指示鏈大小（64 KiB）＋DIRECTOR 檔案；沒有 MEMORY.md |
-| `docs/10` | 輕 | 保留教訓；開頭說明哪些是 Claude 版機制、DSH 版不適用 |
+| `docs/10` | 輕 | 保留教訓；開頭說明哪些是 Claude 版機制、dshdw 不適用 |
 | `docs/11_dsh_operations.md` | 新 | 取代 `11_claude_desktop.md`：能力→工具對照、開 worker 流程、限制清單 |
 | `docs/12` | 大 | 選擇頁改聊天附圖＋ask_user_question；移除 Artifact／choice 帳本；初衷卡與追溯保留 |
 | `templates/` | 中 | AGENTS_PROJECT_SECTION（新）、PO_PENDING（待決帳）、RESUME_STATE（子代理名稱）、DIRECTOR_FILES、BRIEF、WORK_ORDER、TASK_REPORT 等改 DSH；移除 choice_page.html、settings.runtime-guard.json、guard_sessions.json |
@@ -106,7 +108,7 @@
 | `audit_log.py` | hash chain 的 verify／head／cite／recover（append 是 hook 用，DSH 不用） |
 | `vocabulary.json` | worker 可填的狀態用詞 |
 
-**新增（DeepSeek Harness 版）**
+**新增（dshdw）**
 
 | 工具 | 用途 |
 |---|---|
@@ -188,7 +190,7 @@
 
 ## 9. 已知限制
 
-- **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；DeepSeek 版改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes；2.2.2-ds.3 搬上游 2.2.2 的 RESUME 大小那一句後是 10,964 bytes（06 變 1,998）。這是平台名詞與限制的必要說明，不是新增規則；DSH 版沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
+- **每輪必讀預算調高**：上游 docs/01+03+06+08 合計 9,549 bytes（上限 9,550）；dshdw 改寫後實測 **10,947 bytes**（01_roles_authority 2,295＋03_communication 3,281＋06_resume_lossless 1,981＋08_safety_rules 3,390），上限定為 11,000 bytes；2.2.2-ds.3 搬上游 2.2.2 的 RESUME 大小那一句後是 10,964 bytes（06 變 1,998）。這是平台名詞與限制的必要說明，不是新增規則；dshdw 沒有上游 selftest 檢查這個上限，改大時要說明理由並把細節搬去 docs/11。
 - 移植版本對應上游：2.2.1-ds.1、2.2.1-ds.2 對應上游 2.2.1（上游 2.2.1 只改工具，沒有改規則文件）；2.2.2-ds.3 對應上游 2.2.2；2.2.3-ds.3、2.2.4-ds.4、2.2.5-ds.5 各對應上游 2.2.3、2.2.4、2.2.5（2.2.5 的逐項搬法見 CHANGELOG 2.2.5-ds.5「上游 DW 2.2.5 移植」）；2.3.0-ds.5 對應上游 2.3.0（DS 的 ds 序號這次不加：沒有新的 DS 試驗修正，只有跟上游和 cwd 檢查）。版本號規則見第 10 節第 5 點；上游之後的規則變更要手動跟（見第 10 節）。
 - 用量與動作紀錄依賴 DSH session 檔格式（`session.v4.jsonl.zstd`）；DSH 升版改格式時要更新 `dsh_usage.py`／`dsh_audit.py`。
 - 模型只有 deepseek-flash；沒有任何「換更強模型」的選項，只能用 effort 與拆工。
@@ -205,17 +207,17 @@
 4. 發版用 `python -I -X utf8 tools/release.py`（2.2.2-ds.3）：預設只演練（dry run），檢查和 origin/main 的落後／分岔、VERSION 和 CHANGELOG 最上面一段相同且比遠端所有 tag 新、selftest、公開掃描（金鑰、私人 email、私人路徑、DIRECTOR/、_work/、session 檔）；加 `--execute` 才 push、打 tag、建 GitHub Release，每步用 `ls-remote`／`gh release view` 確認。發版仍要 PO 核准。
 5. 版本號是 `<上游版本>-ds.<N>`（PO 2026-11-14）：
    - 前面的 `<上游版本>` 跟 DW 原版，搬到哪一版就寫哪一版。
-   - `-ds.<N>` 是 DeepSeek 版自己的流水號，**上游換版本也不從 1 重來**。例：v2.2.1-ds.2 之後是 2.2.2-ds.3，不是 2.2.2-ds.1。
+   - `-ds.<N>` 是 dshdw 自己的流水號，**上游換版本也不從 1 重來**。例：v2.2.1-ds.2 之後是 2.2.2-ds.3，不是 2.2.2-ds.1。
    - 2.2.3-ds.3 起（PO 指定版本、總監裁定 WO-DS-005 C）：只有上游版本往上時，ds 序號可以不加，例如 v2.2.2-ds.3 之後是 2.2.3-ds.3。
    - `release.py` 的版本檢查：「(上游版本, ds 序號)」整組要比遠端所有 tag 新，而且 tag 還不存在，否則停下。2.2.3-ds.3 在 v2.2.2-ds.3 之後可以；2.2.2-ds.2、2.2.2-ds.3 都會停。ds 序號不再單獨比較；沒有任何旗標可以跳過這項檢查。
    - 2.2.1-ds.1 以前的 tag（v2.2.0-ds.1、v2.2.1-ds.1）是這條規則訂下前發的，不改。
 
-## 11. ds.2 起 DeepSeek 版自己加嚴的規則（上游沒有）
+## 11. ds.2 起 dshdw 自己加嚴的規則（上游沒有）
 
 - 規格先行的 OpenSpec 部分（ds.2～ds.4）：**2.2.5-ds.5 已移除**（PO 2026-11-15「把sdd拿掉」，03:19 更正「該有的安全保護要有」）。理由：WO-DS-008 r2 實測，開 SDD 的隱藏測試 85/107，關 SDD 101/107，OpenSpec 本身沒有量到正確性效益。ds.4 的程式在 tag `v2.2.4-ds.4`。
 - 安全閘門（ds.2 起，2.2.5-ds.5 改名，`docs/13_safety_gates.md`、`tools/safety_gate.py`、`director_work.json` 的 `"safety"`）：測試先寫並鎖定（`TESTS_LOCKED`）、計畫閘門（`<WORK_DIR>/<WO>/PLAN.md` + `PLAN_APPROVED`）、Standard 也做規格審查、停止規則 1 輪、AUTO 驗收優先、安全開關不得自行關閉（沒有 PO 答覆 `gate_check --order` 判不過）。同一次試驗量到它們有用（派工段 31 對 29、計畫關 3 對 1、審查關 3 對 2）。
 - 其他本版規則：工單大小上限（`order_limits`，`tools/safety_gate.py`）、受保護的測試（`TESTS_LOCKED`、`protected_tests`）、每個 worker 開自己的 git worktree（`dsh_session.py --worker-worktree`，2.2.5-ds.5）、收尾最後一步 `dsh_usage.py --out`（2.2.5-ds.5）。
-- 理由：DSH 版的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以工單小、測試鎖住、事後由工具查。跟上游同步時，這幾項以本版為準。
+- 理由：dshdw 的 worker 是 `deepseek-flash`，DSH 沒有 hook、子代理不能中途改 effort，所以工單小、測試鎖住、事後由工具查。跟上游同步時，這幾項以本版為準。
 
 ## 12. 上游 2.2.2 移植（2.2.2-ds.3）：逐檔比較
 

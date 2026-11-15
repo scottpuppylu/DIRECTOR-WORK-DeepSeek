@@ -1,4 +1,4 @@
-r"""Environment / self-check for the DIRECTOR-WORK DeepSeek Harness (DSH) edition.
+r"""Environment / self-check for dsh-DIRECTOR-WORKER (dshdw), DIRECTOR-WORK on DeepSeek Harness (DSH).
 
 Prints one line per check with OK / WARN / FAIL / NOT_VERIFIED and a final summary. Reads only; fixes nothing.
 

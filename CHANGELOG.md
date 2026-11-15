@@ -1,9 +1,54 @@
-# CHANGELOG — DeepSeek Harness 版
+# CHANGELOG — dsh-DIRECTOR-WORKER
 
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
-上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
+上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））自己的變更。
+
+## 2.3.0-ds.6（2026-11-15）
+
+WO-DS-011。產品改名為 **dsh-DIRECTOR-WORKER**（簡稱 **dshdw**；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS）），並加上 DeepSeek 工作品質的事後偵測。DSH 沒有 PreToolUse hook，dshdw 不能即時攔截工具呼叫，所以這一版全部是**事後偵測＋規則**：從 session 紀錄找問題，在檢查點、閘門、狀態報告裡讓人看見。不做插件，用法不變（照樣貼啟動提示詞）。這一版和 2.3.0-ds.5 一起發布（ds.5 沒有單獨發布）。
+
+### 新功能
+- `dsh_audit.py loops`（不另寫新工具）：讀和 `build` 一樣的 DSH session，找出打轉的呼叫。
+  - 類別：`repeat`（同一呼叫 20 次內出現 3 次）、`retry_same_error`（同一呼叫 20 次內又失敗、錯誤一樣，中間沒寫任何文字）、`ping_pong`（A、B 交替 3 輪結果不變）、`poll_no_progress`（讀取／查詢類連續 3 次結果一樣）、`bad_args`（DSH 紀錄的 `INVALID_ARGS`／`ToolArgsError`，或參數字串不是 JSON；次數、比例、前 5 名工具）。門檻都能設。
+  - `child_error_unhandled`：在本機 103 個 DSH session 裡，子代理結束的事件是 `user/message`（`source.kind` = `subagent-settled`），`stopReason` 只看過 `completed`；沒看過失敗的子代理事件，所以這一類標 NOT_VERIFIED，只印 `~ NOT_VERIFIED`，不猜事件名。
+  - 只印工具名和雜湊，不印參數、輸出或訊息內容。`wait_agent` 不算打轉（等子代理本來就要一直叫）。fork 出來的 session 帶著母 session 的事件，同一個發現只算一次（`copies=N`）。
+  - `--json`；`--out FILE` 寫 JSON 給 `status_gen.py`；`--events FILE...` 讀合成 fixture（`tools/fixtures/loops/`）。exit 0 沒發現、1 有發現、2 讀不到。
+- `status_gen.py` 新增 `"loops"` 段：讀 `loops --out` 的 JSON，有發現才多印一行 `LOOPS …`；沒發現不印；檔案不在印 MISSING。選 status_gen 不選 line_brief：loops 看的是整個專案所有 session，和 status_gen 的 AUDIT 段（動作紀錄）同一類；line_brief 只看一條工作線。沒有新增每輪必讀。
+- `memory_size_check.py --chain FILE... [--max-bytes N]`：一條指示鏈一起量（每檔 bytes、有 CRLF 另列 LF bytes、~token），加總超過 `--max-bytes` 判 FAIL；列出各檔之間重複 3 行以上的段落（位置＋行數）。單檔和 `--kind resume` 的輸出不變。`docs/09` 的量法改成一條 `--chain` 指令。
+- 規則（`templates/WORK_ORDER.md`、`templates/RESUME_STATE.md`、`docs/07` 各一句）：同一呼叫失敗兩次，先寫一行「為什麼失敗、下一步改什麼」再試；派出的子工作逾時沒結果或出錯，都要回報主管，不可靜默等待；宣告完成前，本輪跑過驗證指令並附 RAN 行。
+
+### 改名
+- README、BOOTSTRAP、DEEPSEEK-PORT、docs、templates、tools 的說明文字與 `--help`：產品名改為 dsh-DIRECTOR-WORKER／dshdw；README、BOOTSTRAP、DEEPSEEK-PORT、CHANGELOG、tools/README、DSH-TOOLS、docs/04、05、11、13 第一次出現時附「舊名 DIRECTOR-WORK DeepSeek 版（DW-DS）」。「DeepSeek 版」「DSH 版」「DSH edition」這類指本產品的說法一起改成 dshdw（「DSH 版本」指 DSH 的版本，不改）。
+- 啟動提示詞只換名稱字樣：「（DeepSeek Harness 版。」→「（dsh-DIRECTOR-WORKER。」，其他逐位元組不變。
+- `release.py` 和 `director_work.example.json` 的 Release 標題改為 `v{version} — dsh-DIRECTOR-WORKER`；`bootstrap_repo.py` 寫進專案 `.gitignore` 的註解行改為 `# dshdw bootstrap`。
+- 不改：版本號格式（2.3.0-ds.N）、tag 名稱、工具檔名、設定鍵、CHANGELOG 舊段落、上游 DW 的名稱與網址、repo 網址、提示詞的用法。`PURPOSE.md` 沒有產品名字樣，沒有改。
+
+### 一起發布的 2.3.0-ds.5（WO-DS-010；細節見下方 2.3.0-ds.5 段）
+- 跟上上游 DW 2.3.0（tag v2.3.0）：新工具 `completion.py`、`sim_check.py`、`waiver.py`、`line_brief.py`、`pre_tr.py`、`pack_check.py`、`hash_check.py`、`flag_check.py`；`gate_check.py --feasibility` 與 `--verdict` 的自己查證證據；`dsh_doctor.py --licenses`；非 UTF-8 主控台的 `--help` 修正。
+- DS 專屬：`dsh_session.py --cwd-check <工作區>`，lead 開工第一步先確認在對的資料夾。
+- 安全閘門全部保留，不加回 OpenSpec／SDD。
+
+### Credits（只借概念，程式用標準函式庫自己寫，沒有複製以下 repo 的程式碼）
+- 打轉偵測（對工具、參數、結果做雜湊；generic_repeat、poll_no_progress、ping_pong）：OpenClaw loop detection，https://docs.openclaw.ai/tools/loop-detection ；zeptoclaw loop_guard，https://docs.rs/crate/zeptoclaw/0.8.0/source/src/agent/loop_guard.rs 。授權：NOT_VERIFIED（只讀說明，沒有讀程式碼）。
+- 同錯重試先反思：cleverer-dsh，https://github.com/Classicoke/cleverer-dsh ，MIT。
+- 工具參數 JSON 錯誤（只計數，不修復）：dsh-translate，https://github.com/PerryLink/dsh-translate ，Apache-2.0。
+- 子工作失敗必須回報：dsh-subagent-watchdog，https://github.com/Lequait/dsh-subagent-watchdog ，MIT。它的 README 提到的事件名在本機紀錄裡沒看到，所以沒有用。
+- 指示鏈 token 預算與重複段落：dsh-context-doctor，https://github.com/Zhenyu98/dsh-context-doctor ，BSD-3-Clause。
+- 完成前先驗證：superpowers（verification-before-completion），https://github.com/obra/superpowers ，MIT。
+
+### 驗證
+- `selftest_ds.py`：2.3.0-ds.5 是 73 項，這一版 80 項；Python 3.11 和 3.9 各跑一次，都是 80/80、skip=0。
+  - 新增 7 項：`loops_fixtures_236`（每類一個正例、一個反例，CLI 和程式內各跑一次；fork 的副本只算一次；20 次內才算重試；8 個 mutation）、`loops_privacy_236`（假的金鑰和標記文字不會出現在一般輸出、`--json`、`--out`；1 個 mutation）、`loops_real_236`（最新一個真實 DSH session）、`loops_status_236`（status_gen 的 `loops` 段；1 個 mutation）、`chain_236`（`--chain`；3 個 mutation）、`rename_236`（錯誤寫法 0 處、舊名只出現在該出現的地方、提示詞與 Release 標題）、`rules_236`（三條規則與 docs/09）。
+  - 每組 mutation 先確認沒改過的工具答對，再看 mutant 有沒有答錯。
+  - 安全閘門的 11 項（`safety_*_225`、`spec_review_224`、`spec_fields_shared_225`、`order_oversize`、`order_limits_224`、`protected_*_224`）一項不少，內容沒改，都通過；`safety_gate.py` 和 `safety` 區塊沒改。
+- `test_verify_dsh_run.py` 33 項（Python 3.11、3.9 都 OK）。
+- 本機真實紀錄（只讀）：103 個 DSH session、42,319 次呼叫，`loops` 找到 70 個（repeat 32、retry_same_error 2、ping_pong 0、poll_no_progress 32、bad_args 4：edit 2、PowerShell 1、read 1）。呼叫數含 fork session 帶來的重複事件。
+- fixture 全是合成資料（`tools/fixtures/loops/`），沒有真實紀錄的內容。
+- 每輪必讀（docs/01、03、06、08，用 `--chain` 量，LF）：10,964 → 10,963 bytes（docs/08 的「DSH 版」改成「dshdw」）。
 
 ## 2.3.0-ds.5（2026-11-15）
+
+未單獨發布，隨 2.3.0-ds.6 一起發布（沒有 v2.3.0-ds.5 tag）。
 
 WO-DS-010。跟上上游 DW 2.3.0（tag v2.3.0，de08549），再加一項 DS 專屬的 lead 開工 cwd 檢查。上游原文附在 `CHANGELOG-upstream.md`。安全閘門（`safety` 區塊：tests_first、plan_gate、spec_review_for_standard、stop_after_rounds、order_limits、protected_tests、不得自行關閉）全部保留；不加回 OpenSpec／SDD 流程。ds 序號沒有加：這一版沒有新的 DS 試驗修正。
 

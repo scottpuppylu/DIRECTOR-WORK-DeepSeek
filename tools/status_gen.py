@@ -14,18 +14,22 @@ Director sections (any of them, all optional):
            file, a "list" (dotted key; "extract" = a regex whose group 1 is the JSON inside an HTML page) counted
            where "field" == "value"; the list also gets a "PO hint" line for items still STATUS open with an ANSWER
            filled in (2.1.0 shadow), and `~ PENDING_METHOD_MISSING` when DIRECTOR_STATE.md (beside the list, or
-           "state") has no PENDING_METHOD line: in the DSH edition the Director (the root session) asks the PO with
+           "state") has no PENDING_METHOD line: in dshdw the Director (the root session) asks the PO with
            ask_user_question and keeps PO_PENDING.md; a worker reaches the PO only through 「總監」 (ask_user_question
            is refused to a delegated subagent: DELEGATED_CALLER); there is no web page (2.2.0 shadow: the exit code
            does not change)
   ORDERS   order files (glob, default WO-*.md) in "dir" without a "closed" match: the open ones, newest first
   AUDIT    per action log (audit_log.py) of "globs": lines, blocked (deny / pause) and log reads (the built-in
            log-read rules of L-041) in the last "hours" (default 1), and how many sessions
+  LOOPS    (2.3.0-ds.6) the JSON that `dsh_audit.py loops --out FILE` wrote: one line with the finding counts per
+           category and the file's age, only when it has findings (none: no line); a missing or unreadable file is
+           MISSING. Findings do not change the exit code. Refresh the file with dsh_audit.py loops at a checkpoint
 
   {"po_pending": {"path": "PO_PENDING.md", "counts": [{"label": "pending open", "regex": "..."},
      {"label": "notes new", "list": "notes", "field": "status", "value": "new"}]},
    "orders": {"dir": "orders", "glob": "WO-*.md", "closed": "...", "show": 8},
-   "audit": {"globs": ["audit/*.jsonl"], "hours": 1}}
+   "audit": {"globs": ["audit/*.jsonl"], "hours": 1},
+   "loops": {"path": "loops.json"}}
 
 templates/status_director.json is a Director config to copy.
 
@@ -50,12 +54,12 @@ import sys
 
 KEYS = {"name": str, "logs": list, "log_lines": int, "hash_files": list, "checksum": list, "outputs": list,
         "output_count": int, "disk": str, "disk_min_gib": (int, float), "git": str, "max_lines": int, "width": int,
-        "po_pending": dict, "orders": dict, "audit": dict,
+        "po_pending": dict, "orders": dict, "audit": dict, "loops": dict,  # 2.3.0-ds.6: loops
         "lines": dict}  # 2.3.0: "lines" is read by line_brief.py; status.py ignores it
 DEFAULTS = {"name": "status", "logs": [], "log_lines": 8, "hash_files": [], "checksum": [], "outputs": [],
             "output_count": 5, "disk": None, "disk_min_gib": None, "git": None, "max_lines": 60, "width": 160,
-            "po_pending": None, "orders": None, "audit": None, "lines": None}
-DIRECTOR_KEYS = ("po_pending", "orders", "audit")
+            "po_pending": None, "orders": None, "audit": None, "loops": None, "lines": None}
+DIRECTOR_KEYS = ("po_pending", "orders", "audit", "loops")
 CLOSED = r"(?im)^\s*(?:STATUS|狀態)\s*[:=：]\s*(?:CLOSED|DONE|ACCEPTED|結案)"
 PATH_KEYS = ("logs", "hash_files", "checksum", "outputs")
 
@@ -336,13 +340,13 @@ def director():
                 if filled:
                     say(f"PO hint: {len(filled)} item(s) still STATUS open with an ANSWER filled in "
                         f"({', '.join(filled[:5])}); read them in the pending list, the counts above may miss them")
-        # DSH edition: there is no PO web page (2.2.0 shadow): the Director (root session) asks the PO with
+        # dshdw: there is no PO web page (2.2.0 shadow): the Director (root session) asks the PO with
         # ask_user_question, workers go through 「總監」 (DELEGATED_CALLER), and the pending list is PO_PENDING.md.
         # Say so when DIRECTOR_STATE.md names no PENDING_METHOD; never fail on it.
         state = page.get("state") or os.path.join(os.path.dirname(page["path"]), "DIRECTOR_STATE.md")
         if not (os.path.isfile(state) and re.search(r"(?m)^[ \t]*PENDING_METHOD[ \t]*:", read_text(state))):
             say(f"~ PENDING_METHOD_MISSING: {state} has no PENDING_METHOD line; the Director asks the PO with "
-                f"ask_user_question and workers go through 總監 (DSH edition, no web page), so write that down in "
+                f"ask_user_question and workers go through 總監 (dshdw, no web page), so write that down in "
                 f"DIRECTOR_STATE.md")
     orders = CONFIG["orders"]
     if orders:
@@ -373,6 +377,18 @@ def director():
             sessions = len({e.get("session_id") for e in entries})
             say(f"AUDIT {os.path.basename(path)} last {audit['hours']:g}h: lines={len(entries)} blocked={blocked} "
                 f"log_reads={reads} sessions={sessions}")
+    loops = CONFIG["loops"]
+    if loops:  # 2.3.0-ds.6: dsh_audit.py loops --out FILE; a line only when it found something
+        try:
+            data = json.loads(read_text(loops["path"]))
+            total, counts = int(data["findings_total"]), dict(data["counts"])
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            missing("LOOPS", f"{loops['path']} ({type(e).__name__})")
+        else:
+            if total:
+                say(f"LOOPS {os.path.basename(loops['path'])} (modified {age(loops['path'])} ago): findings={total} "
+                    + " ".join(f"{k}={v}" for k, v in counts.items())
+                    + f"; sessions={data.get('sessions')}; lines: dsh_audit.py loops")
 """
 
 
@@ -449,6 +465,10 @@ def director_settings(conf, base):
         audit.setdefault("hours", 1)
         if not isinstance(audit["hours"], (int, float)) or isinstance(audit["hours"], bool) or audit["hours"] <= 0:
             raise ValueError("audit.hours: more than 0")
+    loops = conf["loops"]
+    if loops is not None:
+        only(loops, "loops", ("path",))
+        loops["path"] = absolute(text(loops.get("path"), "loops.path"))
 
 
 def load_config(path):

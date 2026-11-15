@@ -1,8 +1,8 @@
-# DIRECTOR-WORK — DeepSeek Harness 版
+# dsh-DIRECTOR-WORKER
 
 用一個 AI 當你的「專案經理」，替你管好其他幾個寫程式的 AI。你只要說要做什麼、回答選擇題、看成品。
 
-這是 Claude 版的 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK)（v2.2.3）移植到 **DeepSeek Harness（DSH）** 的版本。流程、角色和核心規則不變，平台從 Claude Code／Claude Desktop 換成 DSH（桌面版 0.2.2-rc.2）；差異與移植取捨見 [DEEPSEEK-PORT.md](DEEPSEEK-PORT.md)。
+這是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））：Claude 版的 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK)（v2.2.3）移植到 **DeepSeek Harness（DSH）** 的版本。流程、角色和核心規則不變，平台從 Claude Code／Claude Desktop 換成 DSH（桌面版 0.2.2-rc.2）；差異與移植取捨見 [DEEPSEEK-PORT.md](DEEPSEEK-PORT.md)。
 
 ## 怎麼用
 
@@ -11,7 +11,7 @@
 ```text
 你是這個專案的「總監」（Development Director），是我（PO）的代理人。
 請使用這套流程：https://github.com/scottpuppylu/DIRECTOR-WORK-DeepSeek
-（DeepSeek Harness 版。你自己用 git clone 下載到專案資料夾外，再照裡面的 BOOTSTRAP.md 做。）
+（dsh-DIRECTOR-WORKER。你自己用 git clone 下載到專案資料夾外，再照裡面的 BOOTSTRAP.md 做。）
 
 0. 先問我要用一般模式還是小白模式，我選了再開始其餘建置。
    問之前先在專案旁邊（專案資料夾外）的 DIRECTOR/ 建最少的狀態檔（DIRECTOR_STATE.md、
@@ -200,9 +200,9 @@ ANSWER:
 
 其他技術細節（怎麼寫、交件過不過、要不要退回重做）由總監自己決定，事後記在 `DIRECTOR/` 的紀錄裡，你隨時可以翻。
 
-## Claude 版和 DeepSeek 版有什麼不同
+## Claude 版和 dshdw 有什麼不同
 
-| 項目 | Claude 版 | DeepSeek 版（本 repo） |
+| 項目 | Claude 版 | dshdw（本 repo） |
 |---|---|---|
 | 平台 | Claude Code／Claude Desktop | DeepSeek Harness 桌面版 |
 | 模型 | Opus／Sonnet／Haiku 等 | 只有 `deepseek-flash`；差別在 effort（off/low/high/max） |
@@ -227,7 +227,7 @@ ANSWER:
 用你現有的 DeepSeek Harness 帳號用量，沒有另外付費的服務或素材；實際計費與餘額以 DSH 帳號頁為準。省用量是設計重點之一：模型每次回應都要重讀上下文，所以對話越短越省。檢查工具只用 Python 標準函式庫。
 
 **它會亂改我的檔案嗎？**
-總監只管你任命它的那個專案。推送、合併到 main、刪除或覆寫、付費、帳號都要你先同意。你專案原有的規則（`AGENTS.md`、你給過的指示）永遠優先；兩邊衝突時照你的規則做，並在回報裡告訴你。DeepSeek 版的沙箱有三種模式（read-only／workspace-write／danger-full-access），可以在 DSH 裡選；但沒有 hook 層級的自動阻擋，越界主要靠工單範圍、事後檢查和你核准。
+總監只管你任命它的那個專案。推送、合併到 main、刪除或覆寫、付費、帳號都要你先同意。你專案原有的規則（`AGENTS.md`、你給過的指示）永遠優先；兩邊衝突時照你的規則做，並在回報裡告訴你。dshdw 的沙箱有三種模式（read-only／workspace-write／danger-full-access），可以在 DSH 裡選；但沒有 hook 層級的自動阻擋，越界主要靠工單範圍、事後檢查和你核准。
 
 **中斷了怎麼辦？**
 每個 session 都把「做到哪、下一步」寫在自己的 `RESUME_STATE.md`。回到總監的對話說「繼續」，它會先唯讀檢查、收集待決帳、紀錄和工作線狀態，再接著做。子代理可以續談或重新叫醒；額度用完、當機、換新對話都一樣，不靠對話記憶。
@@ -271,8 +271,8 @@ ANSWER:
 |---|---|---|
 | `README.md` | 本檔 | 第一次 |
 | `PURPOSE.md` | 初衷、目的、不能破壞的核心、改規則前的檢查；只有 PO 能改 | 第一次；改規則、工具、範本前 |
-| `BOOTSTRAP.md` | 新總監第一輪的逐步建置清單（DeepSeek 版） | 第一次 |
-| `DEEPSEEK-PORT.md` | Claude 版→DeepSeek 版的對照、搬了什麼、沒搬什麼、限制 | 第一次；好奇差異時 |
+| `BOOTSTRAP.md` | 新總監第一輪的逐步建置清單（dshdw） | 第一次 |
+| `DEEPSEEK-PORT.md` | Claude 版→dshdw 的對照、搬了什麼、沒搬什麼、限制 | 第一次；好奇差異時 |
 | `docs/01_roles_authority.md` | 角色、權限、總監可自行決定與必須送 PO 的事 | **每輪必讀** |
 | `docs/02_work_orders_gates.md` | 工單、gate、TASK REPORT、裁決、測試排程與預算 | 派工、裁決時 |
 | `docs/03_communication.md` | 什麼時候發訊息、PO 待決帳、PO 訊息不漏讀 | **每輪必讀** |
@@ -294,7 +294,7 @@ ANSWER:
 
 ## 防護：哪些真的擋、哪些只提醒
 
-DeepSeek 版**沒有 Claude Code 的 PreToolUse hook**，所以 `hook_guard.py` 那類「工具執行前自動擋」不移植。DSH 上真正的防護是這幾層：
+dshdw **沒有 Claude Code 的 PreToolUse hook**，所以 `hook_guard.py` 那類「工具執行前自動擋」不移植。DSH 上真正的防護是這幾層：
 
 | 項目 | 等級 | 說明 |
 |---|---|---|
@@ -307,7 +307,7 @@ DeepSeek 版**沒有 Claude Code 的 PreToolUse hook**，所以 `hook_guard.py` 
 | 單一寫入者（Single Writer） | **紀律** | 同一份檔案同一時間只有一個寫入者；靠工單和分支 |
 | 機密遮罩 `secret_mask.py` | **擋常見格式** | 沒見過的 token 格式遮不到 |
 
-容器隔離、OS 層隔離、網路出口管制在 DeepSeek 版**沒有**；不要把它當成 VM 或沙箱級別的隔離。
+容器隔離、OS 層隔離、網路出口管制在 dshdw **沒有**；不要把它當成 VM 或沙箱級別的隔離。
 
 ## 已知限制
 

@@ -1,6 +1,6 @@
 # 11 在 DeepSeek Harness 上操作
 
-本檔是 DeepSeek Harness（DSH）版，取代 Claude 版的 `docs/11_claude_desktop.md`。
+本檔是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））的版本，取代 Claude 版的 `docs/11_claude_desktop.md`。
 只在 DSH 上當總監時讀，不列入每輪必讀。規則照 `docs/01` 到 `docs/10`；這裡只寫「流程需要的能力，在 DSH 上用哪個工具做」。
 
 ## 先看平台
@@ -89,7 +89,7 @@ WO-101 實機一次用了約 829 萬 token（lead 430 萬／49 步、worker 373 
 7. worker 不必自己跑 `dsh_audit.py`／`report_vs_audit.py`：`RAN` 行照實際指令逐字抄（不要縮寫），對紀錄是總監的事。
 8. **讀過的檔不整份重讀**（2.2.3-ds.3）：工單、RESUME_STATE、工具原始碼在同一個 session 讀過一次就好。確認自己寫的內容看寫入工具的回傳或 `git diff`；工單改版只讀 H 節變更紀錄和改到的段落。WO-DS-004 的 lead 把工單讀了 7 次、RESUME_STATE 7 次、`dsh_setup_check.py` 4 次，重讀合計約 54 萬 token（每次讀進來的內容之後每一步都會重送）。
 
-| 誰 | 什麼時候 | 指令（`PY` = `python -I -X utf8`，`T` = DW-DS 的 `tools/`） |
+| 誰 | 什麼時候 | 指令（`PY` = `python -I -X utf8`，`T` = dshdw 的 `tools/`） |
 |---|---|---|
 | 總監 | 寫完工單 | `PY T/gate_check.py --order <工單> --repo <專案>` |
 | 總監 | 派工 | `PY T/gate_check.py --hash <工單>`（印出的 `DISPATCH` 行寫進 DIRECTOR_LOG） |
@@ -100,7 +100,7 @@ WO-101 實機一次用了約 829 萬 token（lead 430 萬／49 步、worker 373 
 
 預估（同一個 clamp 任務，方法見 `TOKEN_ANALYSIS.md`）：照規則 1～7 做，約 340 萬 token（−59%；S 取 42K～49K、推理內容算不算重送，結果都在 −58%～−60%）。這是用 WO-101 的實際各步大小推算的，**還沒有實機重跑驗證**。
 
-PO 選做：系統提示裡約 61K 字元是卡片元件說明（`## 可用组件`、`## 卡片的 JSON Schema`、`## Schema Snippets` 等段，約 19.5K token／步）。DIRECTOR-WORK 的流程不用卡片；如果 DSH 能在設定裡關掉這組卡片說明，再省約 1 成（預估 −70%）。DW-DS 不改 `~/.dsh`，要不要關由 PO 決定。
+PO 選做：系統提示裡約 61K 字元是卡片元件說明（`## 可用组件`、`## 卡片的 JSON Schema`、`## Schema Snippets` 等段，約 19.5K token／步）。dshdw 的流程不用卡片；如果 DSH 能在設定裡關掉這組卡片說明，再省約 1 成（預估 −70%）。dshdw 不改 `~/.dsh`，要不要關由 PO 決定。
 
 ## 已知限制（不要假裝有）
 

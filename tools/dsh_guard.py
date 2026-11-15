@@ -1,4 +1,4 @@
-r"""Advisory risky-command self-check for the DIRECTOR-WORK DSH edition.
+r"""Advisory risky-command self-check for dsh-DIRECTOR-WORKER (dshdw).
 
 DSH has NO PreToolUse hook: nothing can block a tool call before it runs. This tool is a self-check the worker or the
 Director runs voluntarily before a risky command; it repeats the categories of the Claude edition's hook_guard.py

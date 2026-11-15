@@ -36,8 +36,38 @@ build writes a new file (refuses to overwrite an existing one without --force) a
 file's sha256 and head hash; --json prints the summary as JSON. A parent session's subagent catalog and the projection
 cache (default <DSH_HOME>/storages/session_projcache/sessions) supply the childId -> agent name mapping.
 
-Exit codes: 0 written / verified, 1 refused (output exists without --force) or a write problem, 2 cannot run
-(no Node for zstd, sessions root missing, nothing to audit, bad usage). Requires Node 22+ for zstd; there is no
+loops (2.3.0-ds.6) reads the same sessions (same filters) and prints the calls that look like going in circles. It
+reads only and prints tool names and hashes, never an input, an output or a message (as dsh_usage):
+
+  python -I -X utf8 tools/dsh_audit.py loops [--log-root DIR] [--cache-root DIR] [--project-dir PATH] [--since DAY]
+      [--until DAY] [--session ID|PREFIX|AGENT] [--events FILE ...] [--repeat N] [--window W] [--rounds R]
+      [--poll N] [--show N] [--json] [--out FILE]
+
+  repeat            the same call (tool + hash of the masked input) N times (--repeat, default 3) within W calls
+                    (--window, default 20)
+  retry_same_error  the same call failed again with the same error (hash of the masked error) within W calls, and
+                    the agent wrote no text between the two (reasoning does not count: the rule asks for a written line)
+  ping_pong         two calls A, B alternate R rounds (--rounds, default 3) and neither result changes
+  poll_no_progress  a read / query call (read, grep, glob, list_agents, job_list, job_output, team_task_list,
+                    team_task_get, acp_status, web_fetch, web_search, read_image, get_goal, search_context,
+                    list_subagent_models) gives the same result N times running (--poll, default 3), each within W
+                    calls of the one before
+  bad_args          the tool refused the arguments (error code INVALID_ARGS or name ToolArgsError, as DSH logs them)
+                    or a top-level arguments string is not JSON: the count, the share of all calls, the top 5 tools
+  child_error_unhandled  NOT_VERIFIED: in the local DSH logs a child's end is a user/message whose source.kind is
+                    subagent-settled, and its stopReason was only ever "completed"; no event for a failed child has
+                    been seen, so the category prints `~ NOT_VERIFIED` and reports nothing (event names are not guessed)
+
+wait_agent is left out of repeat, retry_same_error, ping_pong and poll_no_progress: calling it again while a child
+works is the normal way to wait. A forked session repeats its seed's events, so a finding with the same category,
+call key and time in several sessions is counted once (copies=N on its line, also_in in --json). One line per finding:
+category, session, agent, call number in the session, time, tool, hashes. --events
+reads plain JSONL event files (one session each; for synthetic fixtures) instead of the DSH logs. --json prints the
+result as JSON; --out FILE also writes that JSON (status_gen.py's "loops" section reads it).
+
+Exit codes: 0 written / verified / no loop found, 1 refused (output exists without --force) or a write problem, or
+loops found something, 2 cannot run (no Node for zstd, sessions root missing, nothing to audit, a read error, bad
+usage). Requires Node 22+ for zstd; there is no
 offline Python zstd in 3.12. The log records facts read from the files; it cannot prove the agent did nothing else.
 """
 import argparse
@@ -265,11 +295,8 @@ def chain_lines(entries, source, now=None):
     return lines, prev
 
 
-def build(args):
-    """Write the audit log; returns the summary dict (raises DshError for cannot-run cases)."""
-    global INPUT_LIMIT
-    INPUT_LIMIT = getattr(args, "input_limit", 0) or None  # 2.2.5-ds.5: 0 / None = keep each input whole
-    warnings = []
+def session_files(args, warnings):
+    """(session files, projections, catalog) under --log-root / --cache-root (shared by build and loops)."""
     log_root = pathlib.Path(args.log_root).expanduser() if args.log_root else dsh.default_sessions_root()
     cache_root = pathlib.Path(args.cache_root).expanduser() if args.cache_root else dsh.default_projcache_root()
     sessions = dsh.list_session_files(log_root)
@@ -281,10 +308,12 @@ def build(args):
                 warnings.append(f"projection {projection.session_id}: {projection.error}")
     else:
         warnings.append(f"projection cache not found: {cache_root} (agent names may be missing)")
-    catalog = dsh.agent_catalog(projections)
-    entries = []
-    audited = []
-    skipped = []
+    return sessions, projections, dsh.agent_catalog(projections)
+
+
+def selected_sessions(args, sessions, projections, catalog, warnings, skipped):
+    """Yield (index, ref, events, header_id, agent_id, role, name_source, cwd, created_ms, parent) for each session
+    that passes the filters, in build's order (subagents first, then roots; the catalog fills as it goes)."""
     for index, ref in enumerate(sorted(sessions, key=lambda item: (item.session_id.startswith(dsh.ROOT_PREFIX),
                                                                    item.session_id))):
         events, noted = dsh.read_events(ref.path)
@@ -298,7 +327,20 @@ def build(args):
         agent, name_source = dsh.session_agent(header_id, role, catalog, projections.get(header_id))
         if not matches_session(args, header_id, cwd, created_ms, agent, catalog):
             continue
-        agent_id = agent or header_id
+        yield index, ref, events, header_id, agent or header_id, role, name_source, cwd, created_ms, parent
+
+
+def build(args):
+    """Write the audit log; returns the summary dict (raises DshError for cannot-run cases)."""
+    global INPUT_LIMIT
+    INPUT_LIMIT = getattr(args, "input_limit", 0) or None  # 2.2.5-ds.5: 0 / None = keep each input whole
+    warnings = []
+    sessions, projections, catalog = session_files(args, warnings)
+    entries = []
+    audited = []
+    skipped = []
+    for (index, ref, events, header_id, agent_id, role, name_source, cwd, created_ms,
+         parent) in selected_sessions(args, sessions, projections, catalog, warnings, skipped):
         found = session_entries(events, header_id, agent_id, warnings)
         for item in found:
             item["_session"] = header_id
@@ -403,6 +445,257 @@ def cmd_build(args):
     return 0
 
 
+# ---------------------------------------------------------------- loops (2.3.0-ds.6)
+
+LOOPS_VERSION = 1
+CATEGORIES = ("repeat", "retry_same_error", "ping_pong", "poll_no_progress", "bad_args")
+NOT_VERIFIED = ("child_error_unhandled",)
+WAIT_TOOLS = ("wait_agent",)  # waiting on a child is calling it again; not a loop by itself
+QUERY_TOOLS = ("read", "grep", "glob", "list_agents", "job_list", "job_output", "team_task_list", "team_task_get",
+               "acp_status", "web_fetch", "web_search", "read_image", "get_goal", "search_context",
+               "list_subagent_models")
+BAD_ARGS_CODES = ("INVALID_ARGS",)  # as the DSH logs write a refused argument (error.code / error.name)
+BAD_ARGS_NAMES = ("ToolArgsError",)
+
+
+def short_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def call_problems(events):
+    """{call id: reason} for calls whose arguments the tool refused, or whose arguments string is not JSON."""
+    found = {}
+    errors = {}
+    for event in events:
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        kind = event.get("type")
+        if kind == "tool/ptc-dispatch":
+            errors[data.get("subCallId")] = data.get("error")
+        elif kind == "tool/result":
+            message = data.get("message") if isinstance(data.get("message"), dict) else {}
+            errors[message.get("toolCallId") or data.get("toolCallId")] = data.get("error")
+        elif kind == "tool/call" and isinstance(data.get("arguments"), str):
+            try:
+                json.loads(data["arguments"])
+            except ValueError:
+                found[data.get("callId")] = "ARGS_NOT_JSON"
+    for call_id, error in errors.items():
+        if isinstance(error, dict) and (error.get("code") in BAD_ARGS_CODES or error.get("name") in BAD_ARGS_NAMES):
+            found.setdefault(call_id, str(error.get("code") or error.get("name")))
+    return found
+
+
+def text_positions(events):
+    """Event positions of assistant messages that carry written text (a "text" part; reasoning is not counted)."""
+    positions = []
+    for position, event in enumerate(events):
+        if event.get("type") != "assistant/message":
+            continue
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        message = data.get("message") if isinstance(data.get("message"), dict) else {}
+        parts = message.get("content") if isinstance(message.get("content"), list) else []
+        if any(isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
+               for part in parts):
+            positions.append(position)
+    return positions
+
+
+def session_calls(events, session_id, agent_id, warnings):
+    """The session's calls in event order: number, tool, key (hash of tool + masked input), status, result hash,
+    time, event position, refused-argument reason. Reuses session_entries (same parsing and masking as build)."""
+    position = {}
+    for index, event in enumerate(events):
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if event.get("type") == "tool/ptc-dispatch":
+            position[("sub", data.get("subCallId"))] = index
+        elif event.get("type") == "tool/call":
+            position[("call", data.get("callId"))] = index
+    problems = call_problems(events)
+    calls = []
+    for item in session_entries(events, session_id, agent_id, warnings):
+        entry = item["entry"]
+        call_id = entry.get("tool_use_id")
+        where = position.get(("sub", call_id), position.get(("call", call_id), -1))
+        calls.append({"n": len(calls) + 1, "tool": entry["tool"], "key": short_hash(entry["tool"] + "\n" + entry["input"]),
+                      "status": entry["result"]["status"], "result": entry["result"]["sha256"][:12],
+                      "ts": entry["ts"], "pos": where, "bad": problems.get(call_id)})
+    return calls
+
+
+def finding(category, session_id, agent_id, call, **extra):
+    row = {"category": category, "session_id": session_id, "agent_id": agent_id, "call": call["n"], "ts": call["ts"],
+           "tool": call["tool"], "key": call["key"]}
+    row.update(extra)
+    return row
+
+
+def loop_findings(calls, session_id, agent_id, texts, settings):
+    """[finding] of one session's calls (see the module docstring for each category)."""
+    found = []
+    looped = [c for c in calls if c["tool"] not in WAIT_TOOLS]
+    seen = set()
+    for i, call in enumerate(looped):  # repeat
+        window = looped[max(0, i - settings["window"] + 1):i + 1]
+        count = sum(1 for c in window if c["key"] == call["key"])
+        if count >= settings["repeat"] and call["key"] not in seen:
+            seen.add(call["key"])
+            found.append(finding("repeat", session_id, agent_id, call, count=count, window=settings["window"],
+                                 total=sum(1 for c in looped if c["key"] == call["key"])))
+    by_key = {}
+    for call in calls:
+        by_key.setdefault(call["key"], []).append(call)
+    place = {c["n"]: index for index, c in enumerate(looped)}
+    for same in by_key.values():  # retry_same_error: the next run of the same call, same error, no text between
+        if same[0]["tool"] in WAIT_TOOLS:
+            continue
+        run = 1
+        for before, after in zip(same, same[1:]):
+            again = (before["status"] == "error" and after["status"] == "error" and before["result"] == after["result"]
+                     and place[after["n"]] - place[before["n"]] <= settings["window"]
+                     and not any(before["pos"] < p < after["pos"] for p in texts))
+            run = run + 1 if again else 1
+            if again and run == 2:
+                found.append(finding("retry_same_error", session_id, agent_id, after, result=after["result"],
+                                     previous_call=before["n"]))
+    pairs = set()
+    i = 0
+    span = 2 * settings["rounds"]
+    while i + span <= len(looped):  # ping_pong
+        a, b = looped[i], looped[i + 1]
+        run = looped[i:i + span]
+        if a["key"] != b["key"] and all(c["key"] == (a, b)[j % 2]["key"] and c["result"] == (a, b)[j % 2]["result"]
+                                        for j, c in enumerate(run)):
+            pair = tuple(sorted((a["key"], b["key"])))
+            if pair not in pairs:
+                pairs.add(pair)
+                found.append(finding("ping_pong", session_id, agent_id, a, other_tool=b["tool"], other_key=b["key"],
+                                     rounds=settings["rounds"]))
+            i += span
+            continue
+        i += 1
+    for same in by_key.values():  # poll_no_progress
+        if same[0]["tool"] not in QUERY_TOOLS:
+            continue
+        run = 1
+        for before, after in zip(same, same[1:]):
+            gap = place[after["n"]] - place[before["n"]]
+            steady = (before["status"] == after["status"] == "ok" and before["result"] == after["result"]
+                      and gap <= settings["window"])
+            run = run + 1 if steady else 1
+            if steady and run == settings["poll"]:
+                found.append(finding("poll_no_progress", session_id, agent_id, after, result=after["result"],
+                                     times=run))
+    for call in calls:  # bad_args
+        if call["bad"]:
+            found.append(finding("bad_args", session_id, agent_id, call, reason=call["bad"]))
+    order = {name: index for index, name in enumerate(CATEGORIES)}
+    found.sort(key=lambda row: (row["call"], order[row["category"]]))
+    return found
+
+
+def loops(args):
+    """The loops result dict (raises DshError / NodeMissing when the logs cannot be read)."""
+    settings = {"repeat": args.repeat, "window": args.window, "rounds": args.rounds, "poll": args.poll}
+    warnings, skipped, sessions_read = [], [], []
+    if args.events:
+        selected = []
+        for index, name in enumerate(args.events):
+            path = pathlib.Path(name)
+            try:
+                events, noted = dsh.parse_jsonl(path.read_text(encoding="utf-8-sig"))
+            except OSError as error:
+                raise dsh.DshError(f"cannot read {path}: {error}") from error
+            warnings.extend(f"{path.name}: {note}" for note in noted)
+            header_id, _, _, worker, _ = header_info(events, path.stem)
+            agent, _ = dsh.session_agent(header_id, "worker" if worker else "director", {}, None)
+            selected.append((header_id, agent or header_id, events))
+    else:
+        sessions, projections, catalog = session_files(args, warnings)
+        if not sessions:
+            raise dsh.DshError("no DSH session logs found")
+        selected = [(item[3], item[4], item[2]) for item in
+                    selected_sessions(args, sessions, projections, catalog, warnings, skipped)]
+    findings, total, first = [], 0, {}
+    for header_id, agent_id, events in selected:
+        calls = session_calls(events, header_id, agent_id, warnings)
+        total += len(calls)
+        sessions_read.append({"session_id": header_id, "agent_id": agent_id, "calls": len(calls)})
+        for row in loop_findings(calls, header_id, agent_id, text_positions(events), settings):
+            # a forked DSH session carries its seed's events: the same finding (same call, same time) is counted once
+            same = (row["category"], row["tool"], row["key"], row["ts"])
+            if same in first:
+                first[same].setdefault("also_in", []).append(header_id)
+                continue
+            first[same] = row
+            findings.append(row)
+    counts = {name: sum(1 for row in findings if row["category"] == name) for name in CATEGORIES}
+    tools = {}
+    for row in findings:
+        if row["category"] == "bad_args":
+            tools[row["tool"]] = tools.get(row["tool"], 0) + 1
+    top = sorted(tools.items(), key=lambda pair: (-pair[1], pair[0]))[:5]
+    return {"tool": TOOL, "command": "loops", "version": LOOPS_VERSION, "settings": settings,
+            "sessions": len(sessions_read), "calls": total, "findings_total": len(findings), "counts": counts,
+            "bad_args": {"count": counts["bad_args"], "calls": total,
+                         "ratio": round(counts["bad_args"] / total, 6) if total else 0.0, "top": top},
+            "not_verified": list(NOT_VERIFIED), "findings": findings, "per_session": sessions_read,
+            "warnings": warnings, "skipped": skipped}
+
+
+def loop_line(row):
+    extra = {"repeat": lambda: f"count={row['count']}/{row['window']} total={row['total']}",
+             "retry_same_error": lambda: f"result={row['result']} previous_call={row['previous_call']} no_text_between",
+             "ping_pong": lambda: f"other={row['other_tool']}:{row['other_key']} rounds={row['rounds']}",
+             "poll_no_progress": lambda: f"result={row['result']} times={row['times']}",
+             "bad_args": lambda: f"reason={row['reason']}"}[row["category"]]()
+    copies = f" copies={1 + len(row['also_in'])}" if row.get("also_in") else ""
+    return (f"LOOP {row['category']} session={row['session_id']} agent={row['agent_id']} call={row['call']} "
+            f"at={row['ts']} tool={row['tool']} key={row['key']} {extra}{copies}")
+
+
+def cmd_loops(args):
+    for name in ("repeat", "window", "rounds", "poll"):
+        if getattr(args, name) < (2 if name in ("repeat", "rounds", "poll") else 1):
+            print(f"NOT_RUN --{name} is too small")
+            return 2
+    try:
+        result = loops(args)
+    except (dsh.DshError, dsh.NodeMissing) as error:
+        print(f"NOT_RUN {error}")
+        return 2
+    if args.out:
+        out = pathlib.Path(args.out).expanduser()
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with open(out, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(result, ensure_ascii=False, indent=1) + "\n")
+        except OSError as error:
+            print(f"NOT_RUN cannot write {out}: {error}")
+            return 2
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return 1 if result["findings_total"] else 0
+    for category in CATEGORIES:
+        rows = [row for row in result["findings"] if row["category"] == category]
+        for row in rows[:args.show]:
+            print(loop_line(row))
+        if len(rows) > args.show:
+            print(f"  ... {len(rows) - args.show} more {category} finding(s); see --json")
+    bad = result["bad_args"]
+    top = ", ".join(f"{name}:{count}" for name, count in bad["top"]) or "-"
+    print(f"BAD_ARGS count={bad['count']} of {bad['calls']} calls ({100 * bad['ratio']:.2f}%) top={top}")
+    for name in NOT_VERIFIED:
+        print(f"~ NOT_VERIFIED {name}")
+    print(f"DSH_LOOPS sessions={result['sessions']} calls={result['calls']} findings={result['findings_total']} "
+          + " ".join(f"{name}={count}" for name, count in result["counts"].items())
+          + (f" out={args.out}" if args.out else ""))
+    for warning in result["warnings"][:8]:
+        print(f"  ~ {warning}")
+    if len(result["warnings"]) > 8:
+        print(f"  ~ ... {len(result['warnings']) - 8} more warning(s); see --json")
+    return 1 if result["findings_total"] else 0
+
+
 def cmd_verify(args):
     """Delegate to audit_log.py verify (same format, same checks, same exit codes)."""
     argv = ["audit_log.py", "verify"]
@@ -431,6 +724,7 @@ def cmd_verify(args):
 
 
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
     build_parser = sub.add_parser("build", help="reconstruct the action log from DSH session logs")
@@ -449,6 +743,25 @@ def main(argv=None):
     build_parser.add_argument("--input-limit", type=int, default=0,
                               help="2.2.5-ds.5: cut each input at this many characters (default 0: keep it whole); a cut "
                                    "line is marked input_cut")
+    loops_parser = sub.add_parser("loops", help="2.3.0-ds.6: find calls that go in circles (names and hashes only)")
+    loops_parser.add_argument("--log-root", "--sessions-root", dest="log_root",
+                              help="DSH sessions root (default %%USERPROFILE%%\\.dsh\\sessions)")
+    loops_parser.add_argument("--cache-root", help="DSH projection cache root, for agent names")
+    loops_parser.add_argument("--project-dir", action="append", default=[],
+                              help="only sessions whose cwd is this folder or below (repeatable)")
+    loops_parser.add_argument("--since", help="local date YYYY-MM-DD, inclusive (session start)")
+    loops_parser.add_argument("--until", help="local date YYYY-MM-DD, inclusive (session start)")
+    loops_parser.add_argument("--session", action="append", default=[],
+                              help="only this session id / id prefix / agent name (repeatable)")
+    loops_parser.add_argument("--events", nargs="+", metavar="FILE",
+                              help="plain JSONL event files, one session each (synthetic fixtures), instead of the logs")
+    loops_parser.add_argument("--repeat", type=int, default=3, help="repeat: this many of the same call (default 3)")
+    loops_parser.add_argument("--window", type=int, default=20, help="repeat / poll: within this many calls (default 20)")
+    loops_parser.add_argument("--rounds", type=int, default=3, help="ping_pong: this many A-B rounds (default 3)")
+    loops_parser.add_argument("--poll", type=int, default=3, help="poll_no_progress: same result this many times (default 3)")
+    loops_parser.add_argument("--show", type=int, default=20, help="lines printed per category (default 20; --json has all)")
+    loops_parser.add_argument("--json", action="store_true", help="print the result as JSON")
+    loops_parser.add_argument("--out", help="also write the JSON result to this file (status_gen.py \"loops\" reads it)")
     verify_parser = sub.add_parser("verify", help="delegate to audit_log.py verify (hash chain, anchors)")
     verify_parser.add_argument("--log", required=True, help="audit JSONL file to verify")
     verify_parser.add_argument("--from", dest="from_seq", type=int)
@@ -459,7 +772,6 @@ def main(argv=None):
     verify_parser.add_argument("--repo", help="repo for --anchor-rev")
     verify_parser.add_argument("--cite", help="an AUDIT_RANGE line to check")
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
     for field in ("since", "until"):
         value = getattr(a, field, None)
         if value:
@@ -473,6 +785,8 @@ def main(argv=None):
             print("NOT_RUN --input-limit must be 0 (no cut) or more")
             return 2
         return cmd_build(a)
+    if a.command == "loops":
+        return cmd_loops(a)
     return cmd_verify(a)
 
 

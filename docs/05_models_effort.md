@@ -1,6 +1,6 @@
 # 05 模型與思考程度（effort）
 
-本檔是 DeepSeek Harness 版。平台只有一個模型，差別在思考程度（reasoning effort）。Claude 版原文見 upstream（`repo/docs/05_models_effort.md`）。
+本檔是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））的版本。平台只有一個模型，差別在思考程度（reasoning effort）。Claude 版原文見 upstream（`repo/docs/05_models_effort.md`）。
 
 ## 可用的模型與 effort
 

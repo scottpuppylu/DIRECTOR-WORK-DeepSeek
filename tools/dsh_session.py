@@ -1,4 +1,4 @@
-r"""Shared library of the DIRECTOR-WORK DeepSeek Harness (DSH) edition: read DSH session data.
+r"""Shared library of dsh-DIRECTOR-WORKER (dshdw), DIRECTOR-WORK on DeepSeek Harness (DSH): read DSH session data.
 
 No side effects on import: nothing is printed, written or listed until a function is called.
 

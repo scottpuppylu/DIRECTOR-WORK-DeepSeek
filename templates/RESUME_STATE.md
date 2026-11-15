@@ -19,4 +19,5 @@ FIX_ROUNDS: <每個修過的缺陷一行：`- <缺陷>: round=<累計輪次> set
 <研究檔每一節先放 `| 項目 | 測試條件 | 參考條件 |` 表（2.3.0）；宣告一組做完前，核對資料夾、程式、提示詞是同一組>
 OPEN_DECISIONS: <等總監 / PO 的決定> 或 NONE
 DO_NOT_REPEAT: <已失敗的方法，不要重試> 或 NONE
+<同一呼叫失敗兩次：先寫一行「為什麼失敗、下一步改什麼」再試；派出的子工作逾時沒結果或出錯，用 send_message 回報主管，不可靜默等待；宣告完成前本輪跑過驗證指令並附 RAN 行（2.3.0-ds.6）>
 <!-- 整份 ≤ 20 KiB、單行 ≤ 4 KiB；超過用 tools/resume_archive.py 把舊段落原文搬到 RESUME_HISTORY_<YYYYMMDD>.md（docs/06b）。Before: 舊紀錄用 (MM-DD HH:MM) 開頭。 -->

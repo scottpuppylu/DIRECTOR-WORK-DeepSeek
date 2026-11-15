@@ -1,4 +1,4 @@
-# tools — DIRECTOR-WORK DeepSeek（DSH）版
+# tools — dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））
 
 Python 3.9 以上，只用標準函式庫。一律用 bundled Python 執行：`python -I -X utf8 <tool>.py ...`
 （`-I` 不從目前資料夾載入模組；執行檔路徑見 `docs/11`）。每支都有 `--help`，沒有寫死的本機路徑。
@@ -60,6 +60,22 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 - 非 UTF-8 主控台（cp1252／cp950）的 `--help`：輸出改 UTF-8 移到解析參數之前。上游修了十支；DS 另外修了自己的 `bootstrap_repo`、`dsh_session`、`release`、`safety_gate`、`status_gen`、`dsh_doctor`。`selftest_ds.py` 用 cp1252 包住 stdout／stderr 跑每支工具（含 `dsh_*`）的 `--help`。
 - DS 專屬：`dsh_session.py --cwd-check <工作區>`（lead 開工第一步；BOOTSTRAP 第 0 步、docs/11）：目前資料夾和工作區用 realpath 比（Windows 不分大小寫），不同或在子資料夾就印 `BLOCKED: cwd <實際> != <預期>`、exit 1，什麼都不寫。
 
+### 工作品質偵測（2.3.0-ds.6，WO-DS-011）
+
+DSH 沒有事前攔截（沒有 PreToolUse hook），下面兩項都是事後從紀錄或檔案查，在檢查點、閘門、狀態報告裡讓人看見。概念來源見 CHANGELOG 2.3.0-ds.6 的 Credits；程式是自己用標準函式庫寫的。
+
+- `dsh_audit.py loops`：讀和 `build` 一樣的 DSH session（同樣的 `--session`／`--project-dir`／`--since`／`--until`），找出打轉的呼叫。每個發現一行：類別、session、agent、session 裡第幾次呼叫、時間、工具名、雜湊；**不印參數、輸出或訊息內容**。
+  - `repeat`：同一個呼叫（工具＋參數遮罩後的雜湊）在 20 次呼叫內出現 3 次（`--repeat`、`--window`）。
+  - `retry_same_error`：同一個呼叫在 20 次呼叫內又失敗、錯誤一樣，中間 agent 沒寫任何文字（思考不算；規則要的是寫出來的一行）。
+  - `ping_pong`：A、B 兩個呼叫交替 3 輪（`--rounds`），結果都沒變。
+  - `poll_no_progress`：讀取／查詢類工具（read、grep、glob、list_agents、job_list、job_output、team_task_*、acp_status、web_fetch、web_search 等）連續 3 次結果一樣（`--poll`）。
+  - `bad_args`：工具拒收參數（DSH 紀錄的 `INVALID_ARGS`／`ToolArgsError`），或頂層參數字串不是 JSON；印次數、占全部呼叫的比例、前 5 名工具。
+  - `child_error_unhandled`：本機 DSH 紀錄裡子代理結束的事件是 `user/message`（`source.kind` = `subagent-settled`），`stopReason` 只看過 `completed`，沒看過失敗的子代理事件；所以這類只印 `~ NOT_VERIFIED`，不猜事件名。
+  - `wait_agent` 不算 repeat／retry／ping_pong／poll（等子代理本來就要一直叫它）。fork 出來的 session 帶著母 session 的事件：同類別、同呼叫、同時間的發現只算一次（行尾 `copies=N`）。
+  - `--json` 印 JSON；`--out FILE` 另外寫一份 JSON 給 `status_gen.py`。`--events FILE...` 讀純 JSONL 事件檔（合成 fixture，`tools/fixtures/loops/`）。exit 0 沒發現、1 有發現、2 讀不到。
+- `status_gen.py` 的 `"loops": {"path": "loops.json"}`：讀 `dsh_audit.py loops --out` 寫的 JSON，有發現時多印一行 `LOOPS loops.json (modified …): findings=n repeat=… …`，沒有發現不印；檔案不在印 MISSING。發現不改 exit code。選 status_gen 不選 line_brief：loops 是整個專案所有 session 的事，和 status_gen 的 AUDIT 段（動作紀錄）同一類；line_brief 只看一條工作線的看板、git、結果和 log。
+- `memory_size_check.py --chain FILE... [--max-bytes N]`：一條指示鏈的檔一起量：每檔一行（bytes；有 CRLF 另列 LF bytes；~token 照舊用 bytes/2），加總超過 `--max-bytes` 印 FAIL（exit 1）；各檔之間重複 3 行以上的段落印 `DUP a:起-迄 = b:起-迄 (n lines)`（空行略過；只有標點的行不當段落開頭），只列不判 FAIL。最後一行 `CHAIN: PASS|FAIL|MISSING files= bytes= (limit …) lf_bytes= ~tokens= dups=`。單檔和 `--kind resume` 的輸出不變。
+
 ## 已移除（Claude 專屬）
 
 `hook_guard.py`（規則留在 `guard_rules.json`）、`setup_project_settings.py`（改 `.claude/settings.local.json`）、
@@ -100,6 +116,12 @@ python -I -X utf8 tools/dsh_session.py --worktree-status <checkout>
 # 收尾（2.2.5-ds.5）：最後一步寫用量，再跑 --final
 python -I -X utf8 tools/dsh_usage.py --project-dir <WS> --out DIRECTOR/usage.json
 python -I -X utf8 tools/gate_check.py --final DIRECTOR
+
+# 總監：打轉偵測（2.3.0-ds.6；事後查，DSH 擋不住）
+python -I -X utf8 tools/dsh_audit.py loops --project-dir <WS> --out DIRECTOR/loops.json
+
+# 總監：整條指示鏈的大小與重複段落（2.3.0-ds.6，docs/09）
+python -I -X utf8 tools/memory_size_check.py --chain <REPO>/AGENTS.md <REPO>/AGENTS.local.md --max-bytes 65536
 
 # 全組冒煙測試
 python -I -X utf8 tools/selftest_ds.py

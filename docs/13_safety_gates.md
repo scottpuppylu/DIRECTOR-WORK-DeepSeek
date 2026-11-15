@@ -1,6 +1,6 @@
 # 13 安全閘門（2.2.5-ds.5；原「規格先行（SDD）與 OpenSpec」，ds.2～ds.4）
 
-本檔是 DeepSeek Harness 版自己的規則。寫 Standard／Strict 工單前讀。規則摘要也寫在 `docs/02`；本檔放完整流程、設定開關和「誰能關」。
+本檔是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））自己的規則。寫 Standard／Strict 工單前讀。規則摘要也寫在 `docs/02`；本檔放完整流程、設定開關和「誰能關」。
 
 ## 2.2.5-ds.5 改了什麼
 

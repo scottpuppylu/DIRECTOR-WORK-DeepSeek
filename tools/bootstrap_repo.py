@@ -62,7 +62,7 @@ def step_exclude(repo, check):
     if check:
         return "TODO", f"{path}: add {', '.join(missing)}"
     path.parent.mkdir(parents=True, exist_ok=True)
-    add = ("" if not text or text.endswith("\n") else "\n") + "# DW-DS bootstrap: tool products, local only\n" + \
+    add = ("" if not text or text.endswith("\n") else "\n") + "# dshdw bootstrap: tool products, local only\n" + \
         "".join(item + "\n" for item in missing)
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(add)

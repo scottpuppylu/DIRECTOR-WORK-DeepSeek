@@ -1,4 +1,4 @@
-r"""Usage / context report for the DIRECTOR-WORK DeepSeek Harness (DSH) edition.
+r"""Usage / context report for dsh-DIRECTOR-WORKER (dshdw), DIRECTOR-WORK on DeepSeek Harness (DSH).
 
 Reads the DSH projection cache (plain JSON, no Node needed) and prints numbers only; message content is never printed.
 

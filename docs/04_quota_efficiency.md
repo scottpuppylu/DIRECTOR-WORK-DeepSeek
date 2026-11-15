@@ -1,6 +1,6 @@
 # 04 用量與上下文效率
 
-本檔是 DeepSeek Harness 版。Claude 版原文見 upstream（`repo/docs/04_quota_efficiency.md`）；兩版最大的差別是計價方式與額度概念。
+本檔是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））的版本。Claude 版原文見 upstream（`repo/docs/04_quota_efficiency.md`）；兩版最大的差別是計價方式與額度概念。
 
 ## 成本模型
 
@@ -46,7 +46,7 @@ GUI 的 token meter／context 顯示可以對照當下數字；兩邊不一致�
 
 **讀不到記 UNKNOWN，不記 0。** `dsh_usage.py` 印 `NO_DATA` 時，代表還沒有可讀的 session 紀錄（例如剛建置），不是用量是 0。
 
-## 停工線與用量重置（DeepSeek 版）
+## 停工線與用量重置（dshdw）
 
 - DSH 沒有 Claude 方案的「5 小時／週額度」視窗，也沒有對應的 98%／99% 停工線。
 - 用量上限、餘量、方案細節以 DSH 帳號頁／GUI 顯示為準；總監讀不到就記 UNKNOWN，不自行假設。
@@ -59,7 +59,7 @@ GUI 的 token meter／context 顯示可以對照當下數字；兩邊不一致�
 
 ## 為什麼
 
-- Claude 版量的是方案額度；DeepSeek 版按 token 計價，所以「省」的對象從「次數」變成「上下文長度與 effort」；但兩者最大的共同槓桿都是「不要讓對話變長」。
+- Claude 版量的是方案額度；dshdw 按 token 計價，所以「省」的對象從「次數」變成「上下文長度與 effort」；但兩者最大的共同槓桿都是「不要讓對話變長」。
 - 視窗有 1,048,576 tokens，很容易讓人以為可以全部塞進去；每次請求都要重讀，長上下文照樣貴，而且模型更容易漏掉重點。
 - 子代理的價值是把「讀很多」的成本關在別人的上下文裡，只把結論帶回來；不看這一點，會把省用量的工具用成燒用量的工具。
 - 量測故意用固定指令與固定欄位，才能前後比較（`PURPOSE.md`「怎麼判斷有沒有效」）。

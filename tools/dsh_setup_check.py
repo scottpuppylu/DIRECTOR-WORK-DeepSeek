@@ -1,6 +1,6 @@
 r"""Check that a DIRECTOR folder was built correctly by the DeepSeek Harness (DSH) BOOTSTRAP.
 
-Run before the first report (BOOTSTRAP step 13). The DSH edition has no PO page: open questions are asked with the
+Run before the first report (BOOTSTRAP step 13). dshdw has no PO page: open questions are asked with the
 ask_user_question tool and kept in DIRECTOR/PO_PENDING.md, so DIRECTOR_STATE.md must say how pending questions are
 handled instead of naming a web page.
 
@@ -12,7 +12,7 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
   - the required files exist: DIRECTOR_STATE.md, ACTIVE_WORKSTREAMS.md, DECISION_REGISTER.md, PO_PENDING.md,
     RESUME_STATE.md, DIRECTOR_OPERATING_RULES.md, director_work.json
   - DIRECTOR_STATE.md has exactly one filled PENDING_METHOD line (ask_user_question + PO_PENDING.md; a leftover
-    PO_PAGE_URL / PO_PAGE_PINNED line is only noted: the DSH edition has no Artifact page)
+    PO_PAGE_URL / PO_PAGE_PINNED line is only noted: dshdw has no Artifact page)
   - every PO_PENDING.md entry (ID: OD-xx / ACT-xx) has ID, STATUS (open / answered / closed), QUESTION, OPTIONS,
     RECOMMENDED, SOURCE and ANSWER, each once and filled in; an answered or closed entry needs a real ANSWER
   - RESUME_STATE.md holds the four header lines PROGRESS, DOING, NEXT_STEP, COMMS first, in this order
@@ -26,7 +26,7 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     rule as `gate_check.py --resume` (the order of the four lines stays a problem as before)
   - director_work.json: schema_version 1 (the tools refuse another: metrics_report.py, trace_report.py); mode
     general / beginner; trace_id_pattern / po_item_pattern / po_open_pattern valid regular expressions;
-    po_pending_files a list of strings. Claude-only keys the DSH edition skips (window, plugins_off, hooks, ...) and
+    po_pending_files a list of strings. Claude-only keys dshdw skips (window, plugins_off, hooks, ...) and
     keys no tool reads are noted.
 
 2.2.2-ds.3 (upstream 2.2.2 setup_check), shadow too:
@@ -103,7 +103,7 @@ def check_state_file(text, problems, notes):
     if len(found) > 1:
         problems.append(f"PENDING_METHOD: {len(found)} lines; keep one")
     if not found:
-        problems.append("PENDING_METHOD: line missing; write how pending questions reach the PO in the DSH edition "
+        problems.append("PENDING_METHOD: line missing; write how pending questions reach the PO in dshdw "
                         "(ask_user_question + DIRECTOR/PO_PENDING.md)")
     else:
         filled("PENDING_METHOD", found[0], problems)
@@ -112,7 +112,7 @@ def check_state_file(text, problems, notes):
                          "PO_PENDING.md (no Artifact page)")
     for key in ("PO_PAGE_URL", "PO_PAGE_PINNED"):
         if re.search(rf"^[ \t]*{key}[ \t]*:", text, re.M):
-            notes.append(f"{key} is a Claude-only line; the DSH edition has no page (ask_user_question + PO_PENDING.md)")
+            notes.append(f"{key} is a Claude-only line; dshdw has no page (ask_user_question + PO_PENDING.md)")
 
 
 def check_po_pending(text, problems, notes):
@@ -387,7 +387,7 @@ def shadow_config(text, notes):
     problems += config_blocks(data, notes)
     skipped = sorted(key for key in data if key in CLAUDE_ONLY_KEYS)
     if skipped:
-        notes.append(f"director_work.json: Claude-only keys the DSH edition does not read: {', '.join(skipped)}")
+        notes.append(f"director_work.json: Claude-only keys dshdw does not read: {', '.join(skipped)}")
     unknown = sorted(key for key in data if key not in CONFIG_KEYS + CLAUDE_ONLY_KEYS + LEGACY_KEYS
                      and not key.startswith("_"))
     if unknown:

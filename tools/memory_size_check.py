@@ -5,6 +5,7 @@ RESUME_STATE.md files every resume reads in full.
   memory_size_check.py --kind resume --file F [--file G]  one line per file, then `SIZE: PASS|OVER files=n over=n`
   memory_size_check.py --kind resume --glob "D:/X/**/RESUME_STATE*.md"
   memory_size_check.py --kind resume --workstreams <DIRECTOR>/ACTIVE_WORKSTREAMS.md
+  memory_size_check.py --chain AGENTS.md AGENTS.local.md --max-bytes 65536   one instruction chain (2.3.0-ds.6)
 
 Prints size in bytes, a rough token estimate (bytes / 2, mixed Chinese / English text) and the longest line.
 --kind memory (default): limit 6144 bytes (about 3k tokens), no line limit unless --max-line-bytes is given.
@@ -15,8 +16,14 @@ line `OK  ` / `OVER` and the last line is `SIZE: PASS|OVER|MISSING files=n over=
 nothing or a registered path that is not there counts as missing. --workstreams reads the RESUME_STATE column of the
 ACTIVE_WORKSTREAMS.md table (templates/DIRECTOR_FILES.md), or any `...RESUME_STATE*.md` path in it; a relative path is
 read from that file's folder. Exit 1 when a file is over or missing, 0 otherwise.
+--chain FILE... (2.3.0-ds.6) measures the files one chain loads together: one `CHAIN` line per file (bytes as on
+disk, LF bytes when the file has CRLF line ends, ~tokens), then every passage of 3 or more lines that two files share
+(`DUP a:L1-L2 = b:M1-M2 (n lines)`; blank lines are skipped, a line of punctuation only does not start a passage;
+nothing is cut), then `CHAIN: PASS|FAIL|MISSING files=n bytes=N (limit M|none) lf_bytes=N ~tokens=N dups=n`. FAIL when
+the sum is over --max-bytes (no --max-bytes: no limit); a duplicate is listed, never a FAIL. Exit 1 on FAIL or a missing
+file. The other modes are not changed by it.
 Without --file, --glob or --workstreams it looks for AGENTS.md: the nearest one from the current folder upwards
-(the project agent instructions the DSH harness loads on every call; DeepSeek port).
+(the project agent instructions the DSH harness loads on every call; dshdw).
 Only reads; tidy by hand: the memory index per docs/09_memory.md, a RESUME_STATE per docs/06_resume_lossless.md (move
 closed sections to RESUME_HISTORY_<YYYYMMDD>.md beside it, never delete them).
 """
@@ -145,6 +152,66 @@ def workstream_paths(path):
     return [str(p if pathlib.Path(p).is_absolute() else base / p) for p in dict.fromkeys(found)]
 
 
+TRIVIAL = re.compile(r"[\s\W_]*")  # punctuation only (``` --- |---|): never the start of a duplicate passage
+
+
+def kept_lines(raw):
+    """[(line number, stripped text)] of a file's non-blank lines."""
+    text = raw.decode("utf-8", "replace")
+    return [(n, line.strip()) for n, line in enumerate(text.splitlines(), 1) if line.strip()]
+
+
+def shared_passages(files, least=3):
+    """Passages of `least` or more non-blank lines two different files share: [(a, b, (a_from, a_to), (b_from,
+    b_to), lines)], each maximal (not part of a longer shared run that starts earlier)."""
+    shingles = {}
+    for index, (_, lines) in enumerate(files):
+        for i in range(len(lines) - least + 1):
+            if TRIVIAL.fullmatch(lines[i][1]):
+                continue
+            shingles.setdefault(tuple(text for _, text in lines[i:i + least]), []).append((index, i))
+    found = []
+    for spots in shingles.values():
+        for x, (a, i) in enumerate(spots):
+            for b, j in spots[x + 1:]:
+                if a == b:
+                    continue
+                la, lb = files[a][1], files[b][1]
+                if i > 0 and j > 0 and la[i - 1][1] == lb[j - 1][1]:
+                    continue  # inside a longer run that starts before
+                k = least
+                while i + k < len(la) and j + k < len(lb) and la[i + k][1] == lb[j + k][1]:
+                    k += 1
+                found.append((a, b, (la[i][0], la[i + k - 1][0]), (lb[j][0], lb[j + k - 1][0]), k))
+    return sorted(found)
+
+
+def chain(paths, max_bytes):
+    """The --chain report: CHAIN lines, DUP lines, the summary; returns the exit code."""
+    files, missing, total, lf_total = [], [], 0, 0
+    for name in paths:
+        path = pathlib.Path(name)
+        if not path.is_file():
+            missing.append(path)
+            print(f"NOT_FOUND {path}")
+            continue
+        raw = path.read_bytes()
+        lf = len(raw.replace(b"\r\n", b"\n"))
+        total, lf_total = total + len(raw), lf_total + lf
+        files.append((path, kept_lines(raw)))
+        print(f"CHAIN {path}: {len(raw)} bytes" + (f" (LF {lf})" if lf != len(raw) else "") + f", ~{len(raw) // 2} tokens")
+    dups = shared_passages(files)
+    for a, b, (a1, a2), (b1, b2), lines in dups:
+        print(f"DUP {files[a][0]}:{a1}-{a2} = {files[b][0]}:{b1}-{b2} ({lines} lines)")
+    over = max_bytes is not None and total > max_bytes
+    status = "FAIL" if over else "MISSING" if missing else "PASS"
+    print(f"CHAIN: {status} files={len(files)} bytes={total} (limit {max_bytes if max_bytes is not None else 'none'}) "
+          f"lf_bytes={lf_total} ~tokens={total // 2} dups={len(dups)}" + (f" missing={len(missing)}" if missing else ""))
+    if over:
+        print("  ~ the chain is over the limit: tidy per docs/09_memory.md (back up first; move closed entries out)")
+    return 1 if over or missing else 0
+
+
 def legacy(path, max_bytes, top):
     """The 2.2.1 report for one memory index."""
     if not path.is_file():
@@ -170,6 +237,7 @@ def legacy(path, max_bytes, top):
 
 
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", action="append", default=[], help="a file to check (may be given more "
                     "than once; default: the nearest AGENTS.md from the current folder up)")
@@ -182,14 +250,19 @@ def main(argv=None):
     ap.add_argument("--max-bytes", type=int, help="limit in bytes (default by --kind)")
     ap.add_argument("--max-line-bytes", type=int, help="limit for one line in bytes (default by --kind)")
     ap.add_argument("--top", type=int, default=5, help="single memory index: how many longest lines to show (default 5)")
+    ap.add_argument("--chain", nargs="+", metavar="FILE", help="2.3.0-ds.6: the files of one instruction chain: their "
+                    "sum against --max-bytes (no limit without it) and the passages of 3+ lines two of them share")
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
     kind, notes = a.kind or "memory", []
     if a.config and kind != "resume":
         ap.error("--config works with --kind resume")
     for name in ("max_bytes", "max_line_bytes"):
         if getattr(a, name) is not None and getattr(a, name) <= 0:
             ap.error(f"--{name.replace('_', '-')} takes a whole number above 0")
+    if a.chain:
+        if a.file or a.glob or a.workstreams or a.kind or a.config or a.max_line_bytes is not None:
+            ap.error("--chain takes only --max-bytes")
+        return chain(a.chain, a.max_bytes)
     settings = resume_settings(read_config(a.config, notes) if a.config else {}, notes)
     max_bytes, max_line_bytes = (settings["max_bytes"], settings["max_line_bytes"]) if kind == "resume" else LIMITS[kind]
     max_bytes = a.max_bytes if a.max_bytes is not None else max_bytes
@@ -199,7 +272,7 @@ def main(argv=None):
     if not (a.glob or a.workstreams or a.kind or len(a.file) > 1):
         if a.file:
             path = pathlib.Path(a.file[0])
-        else:  # DeepSeek port: the nearest AGENTS.md from the current folder up (DSH loads it on every call)
+        else:  # dshdw: the nearest AGENTS.md from the current folder up (DSH loads it on every call)
             here = pathlib.Path.cwd().resolve()
             path = next((f / "AGENTS.md" for f in (here, *here.parents) if (f / "AGENTS.md").is_file()), None)
             if path is None:

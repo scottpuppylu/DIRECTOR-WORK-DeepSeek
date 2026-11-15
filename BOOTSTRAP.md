@@ -1,9 +1,9 @@
-# BOOTSTRAP — 新總監的第一輪（DeepSeek Harness 版）
+# BOOTSTRAP — 新總監的第一輪（dsh-DIRECTOR-WORKER）
 
 照順序做。每一步做完才做下一步。標「問 PO」的，放進待決帳（第 6 步：`ask_user_question` 加本機 `DIRECTOR/PO_PENDING.md`）並列進第一份回報，不自己做。
 照文件做不下去時（文件沒寫、寫錯、工具失敗），在 `DIRECTOR/DIRECTOR_LOG.md` 記一行 `BOOTSTRAP_STUCK 第 <n> 步 <原因>`；第 3 步之前卡住的，建好後補記。這是 `PURPOSE.md`「新專案導入時卡住的次數」的來源。
 `<RULES>` 指本規則包在本機的位置，`<REPO>` 指新專案的 git repo，`<WS>` 指放共用狀態的位置（見第 3 步）。
-本檔是 DeepSeek Harness（DSH）版；Claude 版原文見上游 https://github.com/scottpuppylu/DIRECTOR-WORK 的 `BOOTSTRAP.md`（v2.2.1）。DSH 上每個能力實際用哪個工具，見 `docs/11_dsh_operations.md`。
+本檔是 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS）），跑在 DeepSeek Harness（DSH）上；Claude 版原文見上游 https://github.com/scottpuppylu/DIRECTOR-WORK 的 `BOOTSTRAP.md`（v2.2.1）。DSH 上每個能力實際用哪個工具，見 `docs/11_dsh_operations.md`。
 
 ## 先問模式（第一則回覆）
 
@@ -91,7 +91,7 @@ DIRECTOR/
   director_work.json            從 director_work.example.json 改
 ```
 
-沒有指定範本的檔案，骨架在 `templates/DIRECTOR_FILES.md`。DeepSeek 版沒有 Claude 版的 hook 設定檔、choice 帳本、外掛清單，不要建。
+沒有指定範本的檔案，骨架在 `templates/DIRECTOR_FILES.md`。dshdw 沒有 Claude 版的 hook 設定檔、choice 帳本、外掛清單，不要建。
 
 ## 4. AGENTS.md 加上總監段落
 
@@ -107,7 +107,7 @@ DIRECTOR/
 
 ## 6. PO 待決帳
 
-DeepSeek 版沒有 Claude 的私人頁面、置頂、留言叫醒。待決有兩部分：**`ask_user_question`**（在 GUI 跳出題目，PO 選答案）和 **`DIRECTOR/PO_PENDING.md`**（本機帳，唯一的長期紀錄）。兩種模式一樣。
+dshdw 沒有 Claude 的私人頁面、置頂、留言叫醒。待決有兩部分：**`ask_user_question`**（在 GUI 跳出題目，PO 選答案）和 **`DIRECTOR/PO_PENDING.md`**（本機帳，唯一的長期紀錄）。兩種模式一樣。
 
 1. **建檔**：從 `templates/PO_PENDING.md` 複製；每一筆照格式寫 `ID / STATUS / QUESTION / QUESTION_TOOL / OPTIONS / RECOMMENDED / IMAGES / SOURCE / ANSWER / RESOLUTION`（`QUESTION_TOOL` 記這題用 `ask_user_question` 問的題號或一句話，只在聊天問的寫 `NONE`）。建檔時就記下第一輪的模式題 `CH-00`。
 2. **問**：要 PO 回覆、確認或動手的事，一筆一項。一次最多三題（`ask_user_question` 每次最多三題是工作慣例，不是硬限制）；每題給選項（A/B/C，各一句影響）和建議＋一句理由。要 PO 看圖的，先把截圖用 markdown 圖放在同一則訊息，再問；`ask_user_question` 的選項不能放圖，`present` 的檔案卡要回合結束後才出現、不能算 PO 已先看到。
@@ -134,7 +134,7 @@ DSH 沒有 Claude 版那種「壓縮門檻 250000」的專案設定，也沒有 
 3. 結果寫進 `DIRECTOR/BASELINE_METRICS.md`（`templates/DIRECTOR_FILES.md`），日期從 date 讀。之後每週複查用同一套指令比較（`docs/04`）。
 4. 沒有資料寫 UNKNOWN，不寫 0。
 
-## 9. 外掛與 skill 清單（DeepSeek 版不移植）
+## 9. 外掛與 skill 清單（dshdw 不移植）
 
 DSH 的外掛與 skill 屬使用者層（profile），改了會影響所有 session 和專案；**沒有** Claude 版的「關掉本專案無關 plugin 省 token」做法。這一步只做兩件事：
 1. 讀 `~/.dsh/profiles/desktop/package.json`、`cordis.patch.yml` 和 `~/.agents/skills`（有的話）列出目前載入的外掛與 skill，記進 `DIRECTOR/研究` 或回報。
@@ -156,7 +156,7 @@ DSH 沒有 `MEMORY.md` 記憶索引。會被每次載入的是 `AGENTS.md`（專
 
 ## 11. 機制清單（給續航用）
 
-把建好的每個機制寫成一張表：擁有者、中斷會怎樣、怎麼檢查、重建指令。放在 `DIRECTOR/GUARDS.md`（`templates/DIRECTOR_FILES.md`）。DeepSeek 版的機制是：模型/effort 預設、子代理上限與深度、沙箱模式與核准政策、待決帳（`ask_user_question`＋`PO_PENDING.md`）、用量檢查（`dsh_usage.py`）、動作紀錄（`dsh_audit.py`）、每個 worker 的 worktree（`dsh_session.py --worktree-status`）、排程喚醒（只有 PO 明確要求才建）。檢查腳本用 `dsh_doctor.py` 和 `dsh_setup_check.py`，有排程再加 `schedule_list`。沒有寫進表的機制，不算建好。
+把建好的每個機制寫成一張表：擁有者、中斷會怎樣、怎麼檢查、重建指令。放在 `DIRECTOR/GUARDS.md`（`templates/DIRECTOR_FILES.md`）。dshdw 的機制是：模型/effort 預設、子代理上限與深度、沙箱模式與核准政策、待決帳（`ask_user_question`＋`PO_PENDING.md`）、用量檢查（`dsh_usage.py`）、動作紀錄（`dsh_audit.py`）、每個 worker 的 worktree（`dsh_session.py --worktree-status`）、排程喚醒（只有 PO 明確要求才建）。檢查腳本用 `dsh_doctor.py` 和 `dsh_setup_check.py`，有排程再加 `schedule_list`。沒有寫進表的機制，不算建好。
 
 ## 12. 工作線編制草案（問 PO）
 
