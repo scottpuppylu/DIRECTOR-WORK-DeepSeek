@@ -44,6 +44,7 @@
 - Worker 不改工單的驗收條件和規格。發現條件做不到、互相矛盾或有錯，回報 `BLOCKED` 並寫明原因，由總監裁決後改工單。
 - 總監改工單時 `REVISION` 加 1，在 H 節記一列（誰改、原因、影響的 AC），**同一步同步 `BRIEF.md`、`WORK_DIR/tasks.md`、`WORK_DIR/RESUME_STATE.md`**（WO-DS-004：工單改到 rev2，tasks.md 還留著舊的期望值）；`gate_check.py --order` 對 REVISION ≥2 的工單提示要同步，WORK_DIR 裡比工單舊的 tasks.md／RESUME_STATE.md 印 `~ shadow: REVISION_SYNC`（2.2.3-ds.3，不影響結果）。派工時用 `gate_check.py --hash` 印出工單雜湊，把它印的 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 那行原樣寫進 `DIRECTOR_LOG`（同一工單以最新一行為準）；worker 在報告填 `ORDER_SHA256`。審查時 `--match ... --dispatch-log DIRECTOR_LOG.md` 拿派工紀錄比對：工單被改過再重算雜湊也會被查出；DISPATCH 必須獨占一行，引用、縮排或圍欄裡的不算；沒有紀錄時各模式都失敗。這是事後查出，不是事前防止：誰都還是改得動工單。
 - 發工單前想清楚需求、現有結構、相依、邊界條件、測試方法，一次給完整。
+- 先用 DW 現有的工具（2.3.0）：要檢查、計數、比對、等待、整理狀態之前，先查 `tools/README.md` 有沒有現成的；有就用，沒有才自己寫，並在報告寫為什麼現有工具不夠。工單的 D 節列出這次要用的 DW 工具。
 - 製作類工單的第一步固定是「既有資產盤點」：未合併的分支（`git log --all -- <路徑>`）、需求方提供過的檔案、舊報告。盤點結果寫進 gate 報告。
 - 規格審查：Strict 和 Standard 工單派工前必做（ds.2 起 Standard 也要，開關 `safety.spec_review_for_standard`；在 DSH 上的做法見 `docs/11_dsh_operations.md`），Direct 不做。總監開一個短上下文的子代理（`subagent`，新 context；depth 1 可以），照 `templates/SPEC_REVIEW.md` 審工單；reviewer 只准讀，限制靠指示＋總監事後檢查（`docs/07`）。結果只給總監參考，不增加 PO 的工作。每次在 `DIRECTOR_LOG` 記下花費（用 `tools/dsh_usage.py` 看該子代理 session 的 token，分不出來或讀不到就記 UNKNOWN）、抓到的問題和審查子代理的 `session=`（2.2.5）；2.2.5 起 Standard 必做，不再依花費降回選用，要改由 PO 決定。
 
@@ -66,6 +67,7 @@
 - 證據等級：`VERIFIED_LOCAL / VERIFIED_REMOTE / REPORTED / SUPPORTED / ESTIMATED / ASSUMPTION / UNKNOWN / NOT_TESTED / INVALID`。
 - 狀態分開寫：工程、功能、成品、效能、穩定性、整合、PO 驗收，不用一個 PASS 蓋過其他。
 - 跳過的測試不算 PASS；既有失敗維持原樣寫 `NO_NEW_REGRESSION`，不是 ALL PASS。
+- 裁決的「自己查證的證據」（2.3.0）：A 節至少一行裁決者自己跑的 `- `<指令>` exit=<n> at=<HH:MM>`（`ran_line.py` 印），沒有就不能判 PASS 類；`gate_check.py --verdict` 檢查，嚴重度看 `director_work.json` 的 `verdict_self_check`（`warn` 預設 / `fail`；`docs/07` 第 6 節）。
 - 交接時用 `RESUME_STATE.md`（`docs/06`）；原 worker 先停在安全狀態，接手者先核對 repo 和交接資料一致，不重做已通過的工作。
 - 時間不得手填（2.2.5-ds.5）：報告、裁決、`DIRECTOR_LOG` 的時間一律由工具產生（`tools/ran_line.py`：`--stamp` 印時間，`--to 報告 -- 指令` 代跑並寫 RAN 行，`--exit N --cmd "指令"` 剛跑完補記；上游 DW 2.2.5 B1）。WO-DS-008 r2：8 份驗收報告寫 01:32，實際是 01:17。報告的 `WORKTREE:` 行也由工具產生（`gate_check.py --report-skeleton` 、`scope_check.py` 或 `dsh_session.py --worktree-status`，同一個函式）。共用 checkout 裡用 `scope_check.py --shared` 只算這張工單自己的 commit。
 - TASK REPORT 可以加 `AGENT_NAME:` 和 `RAN:`（一行一個實際跑過的指令，寫 exit 和時間）。總監用 `tools/report_vs_audit.py --report 報告 --log <動作紀錄>` 核對：報告說跑過的 selftest、Unity、Blender、雜湊檢查，動作紀錄裡有沒有、結果和時間對不對得上。動作紀錄由 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_audit.py build --session <agent> --out <WS>/DIRECTOR/research/audit-<日期>.jsonl` 從 session 紀錄事後重建，不是 hook 即時寫的（`--session` 換 `--project-dir <WS>` 可抓整個工作區；<WS>＝工作區根＝總監 session 啟動資料夾，子代理 session 記在這裡，不在 worker 的 repo）。沒有紀錄時記 UNKNOWN，不當成通過或失敗。它只核對有沒有跑，不代表跑的內容對。`RAN` 要能和動作紀錄對上：2.2.5-ds.5 起 dsh_audit 整條指令都記（經 secret_mask，不再截 500 字，同上游 transcript_audit 2.2.5）；`--input-limit N` 截過的行標 `input_cut`，report_vs_audit 只比前段。
@@ -103,12 +105,16 @@
 - 會用到 GPU 或引擎的執行腳本不能有預設設定檔，沒給參數就拒跑；清 HOLD 的指令裡不放任何執行腳本（L-025）。
 - 停機（QUIET、叫停）的對象是整條程序樹：由上往下，先停批次腳本（父 shell），再停子程序。DSH 的 job 用 `job_kill` 停（只停自己的 job），其他程序照 PID 停。停完依 CPU 用量列出所有程序，量一段時間內的 CPU 增量，確認沒有殘留，並回報已停的 PID；不能只比對程序名。下令的一方也獨立確認一次。
 - 長批次腳本每一步開跑前檢查暫停旗標（看板的 QUIET）；有暫停就自己停下。
+- 收尾範本（2.3.0）：`templates/run_closing.py`。`run` 模式第一行就寫 ACK，跑完不論成敗在 `finally` 自己寫 DONE（含 exit code），不靠人記得；`go` 模式寫 GO 後等 5 分鐘，沒 ACK 先看有沒有 DONE / RESULT 檔（已經跑完就不吵），沒有才補通知一次，再沒有就印 `NO_ACK`。接到專案只改 `signal()` 和 `seen()` 兩個函式（寫看板、送訊息的方式）。
+- 豁免要有期限和觸發條件（2.3.0）：`tools/waiver.py`。`add` 寫 `--until`（解除它的事件）和 `--watch`（那個事件會改到的檔，記內容雜湊），存在 WAIVERS.json，重開也讀得回來；檔案內容變了或 snooze 時間到才 `WAKE`，沒變就不吵醒人。沒寫 until 印 WARN。`block` 記錄卡在整合的分支，超過 N 小時（預設 8）印 `INTEGRATION_BLOCKED`，建議改成「在預設關閉的開關後面先合進去」，不要一直等。閒置監看每次跑 `waiver.py check --wake-only`。
 - 工具：`tools/pause_ctl.py on|off|status` 管暫停旗標，`pause_ctl.py procs` 依 CPU 增量確認沒有殘留（見 `tools/README.md`）。DSH 沒有 hook 那種「工具呼叫前自動檢查旗標」的機制，旗標要由 worker 自己讀（工單寫明）＋總監在審查時核對。
 
 ### 測試預算
 
 - 每個 TEST REQUEST 寫三件事：**目的**（回答哪個決定）、**最小範圍**（為什麼不能更小）、**上限分鐘**。缺一項退回。
 - 磁碟和時長也要填（`templates/TEST_REQUEST.md`）：build 資料夾、擷取 `組數 × 每組張數 × 單張大小`、Library 和暫存的餘量，總寫入量要涵蓋這三項（L-030）；單位一律 GiB，以總管實測的餘量為準（L-031）；時長 = 組數 × 單組實測時間（含逾時），不用理想值（L-033）。總管用 `tools/gate_check.py --test-request 申請檔` 檢查，沒過就退件、不發 GO。
+- 第 0 級的做法寫在 `templates/CPU_REPRO.md`（2.3.0）：明列要編譯的檔、印出實際跑的組件路徑和雜湊（`hash_check.py show`）、用內容雜湊判斷 build 新不新（`hash_check.py fresh`，不看檔案時間）、雜湊比對少一個案例就是 FAIL（`hash_check.py compare`）、開關在第一個 frame 印 `flag X read = 值`（`flag_check.py`，缺行就停、不判定）、模擬和 patch 讀同一個設定且重現上次實測（`sim_check.py`）。
+- 送 TR 之前跑 `tools/pre_tr.py --config pre_tr.json --git-diff <base>`（2.3.0，範例 `templates/pre_tr.json`）：依改到的檔案判斷缺陷類別，每個類別的 CPU 檢查都要過；改到的類別沒有檢查也擋下。
 - 預設上限：功能測試 30 分鐘、效能量測 20 分鐘；超過 60 分鐘要總監核准。超過上限 10 分鐘就先停下回報。
 - 分級：
   - **第 0 級，每次修改後必做，不佔重資源**：離線編譯、CPU 上的單元測試、雜湊、數值檢查、量測腳本。能在這級發現的錯，不准拖到下一級。

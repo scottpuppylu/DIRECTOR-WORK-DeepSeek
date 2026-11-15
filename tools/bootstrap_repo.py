@@ -12,6 +12,8 @@ Steps, each skipped when already done (so a rerun changes nothing):
 --config is only read: a director_work.json that still has the old "sdd" block prints its WARN lines
 (safety_gate.legacy_notes: OpenSpec keys ignored, safety switches still read, 請搬到 safety) and nothing in the
 file or the repo changes because of it (L-061: the old tool looked up a CLI, wrote its path and ran init).
+2.3.0-ds.5: --config also prints `CONFIG verdict_self_check: warn|fail` (gate_check --verdict's self-check
+severity; default warn in 2.3.x); any other value prints a WARN line and warn is what gate_check uses.
 
 --check only reports (exit 1 when a step still has work to do). Without it the steps run. Never commits.
 Prints one line per step and BOOTSTRAP_REPO: DONE|TODO|FAIL. Exit 0 done, 1 work left (--check) or a step failed,
@@ -67,14 +69,28 @@ def step_exclude(repo, check):
     return "DONE", f"{path}: added {', '.join(missing)}"
 
 
+def verdict_self_check_line(config_path):
+    """2.3.0-ds.5: the verdict_self_check level of a director_work.json, as one line."""
+    import json
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as error:
+        return f"WARN  CONFIG verdict_self_check: {config_path.name} not read ({type(error).__name__}); warn used"
+    value = data.get("verdict_self_check", "warn") if isinstance(data, dict) else "warn"
+    if value not in ("warn", "fail"):
+        return f"WARN  CONFIG verdict_self_check: \"warn\" or \"fail\", got {value!r}; gate_check --verdict uses warn"
+    origin = "" if isinstance(data, dict) and "verdict_self_check" in data else " (not set: the 2.3.x default)"
+    return f"CONFIG verdict_self_check: {value}{origin}"
+
+
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", required=True, help="the project checkout")
     ap.add_argument("--config", help="DIRECTOR/director_work.json (only read)")
     ap.add_argument("--check", action="store_true", help="only report what is left to do")
     ap.add_argument("--skip", nargs="*", default=[], choices=("exclude",), help="steps to skip")
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
     repo = pathlib.Path(a.repo).resolve()
     if not repo.is_dir():
         print(f"BOOTSTRAP_REPO: FAIL repo not found: {repo}")
@@ -91,6 +107,7 @@ def main(argv=None):
             return 2
         for line in limits.legacy_notes(config):
             print(line)
+        print(verdict_self_check_line(config_path))
     results = []
     if "exclude" not in a.skip:
         results.append(("exclude",) + step_exclude(repo, a.check))

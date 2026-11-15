@@ -21,6 +21,14 @@ Checks:
   docs / templates  the edition's docs and templates folders are present (WARN while they are being rewritten)
 
 Exit codes: 0 no FAIL, 1 any FAIL, 2 the check itself cannot run. --json prints the checks as JSON.
+
+2.3.0-ds.5 (upstream doctor.py 2.3.0; DS has no doctor.py, so the check lives here). 2.3.0 (N6) --licenses FILE: tool licenses and trials that run out. A tool stopped working mid-week because its license
+had expired and nobody had looked at the date. FILE is JSON (a list of {"tool", "license", "expires": "YYYY-MM-DD"},
+or {"licenses": [...]}) or a Markdown table with tool / license / expires columns. Fewer than --license-days (default
+3) days left is `WARN license expiring: <license> (held by <tool>) expires <date>, <n> day(s) left`; past the date is
+`WARN license expired`; an unreadable date is a WARN too. --licenses-only runs just this check (no git worktree
+needed) and ends with `LICENSES: ok=n expiring=n expired=n bad=n`; exit 1 when any is expiring, expired or bad.
+Without --licenses-only each license is one `licenses` check (OK, or WARN for expiring / expired / bad).
 """
 import argparse
 import datetime
@@ -242,7 +250,53 @@ def check_folder(label, folder, min_files, suffixes=(".md",)):
     return "OK", f"{folder} ({count} file(s))"
 
 
+def license_rows(path):
+    """[(tool, license, expires text)] from a JSON list / {"licenses": [...]} or a Markdown table."""
+    text = pathlib.Path(path).read_text(encoding="utf-8-sig")
+    if pathlib.Path(path).suffix.lower() == ".json":
+        data = json.loads(text)
+        rows = data.get("licenses") if isinstance(data, dict) else data
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise ValueError("a JSON license file is a list of objects or {\"licenses\": [...]}")
+        return [(str(r.get("tool") or "?"), str(r.get("license") or r.get("tool") or "?"), str(r.get("expires") or ""))
+                for r in rows]
+    lines, out = text.splitlines(), []
+    for i, line in enumerate(lines[:-1]):
+        cells = [c.strip().strip("`*").lower() for c in line.strip().strip("|").split("|")]
+        if "tool" in cells and "expires" in cells and re.match(r"^\s*\|?\s*:?-{2,}", lines[i + 1]):
+            for row in lines[i + 2:]:
+                if not row.strip().startswith("|"):
+                    break
+                got = [c.strip().strip("`*") for c in row.strip().strip("|").split("|")]
+                get = lambda name: got[cells.index(name)] if name in cells and cells.index(name) < len(got) else ""
+                out.append((get("tool") or "?", get("license") or get("tool") or "?", get("expires")))
+            return out
+    raise ValueError("no Markdown table with tool and expires columns")
+
+
+def license_items(path, today, days=3):
+    """[(status word, name, detail)] for every license: ok / expiring / expired / bad."""
+    out = []
+    for tool, name, expires in license_rows(path):
+        try:
+            end = datetime.date.fromisoformat(expires.strip()[:10])
+        except ValueError:
+            out.append(("bad", "license date unreadable", f"{name} (held by {tool}): expires {expires!r} is not YYYY-MM-DD"))
+            continue
+        left = (end - today).days
+        if left < 0:
+            out.append(("expired", "license expired", f"{name} (held by {tool}) expired {end}, {-left} day(s) ago: renew "
+                        "it or move the work to another tool"))
+        elif left < days:
+            out.append(("expiring", "license expiring", f"{name} (held by {tool}) expires {end}, {left} day(s) left: "
+                        "renew it now"))
+        else:
+            out.append(("ok", "license", f"{name} (held by {tool}) expires {end}, {left} day(s) left"))
+    return out
+
+
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tools-dir", default=str(pathlib.Path(__file__).resolve().parent),
                     help="the edition tools folder (default: this tool's folder)")
@@ -251,8 +305,25 @@ def main(argv=None):
     ap.add_argument("--profile-config", help="DSH profile patch file (default <DSH_HOME>/profiles/desktop/cordis.patch.yml)")
     ap.add_argument("--config", help="a project director_work.json (the config check)")
     ap.add_argument("--json", action="store_true", help="print the checks as JSON")
+    ap.add_argument("--licenses", metavar="FILE", help="tool licenses / trials with an expiry date (JSON or Markdown)")
+    ap.add_argument("--license-days", type=int, default=3, help="warn when fewer days than this are left (default 3)")
+    ap.add_argument("--licenses-only", action="store_true", help="run only the --licenses check (no DSH needed)")
+    ap.add_argument("--today", help=argparse.SUPPRESS)  # tests: the date to count from
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
+    today = datetime.date.fromisoformat(a.today) if a.today else datetime.date.today()
+    if a.licenses_only:  # 2.3.0 (N6): the same lines as upstream doctor.py --licenses-only
+        if not a.licenses:
+            ap.error("--licenses-only needs --licenses FILE")
+        try:
+            found = license_items(a.licenses, today, a.license_days)
+        except (OSError, ValueError) as error:
+            print(f"LICENSES: NOT_RUN {type(error).__name__}: {str(error)[:200]}")
+            return 2
+        for status, name, detail in found:
+            print(f"{'INFO' if status == 'ok' else 'WARN':24} {name}: {detail}")
+        n = {k: sum(f[0] == k for f in found) for k in ("ok", "expiring", "expired", "bad")}
+        print(f"LICENSES: ok={n['ok']} expiring={n['expiring']} expired={n['expired']} bad={n['bad']}")
+        return 1 if n["expiring"] or n["expired"] or n["bad"] else 0
     tools_dir = pathlib.Path(a.tools_dir).expanduser()
     sessions_root = pathlib.Path(a.sessions_root).expanduser() if a.sessions_root else dsh.default_sessions_root()
     cache_root = pathlib.Path(a.cache_root).expanduser() if a.cache_root else dsh.default_projcache_root()
@@ -279,6 +350,12 @@ def main(argv=None):
     add("tools", check_tools(tools_dir))
     add("docs", check_folder("docs", edition_root / "docs", 8))
     add("templates", check_folder("templates", edition_root / "templates", 5))
+    if a.licenses:  # 2.3.0 (N6)
+        try:
+            for status, name, detail in license_items(a.licenses, today, a.license_days):
+                add("licenses", ("OK" if status == "ok" else "WARN", f"{name}: {detail}"))
+        except (OSError, ValueError) as error:
+            add("licenses", ("WARN", f"{a.licenses} not read: {type(error).__name__}: {str(error)[:200]}"))
     counts = {"OK": 0, "WARN": 0, "FAIL": 0, "NOT_VERIFIED": 0}
     for check in checks:
         counts[check["status"]] = counts.get(check["status"], 0) + 1

@@ -38,12 +38,16 @@
 | 暫存資料夾（2.2.4-ds.4） | 開工先跑 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --temp-env <WORK_DIR>`，照印出的那行設 `TEMP`／`TMP`／`TMPDIR`（PowerShell 每個指令前加 `$env:TEMP=…;`，或在啟動 DSH 的 shell 先設好） | DSH 每個 shell 指令是新的行程，環境變數不會留到下一個指令；在啟動 DSH 前設最省事。 |
 | 動作紀錄 | `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_audit.py build --session <agent> --out <WS>/DIRECTOR/research/audit-<日期>.jsonl`（`--project-dir <WS>` 抓整個工作區） | 事後從 session 紀錄重建，不是即時 hook；給 `report_vs_audit.py` 和 gate 審查用。子代理 session 記在總監 session 的啟動資料夾下，所以 `--project-dir <REPO>` 抓不到 worker。input 經 secret_mask 後最多記 500 字，長指令尾端會截斷。 |
 
+## lead 開工第一步（2.3.0-ds.5）
+
+每次開新 session（含壓縮後接續），lead 第一個動作是 `python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --cwd-check <WS>`（`<WS>` 照啟動提示詞或 `DIRECTOR_OPERATING_RULES.md` 寫的工作區）。比的是 realpath，Windows 不分大小寫；不同資料夾或子資料夾都印 `BLOCKED: cwd <實際> != <預期>`、exit 1：停下，不寫任何檔，回報 PO 從哪裡重開。11-14 23:42 的 lead 在錯的資料夾做了整輪，寫進去的檔都要搬。
+
 ## 開 worker 的流程
 
 1. 先在待決帳列好要開的線：名稱（`w1`…）、工單路徑、effort、cwd（每條線自己的 git worktree，下一步開）、範圍。放進 `ACTIVE_WORKSTREAMS.md` 的草案。
 2. 請 PO 同意（第一批可以併進初衷卡確認那一句）。沒有同意不開。
 3. 每條線開自己的 worktree（2.2.5-ds.5）：`python -I -X utf8 <WS>/DIRECTOR/tools/dsh_session.py --worker-worktree <REPO> --order <WO> --branch <工單 NEW_BRANCH> --base <BASE_REF 的 commit>`；印出 `WORKTREE: 隔離 worktree …` 才算好。只有工單明寫共用時才讓 worker 用主 checkout（那時 `scope_check.py` 用共用模式）。
-4. 同一輪把要開的都開完（`cwd` 是上一步開的 worktree）：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO），再加一句「開工時把 TEMP、TMP（及 TMPDIR）設成 WORK_DIR/tmp」（2.2.4-ds.4，`docs/02`）。
+4. 同一輪把要開的都開完（`cwd` 是上一步開的 worktree）：每個子代理的 prompt 只給「工單路徑、RESUME_STATE 路徑、一句目標」和限制（不改驗收條件、不碰範圍外、有問題回報總監、不要問 PO），再加一句「開工時把 TEMP、TMP（及 TMPDIR）設成 WORK_DIR/tmp」（2.2.4-ds.4，`docs/02`），以及「第一步跑 `dsh_session.py --cwd-check <你的 worktree>`，BLOCKED 就停下回報」（2.3.0-ds.5）。
 5. 開完用 `list_agents()` 確認名字和數量；把實際名稱寫進 `ACTIVE_WORKSTREAMS.md` 和 `DIRECTOR_LOG.md` 的 DISPATCH 行。
 6. 之後只靠 `send_message` 和檔案交接；不要為了問進度發訊息（`docs/03`）。
 7. Standard／Strict 工單（`docs/13`）：開 worker 前規格審查（`SPEC_REVIEW`）要先完成；prompt 寫明「第一步只寫 `<WORK_DIR>/<WO>/PLAN.md`，交給總監、等 `PLAN_APPROVED` 才寫程式」「不改 TESTS_LOCKED 的測試」「同一根因 1 輪沒進展就停」。

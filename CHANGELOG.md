@@ -3,6 +3,39 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 DeepSeek 版自己的變更。
 
+## 2.3.0-ds.5（2026-11-15）
+
+WO-DS-010。跟上上游 DW 2.3.0（tag v2.3.0，de08549），再加一項 DS 專屬的 lead 開工 cwd 檢查。上游原文附在 `CHANGELOG-upstream.md`。安全閘門（`safety` 區塊：tests_first、plan_gate、spec_review_for_standard、stop_after_rounds、order_limits、protected_tests、不得自行關閉）全部保留；不加回 OpenSpec／SDD 流程。ds 序號沒有加：這一版沒有新的 DS 試驗修正。
+
+### 上游 DW 2.3.0 移植
+- 做法：DW `v2.2.5` 和 `v2.3.0` 用 `git show` 讀出（DW repo 只讀），對本版每個檔做三方合併（`git merge-file`），衝突逐處處理；新檔原樣搬。
+- 新工具，原樣搬：`completion.py`、`sim_check.py`、`waiver.py`、`line_brief.py`、`pre_tr.py`、`pack_check.py`、`hash_check.py`、`flag_check.py`；範本 `templates/CPU_REPRO.md`、`templates/pre_tr.json`、`templates/run_closing.py`。
+- `gate_check.py`：`--feasibility`；`--verdict` 的自己查證證據（`verdict_self_check`，2.3.x 預設 `warn`）。本版的 `--config` 原本就給 `--order`／`--match` 的安全閘門用，所以沒有搬上游「`--config` 只能和 --resume／--order／--verdict 一起用」那條拒絕。
+- `doctor.py --licenses` → `dsh_doctor.py --licenses`（本版沒有 `doctor.py`）：`--licenses-only` 的輸出和上游逐字相同；一般執行時每筆授權是一個 `licenses` 檢查。
+- `verdict_self_check`：`dsh_setup_check.py` 認得這個鍵（不是 warn／fail 判問題，同上游 setup_check）；`bootstrap_repo.py --config` 印一行 `CONFIG verdict_self_check: warn|fail`，值不對印 WARN（gate_check 會用 warn）。`director_work.example.json` 加 `"verdict_self_check": "warn"` 和說明。
+- `ran_line.py` 依作業系統引號；`round_check.py` 條件表 WARN；`status_gen.py` 認得 `"lines"`（給 `line_brief.py`；本版的鍵名照舊是 `po_pending`）。
+- 非 UTF-8 主控台的 `--help`：上游修十支（DS 有的是 gate_check、metrics_report、report_vs_audit、resume_archive、scope_check、trace_report，加上新工具）；在 cp1252 下實測，DS 自己的 `bootstrap_repo`、`dsh_session`、`release`、`safety_gate`、`status_gen` 也會壞，一起修（輸出改 UTF-8 移到解析參數之前），`dsh_doctor` 也照改。修前 11 支壞，修後 0 支。
+- 規則：`docs/02`（收尾範本、豁免、CPU_REPRO、送 TR 前檢查）、`docs/06b`（line_brief、授權到期，寫 `dsh_doctor.py`）、`docs/07`（條件表、放寬標準前盲測、同一組核對、可行性搜尋）、`templates/WORK_ORDER.md`、`GATE_VERDICT.md`、`RESUME_STATE.md`、`status_director.json` 的新段落。DSH 用語照本版（停止規則 1 輪、`send_message`）。
+- 沒搬：`poll_hint.py`、`transcript_audit.py`、`usage_mix.py`、`setup_check.py` 的 `--help` 修正（本版沒有這幾支；對應的 `dsh_audit`、`dsh_usage`、`dsh_setup_check` 原本就不會壞）。
+
+### lead 開工的 cwd 檢查（DS 專屬）
+- 11-14 23:42 的教訓：lead 在錯的資料夾工作。`dsh_session.py --cwd-check <工作區>`：目前資料夾和工作區都經 realpath、normcase 比（Windows 不分大小寫）；不同資料夾或子資料夾印 `BLOCKED: cwd <實際> != <預期>` 和一行 NEXT，exit 1，什麼都不寫；相同印 `CWD: OK <路徑>`。
+- 放在 `dsh_session.py`：它已經是 lead 開工用的工具（`--temp-env`、`--worker-worktree`、`--worktree-status`），開工第一步就會叫到它；`bootstrap_repo.py` 是對專案 repo 做機械步驟、要 `--repo`，第 10.5 步才跑，太晚。
+- 寫進 BOOTSTRAP 第 0 步第 1 點（規則包還沒在本機時先用 `(Get-Location).Path` 比，取得後補跑）、`docs/11`「lead 開工第一步」，開 worker 的 prompt 也加一句「第一步跑 `--cwd-check <你的 worktree>`」。
+
+### 其他
+- `tools/README.md` 限制段還寫著「dsh_audit 最多記 500 字」，2.2.5-ds.5 起已經是整條記；改正。
+
+### 驗證
+- `selftest_ds.py`：2.2.5-ds.5 是 54 項，這一版 73 項；Python 3.11 和 3.9 各跑一次，都是 73/73、skip=0。
+  - 上游 2.3.0 的 17 項（案例、預期輸出、mutation 字串和上游相同，只換測試框架）：`completion_230`、`feasibility_230`、`completion_visibility_230`、`sim_check_230`、`waiver_230`、`run_closing_230`、`doctor_licenses_230`（改跑 `dsh_doctor`）、`line_brief_230`、`pre_tr_230`、`pack_check_230`、`hash_check_230`、`flag_check_230`、`ran_line_posix_230`、`verdict_self_check_230`、`round_conditions_230`、`rules_docs_230`（上游 17 行在 DS 文件一字不差，另查 DS 的 3 行）、`help_any_console_230`（cp1252 包住 stdout／stderr，跑 32 支 `tools/*.py`，含全部 `dsh_*`）。
+  - DS 新增 2 項：`cwd_check_230`（相同、大小寫不同、子資料夾、別的資料夾、不存在的資料夾，並確認沒寫任何檔；3 個 mutation）、`verdict_self_check_keys_230`（`dsh_setup_check` 和 `bootstrap_repo --config`；2 個 mutation）。上游 setup_check 的 4 個 `verdict_self_check` 案例搬到這一項。
+  - 每組 mutation 先確認沒改過的工具答對，再看 mutant 有沒有答錯。上游 `round_conditions_230` 的 mutation 放在條件表已經寫好之後，改不改工具結果都一樣（空測）；本版移到「沒有條件表」那一步。
+  - 安全閘門的 11 項（`safety_*_225`、`spec_review_224`、`spec_fields_shared_225`、`order_oversize`、`order_limits_224`、`protected_*_224`）一項不少，內容沒改，都通過。
+- `test_verify_dsh_run.py` 33 項（Python 3.11、3.9 都 OK）。
+- 上游 DW 2.3.0 的驗證樣本（36 個，含每支新工具的 `--help`）複製到工作資料夾，用本版工具重跑，結果和 DW 2.3.0 一致（只把樣本路徑、時鐘時間、檔案多久前改過、line_brief 的 `--repo` 換成代號再比）。
+- 每輪必讀（docs/01、03、06、08）：10,964 → 10,964 bytes（這幾個檔沒改）。
+
 ## 2.2.5-ds.5（2026-11-15）
 
 WO-DS-009 第 3 版。這一版處理 WO-DS-008 r2 試驗（滿分 113：Claude 110、DSH 開 SDD 97.5、DSH 關 SDD 95）裡歸 DW-DS 的項目。並移植上游 DW 2.2.5（DW commit ab1460f，B7），上游原文附在 `CHANGELOG-upstream.md`。

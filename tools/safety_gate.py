@@ -449,13 +449,13 @@ def match_problems(order_text, ids, log_text, repo, config, notes, order_path=No
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lock-tests", nargs="+", metavar="FILE", help="print TESTS_LOCKED lines (paths relative to --repo)")
     ap.add_argument("--plan-hash", metavar="PLAN_MD", help="print the PLAN_APPROVED line for this PLAN.md")
     ap.add_argument("--order", help="with --plan-hash: the work order the plan belongs to")
     ap.add_argument("--repo", default=".", help="the project checkout (default: current folder)")
     a = ap.parse_args()
-    sys.stdout.reconfigure(encoding="utf-8")
     if not (a.lock_tests or a.plan_hash):
         ap.error("give --lock-tests or --plan-hash")
     status = 0

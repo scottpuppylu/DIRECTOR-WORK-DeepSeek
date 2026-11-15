@@ -287,7 +287,7 @@ ANSWER:
 | `docs/11_dsh_operations.md` | 在 DSH 上操作：能力→工具對照、限制清單 | 在 DSH 上建置與操作時 |
 | `docs/12_chat_to_product.md` | 一般／小白模式、初衷卡、選擇題、不做歪的檢查 | 建置時；談需求、寫工單時 |
 | `docs/13_safety_gates.md` | 安全閘門（ds.2 起；2.2.5-ds.5 拿掉 OpenSpec）：鎖定測試、計畫閘門、規格審查、1 輪停止、不得自行關閉、`safety` 開關、舊 `sdd` 區塊怎麼讀 | 寫 Standard／Strict 工單前 |
-| `templates/` | AGENTS.md 段落、工單、報告、RESUME_STATE、測試申請、決策登記、裁決、待決帳、初衷卡、DIRECTOR/ 其他檔案骨架 | 建置與派工時 |
+| `templates/` | AGENTS.md 段落、工單、報告、RESUME_STATE、測試申請、決策登記、裁決、待決帳、初衷卡、DIRECTOR/ 其他檔案骨架；2.3.0 加 CPU 重現步驟（`CPU_REPRO.md`）、送 TR 前的缺陷類別檢查設定（`pre_tr.json`）、執行腳本收尾範本（`run_closing.py`） | 建置與派工時 |
 | `tools/` | 工單／報告／證據／範圍／追溯檢查、用量與動作紀錄、環境檢查 | 見 `tools/README.md` |
 | `director_work.example.json` | 工具設定範例 | 建置時 |
 | `VERSION`、`CHANGELOG.md` | 版本號、各版改了什麼 | 建置時記版本；升級時 |

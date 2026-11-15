@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to DIRECTOR/director_work.json. DeepSeek Harness edition: schema_version is the config format tools understand (1). Skipped in this edition: window (Claude context-window threshold; DSH compacts automatically), plugins_off, hooks, protect_director, director_worktree (Claude Code hook settings; DSH has no hooks). trace_id_pattern: regex for the requirement or decision IDs that work orders list in TRACES_TO; trace_report.py flags IDs that do not fit. Use the project's own IDs. mode: general or beginner, picked right after the starting prompt (docs/12); tools do not read it. po_pending_files / po_item_pattern / po_open_pattern: where metrics_report.py counts PO entries.",
+  "_comment": "Copy to DIRECTOR/director_work.json. DeepSeek Harness edition: schema_version is the config format tools understand (1). Skipped in this edition: window (Claude context-window threshold; DSH compacts automatically), plugins_off, hooks, protect_director, director_worktree (Claude Code hook settings; DSH has no hooks). trace_id_pattern: regex for the requirement or decision IDs that work orders list in TRACES_TO; trace_report.py flags IDs that do not fit. Use the project's own IDs. mode: general or beginner, picked right after the starting prompt (docs/12); tools do not read it. po_pending_files / po_item_pattern / po_open_pattern: where metrics_report.py counts PO entries. verdict_self_check (2.3.0, optional): what gate_check --verdict does when a PASS-type verdict has no self-checked `- `<command>` exit=<n> at=<HH:MM>` line: \"warn\" (default in 2.3.x: a WARN note, exit code unchanged) or \"fail\" (the verdict fails); the default may become \"fail\" in 3.0.",
   "schema_version": 1,
   "mode": "general",
   "trace_id_pattern": "^(B|DD|OD)-\\d+$",
@@ -29,6 +29,7 @@
     "keep_recent": 10,
     "protect_headings": ["現況", "未結", "OPEN", "BLOCKED", "TODO", "待辦", "IN_FLIGHT", "DO_NOT_REPEAT"]
   },
+  "verdict_self_check": "warn",
   "_comment_base_ref": "2.2.2-ds.3 gate_check.py --order compares the order's BASE_REF commit with the remote branch. check: run it; fetch: git fetch first (false = compare with the local copy, said in the output); strict: a stale or missing BASE_REF or a failed fetch fails (same as --strict-base).",
   "base_ref": {
     "check": true,

@@ -16,6 +16,9 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   `dsh_session.py --worker-worktree REPO --order WO [--branch B] [--base REF] [--root DIR]` (2.2.5-ds.5) runs
   `git worktree add -b <B, default wt/<wo>> <DIR, default REPO/../wt>/<WO> <REF, default HEAD>` and prints the
   WORKTREE line; an existing folder exits 1 (nothing removed), a bad order id 2.
+  `dsh_session.py --cwd-check WS` (2.3.0-ds.5) is the lead's first step (BOOTSTRAP step 0, docs/11): the current
+  folder and WS through realpath + normcase (case-insensitive on Windows); another folder or a subfolder prints
+  `BLOCKED: cwd <actual> != <expected>` and a NEXT line, exit 1; nothing is written. Same folder: `CWD: OK <path>`.
   `dsh_session.py --worktree-status DIR` (2.2.5-ds.5) prints `WORKTREE: 隔離 worktree ...` or `WORKTREE: 共用
   checkout ...` from `git worktree list` (the first entry is the main checkout); exit 2 when DIR is not a checkout.
 - dsh_usage.py - token / context report per session plus daily totals, from the projection cache (no Node).
@@ -116,6 +119,14 @@ and --report-skeleton), BASE_REF brackets as comments, long-path line, NOT_RUN i
 H1 fixes and failure classes (time_mismatch= not_run=, --lead, --tolerance-min 10), dsh_audit.py build keeps the whole
 input (--input-limit N cuts and marks input_cut), evidence_record.py / release.py put temp files in WORK_DIR/tmp when
 WORK_DIR is set; templates/weird_inputs.py and templates/HANDOFF.md.
+
+2.3.0-ds.5 (WO-DS-010, upstream DW 2.3.0): new tools ported as they are: completion.py, sim_check.py, waiver.py,
+line_brief.py, pre_tr.py, pack_check.py, hash_check.py, flag_check.py, templates/run_closing.py (usage in
+tools/README.md 「2.3.0 新工具用法」). gate_check.py --feasibility RECORD...; --verdict needs a self-checked RAN line
+for a PASS-type verdict, severity from director_work.json "verdict_self_check" (warn default, fail opt-in), also
+known to dsh_setup_check.py and printed by bootstrap_repo.py --config. dsh_doctor.py --licenses FILE
+[--license-days 3] [--licenses-only] (upstream doctor.py --licenses). Every tool's --help works on a cp1252 / cp950
+console (stdout switched to UTF-8 before argparse).
 
 ## Removed Claude-only tools
 

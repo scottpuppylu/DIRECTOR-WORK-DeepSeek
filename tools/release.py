@@ -489,6 +489,7 @@ def use_work_temp():
 
 def main(argv=None):
     use_work_temp()
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", default=".", help="the repository to release (default: current folder)")
     ap.add_argument("--config", help="director_work.json with an optional \"release\" object")
@@ -496,7 +497,6 @@ def main(argv=None):
     ap.add_argument("--merge", action="store_true", help="when HEAD and the remote branch diverged, merge into release/<version>")
     ap.add_argument("--execute", action="store_true", help="change the remote (default: dry run)")
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
     repo = pathlib.Path(a.repo).resolve()
     try:
         config = load_config(a.config)

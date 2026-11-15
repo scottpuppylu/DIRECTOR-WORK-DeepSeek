@@ -691,17 +691,36 @@ def worker_worktree(repo, order_id, branch=None, base="HEAD", root=None):
     return (0 if kind == "isolated" else 1), f"WORKER_WORKTREE: {target} branch={branch} base={base}\n{line}"
 
 
+def cwd_check(expected, actual=None):
+    """2.3.0-ds.5 (WO-DS-010 A.2): (exit, lines) for the lead's first step: is the current folder the workspace the
+    prompt or the config names? Both go through realpath and normcase (case-insensitive on Windows); a subfolder
+    or any other folder is BLOCKED (exit 1). Reads only: nothing is written either way."""
+    actual = os.getcwd() if actual is None else actual
+    real_actual, real_expected = os.path.realpath(actual), os.path.realpath(expected)
+    a, e = os.path.normcase(real_actual), os.path.normcase(real_expected)
+    if a == e:
+        return 0, [f"CWD: OK {real_actual}"]
+    where = ("a subfolder of the workspace" if a.startswith(e.rstrip(os.sep) + os.sep)
+             else "not the workspace")
+    return 1, [f"BLOCKED: cwd {real_actual} != {real_expected}",
+               f"NEXT: {where}; stop, write nothing, and start again in {real_expected}"]
+
+
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     import argparse
     ap = argparse.ArgumentParser(description="dsh_session.py is the DSH session library (see the module text). Its "
                                  "commands: --temp-env WORK_DIR prints the lines that point TEMP / TMP / TMPDIR at "
                                  "WORK_DIR/tmp (2.2.4-ds.4 B10; BOOTSTRAP 「DSH 啟動」); --worker-worktree REPO --order WO "
                                  "opens one git worktree per worker; --worktree-status DIR prints the WORKTREE line of a "
-                                 "report (2.2.5-ds.5 B4, docs/11 「開 worker 的流程」).")
+                                 "report (2.2.5-ds.5 B4, docs/11 「開 worker 的流程」); --cwd-check WS is the lead's "
+                                 "first step: BLOCKED (exit 1) unless the current folder is WS (2.3.0-ds.5).")
     one = ap.add_mutually_exclusive_group(required=True)
     one.add_argument("--temp-env", metavar="WORK_DIR",
                      help="create WORK_DIR/tmp and print the PowerShell and bash lines that set TEMP / TMP / TMPDIR to it")
     one.add_argument("--worker-worktree", metavar="REPO", help="git worktree add -b <branch> <root>/<WO> <base> in REPO")
+    one.add_argument("--cwd-check", metavar="WS", help="BLOCKED: cwd <actual> != <WS> and exit 1 unless the current "
+                     "folder is WS (realpath; case-insensitive on Windows; a subfolder is BLOCKED too)")
     one.add_argument("--worktree-status", metavar="DIR", help="print 「隔離 worktree」 or 「共用 checkout」 for DIR, from "
                      "git worktree list")
     ap.add_argument("--order", metavar="WO", help="with --worker-worktree: the order id, the worktree folder's name")
@@ -709,12 +728,15 @@ def main(argv=None):
     ap.add_argument("--base", default="HEAD", help="with --worker-worktree: the start commit (the order's BASE_REF)")
     ap.add_argument("--root", help="with --worker-worktree: the folder that holds the worktrees (default <REPO>/../wt)")
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
     if a.worker_worktree:
         if not a.order:
             ap.error("--worker-worktree needs --order WO")
         code, text = worker_worktree(a.worker_worktree, a.order, a.branch, a.base, a.root)
         print(text)
+        return code
+    if a.cwd_check:
+        code, lines = cwd_check(a.cwd_check)
+        print("\n".join(lines))
         return code
     if a.worktree_status:
         kind, line = worktree_kind(a.worktree_status)

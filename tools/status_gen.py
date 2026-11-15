@@ -50,10 +50,11 @@ import sys
 
 KEYS = {"name": str, "logs": list, "log_lines": int, "hash_files": list, "checksum": list, "outputs": list,
         "output_count": int, "disk": str, "disk_min_gib": (int, float), "git": str, "max_lines": int, "width": int,
-        "po_pending": dict, "orders": dict, "audit": dict}
+        "po_pending": dict, "orders": dict, "audit": dict,
+        "lines": dict}  # 2.3.0: "lines" is read by line_brief.py; status.py ignores it
 DEFAULTS = {"name": "status", "logs": [], "log_lines": 8, "hash_files": [], "checksum": [], "outputs": [],
             "output_count": 5, "disk": None, "disk_min_gib": None, "git": None, "max_lines": 60, "width": 160,
-            "po_pending": None, "orders": None, "audit": None}
+            "po_pending": None, "orders": None, "audit": None, "lines": None}
 DIRECTOR_KEYS = ("po_pending", "orders", "audit")
 CLOSED = r"(?im)^\s*(?:STATUS|狀態)\s*[:=：]\s*(?:CLOSED|DONE|ACCEPTED|結案)"
 PATH_KEYS = ("logs", "hash_files", "checksum", "outputs")
@@ -503,6 +504,7 @@ def settings(a):
 
 
 def main(argv=None):
+    sys.stdout.reconfigure(encoding="utf-8")  # before parse_args: --help prints during parsing
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True, help="the status.py to write")
     ap.add_argument("--force", action="store_true", help="replace an existing --out file")
@@ -520,7 +522,6 @@ def main(argv=None):
     ap.add_argument("--max-lines", type=int)
     ap.add_argument("--width", type=int)
     a = ap.parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8")
     try:
         conf = settings(a)
     except (OSError, ValueError) as e:

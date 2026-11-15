@@ -50,6 +50,16 @@ DSH 沒有 hooks、沒有 PO 頁、沒有 Claude 額度查詢；所以**沒有�
 - 範本：`templates/weird_inputs.py`（怪檔案產生器）、`templates/HANDOFF.md`（worker 到輪數上限的交接）。
 - 沒搬：`browser_check.py`（DS 本來就沒有）、上游 `selftest.py`（案例改寫進 `selftest_ds.py`）。
 
+### 上游 DW 2.3.0 移植（2.3.0-ds.5，WO-DS-010）
+
+- 新工具，上游原樣搬：`completion.py`（完成度表）、`sim_check.py`（patch 和模擬讀同一份設定）、`waiver.py`（豁免要有解除事件）、`line_brief.py`（一條工作線的摘要）、`pre_tr.py`（送 TR 前依缺陷類別跑 CPU 檢查）、`pack_check.py`（審查包）、`hash_check.py`（雜湊比對、build 新不新）、`flag_check.py`（開關有沒有真的被讀到）；範本 `templates/CPU_REPRO.md`、`templates/pre_tr.json`、`templates/run_closing.py`。用法見下面「2.3.0 新工具用法」。
+- `gate_check.py`：`--feasibility 紀錄…`（開修正組或凍結 gate 數字前的 CPU 可行性搜尋）；`--verdict` 的「自己查證的證據」：PASS 類裁決要有一行 `ran_line.py` 格式的 RAN，嚴重度看設定 `verdict_self_check`（2.3.x 預設 `warn`，`fail` 才判不過）。設定從 `--config` 讀，沒給就找裁決所在資料夾或上一層的 `director_work.json`。
+- `dsh_doctor.py --licenses 清單 [--license-days 3] [--licenses-only]`（上游 `doctor.py --licenses`，DS 沒有 `doctor.py`）：快到期的授權和持有的工具。
+- `dsh_setup_check.py`、`bootstrap_repo.py --config`：認得 `verdict_self_check`（`warn`／`fail`，其他值 setup_check 判問題、bootstrap 印 WARN）。
+- `ran_line.py` 依作業系統引號（POSIX 用單引號）；`round_check.py` 研究檔沒有「測試條件 vs 參考條件」表印 `~ WARN NO_CONDITIONS_TABLE`；`status_gen.py` 的設定可以有 `"lines"`（給 `line_brief.py`）。
+- 非 UTF-8 主控台（cp1252／cp950）的 `--help`：輸出改 UTF-8 移到解析參數之前。上游修了十支；DS 另外修了自己的 `bootstrap_repo`、`dsh_session`、`release`、`safety_gate`、`status_gen`、`dsh_doctor`。`selftest_ds.py` 用 cp1252 包住 stdout／stderr 跑每支工具（含 `dsh_*`）的 `--help`。
+- DS 專屬：`dsh_session.py --cwd-check <工作區>`（lead 開工第一步；BOOTSTRAP 第 0 步、docs/11）：目前資料夾和工作區用 realpath 比（Windows 不分大小寫），不同或在子資料夾就印 `BLOCKED: cwd <實際> != <預期>`、exit 1，什麼都不寫。
+
 ## 已移除（Claude 專屬）
 
 `hook_guard.py`（規則留在 `guard_rules.json`）、`setup_project_settings.py`（改 `.claude/settings.local.json`）、
@@ -95,9 +105,129 @@ python -I -X utf8 tools/gate_check.py --final DIRECTOR
 python -I -X utf8 tools/selftest_ds.py
 ```
 
+## 2.3.0 新工具用法（上游 DW 2.3.0）
+
+### completion.py（2.3.0，N1）
+
+```text
+python -I -X utf8 completion.py <完成度表.md|.json> [--previous 上週.json] [--save 本週.json] [--root DIR] [--strict]
+```
+
+- 表要有 ID 欄和分數欄（`ID / 編號`、`score / 分數`），可加 `item / 項目`、`evidence / 證據`、`critical / 關鍵`、`weight / 權重`、`visibility / 可見度`、`phase / 階段`、`decision / 決定`。分數只能是 0 / 25 / 50 / 75 / 100。
+- 100 要有證據路徑（存在、非空），沒有就算 75 並印 WARN：分數背後要有實際行為的紀錄。`visibility` 高的項目寫延後（after alpha、延後、later）要有 `decision`，否則 WARN。
+- `--previous` 多印 `prev` 和 `delta` 欄；`--save` 寫快照（schema `completion-v1`）。不是每輪必讀：被問進度或每週跑。
+
+### gate_check.py --feasibility（2.3.0，N2）
+
+```text
+python -I -X utf8 gate_check.py --feasibility <可行性紀錄.md> [...]
+```
+
+- 開一組修正、或凍結一個 gate 的數字之前，先用 CPU 搜尋有沒有可行解。紀錄寫 `FEASIBILITY:`（給哪一組）、`FEASIBLE_COUNT:`（找到幾個解；0 就不開這組）、`SCRIPT:`、`RESULT:`（JSON 有 `feasible_count` 時要相符）；gate 的 `THRESHOLDS:` 每行寫來源（`source=video|mocap|spec|...`）。
+
+### 裁決的「自己查證的證據」（2.3.0）
+
+- `gate_check.py --verdict`：判定是 PASS / PASS_WITH_WARNINGS / CONDITIONAL_PASS，就要至少一行 `- `<指令>` exit=<n> at=<HH:MM>`（`ran_line.py` 印的格式）；只有範例佔位（`<…>`）不算。FAIL、HOLD 這類不需要。
+- 嚴重度：專案設定的 `"verdict_self_check"`。`"warn"`（2.3.x 預設）：缺這一行印 `~ WARN SELF_CHECK`，exit code 不變；`"fail"`：裁決 FAIL。設定從 `--config director_work.json` 讀，沒給就找裁決所在資料夾或上一層的 `director_work.json`；值不是 warn / fail 會印一行說明並用 warn。範例見 `director_work.example.json`。
+
+### sim_check.py（2.3.0，N3）
+
+```text
+python -I -X utf8 sim_check.py --patch-config patch.json --sim-config sim.json --measured last.json --sim-output out.json [--tol 0.05]
+```
+
+- patch 和模擬讀同一個具名設定最好（同一個檔直接通過）；不同檔就逐項比（巢狀用 `a.b` 名稱）。`--measured` 的每個數字要在模擬輸出的容差內；沒給 `--measured` 是 FAIL，除非 `--first-run`。不符就「先修模擬」，TR 等它。
+
+### waiver.py（2.3.0，N4）
+
+```text
+python -I -X utf8 waiver.py add     --file WAIVERS.json --lane <線> --until "<解除它的事件>" [--watch <檔>] [--reason "<為什麼>"]
+python -I -X utf8 waiver.py snooze  --file WAIVERS.json --lane <線> --until "<事件>" --minutes 60
+python -I -X utf8 waiver.py lift    --file WAIVERS.json --lane <線>
+python -I -X utf8 waiver.py block   --file WAIVERS.json --branch <分支> [--note "<卡在哪>"]
+python -I -X utf8 waiver.py unblock --file WAIVERS.json --branch <分支>
+python -I -X utf8 waiver.py check   --file WAIVERS.json [--block-hours 8] [--wake-only]
+```
+
+- 豁免存在 JSON 檔（schema `waivers-v1`，原子寫入），每個程序重新讀，重開不會忘。`--until` 寫解除它的事件（例如授權續約、另一條線的 build 出來）；`--watch` 記那個事件會改到的檔的 SHA-256：內容沒變印 `WAIVED … (unchanged; do not wake)`，檔變了、不見了或 `snooze` 的時間到了才印 `WAKE <線>`。沒寫 until 印 `~ WARN NO_UNTIL`。
+- `block` 記錄卡在整合的分支；超過 `--block-hours` 印 `~ INTEGRATION_BLOCKED`：建議在預設關閉的開關後面先合進去，不要一直等。
+- 接法：閒置監看每次跑 `check --wake-only`，有 `WAKE` 行才叫醒那條線。最後一行 `WAIVERS: lanes= wake= blocked_long=`。
+
+### templates/run_closing.py（2.3.0，N5）
+
+```text
+python -I -X utf8 run_closing.py run   --board <看板資料夾> --id <TR-ID> -- <指令> [參數 ...]
+python -I -X utf8 run_closing.py go    --board <看板資料夾> --id <TR-ID> [--wait 300] [--poll 10] [--result <結果檔>]
+python -I -X utf8 run_closing.py check --board <看板資料夾> --id <TR-ID> [--wait 300] [--result <結果檔>]
+```
+
+- `run`：第一件事寫 ACK，跑指令，`finally` 寫 DONE（含 exit code），失敗、中斷也寫：DONE 由腳本自己發，不靠人記得。
+- `go`：寫 GO 並通知，等 `--wait`（預設 5 分鐘）看 ACK。沒 ACK 先看 DONE 或 `--result` 檔（已經跑完印 `DONE_WITHOUT_ACK`，不再吵），都沒有才補通知一次（`RENOTIFY`），再等不到印 `NO_ACK`、exit 1。
+- `check`：印 `NONE / WAIT_ACK / NO_ACK / RUNNING / DONE / DONE_WITHOUT_ACK`；判 NO_ACK 前先看有沒有結果。
+- 範本用 `<id>.GO / .ACK / .DONE` 檔當訊號。接到專案只改 `signal()`（怎麼寫看板、送通知）和 `seen()`（怎麼讀）兩個函式。
+
+### dsh_doctor.py --licenses（2.3.0，N6；上游是 doctor.py）
+
+```text
+python -I -X utf8 dsh_doctor.py --licenses <授權清單.json|.md> [--license-days 3] [--licenses-only]
+```
+
+- 清單：JSON（list 或 `{"licenses": [...]}`，每筆 `tool`、`license`、`expires`）或 Markdown 表（tool / license / expires 欄）。剩不到 `--license-days` 天印 WARN，寫明是哪個工具持有的，例如 `license expiring: trial (held by image-editor) expires …, 2 day(s) left: renew it now`；過期、日期寫錯另列。
+- 一般 dsh_doctor 執行把每一筆列成 `licenses` 檢查（快到期、過期、日期寫錯是 WARN）；`--licenses-only` 只查授權、不需要 git，最後一行 `LICENSES: ok= expiring= expired= bad=`，有問題 exit 1。
+
+### line_brief.py（2.3.0，N7）
+
+```text
+python -I -X utf8 line_brief.py <線名> --config <status 設定.json>
+python -I -X utf8 line_brief.py <線名> [--board 看板] [--match 字串] [--repo DIR] [--results DIR --glob "*.md"] [--log 檔]
+```
+
+- 設定放在 status 設定的 `"lines"`（`templates/status_director.json` 有範例；`status_gen` 會忽略它）。印 BOARD（看板裡提到這條線的行）、GIT（`status -sb` 和最後一個 commit）、RESULT（最新結果檔和開頭幾行）、LOG（尾段），最後一行 `LINE_BRIEF: <線> board= git= result= log=`；設定了的部分讀不到 exit 1。要看某條線時跑，不是每輪必讀。
+
+### pre_tr.py（2.3.0，N8）
+
+```text
+python -I -X utf8 pre_tr.py --config pre_tr.json (--git-diff <base> | --changed <檔> ... | --classes <類別> ...) [--strict] [--dry-run]
+```
+
+- 設定（schema `pre-tr-v1`，範例 `templates/pre_tr.json`）：每個缺陷類別寫 `paths`（glob）、`checks`（argv、可寫 `{python}`、`{repo}`）和 `why`。改到的類別每個檢查都要 exit 0；類別沒有檢查印 `MISSING`，也擋 TR。沒歸類的檔印 `~ UNCLASSIFIED`（`--strict` 時也擋）。最後一行 `PRE_TR: PASS|BLOCK classes= checks= failed= missing= unclassified=`。
+
+### pack_check.py（2.3.0，F1 + F5）
+
+```text
+python -I -X utf8 pack_check.py check  <審查包> [--leak-regex REGEX] [--min-part-fraction 0.02] [--margin 0]
+python -I -X utf8 pack_check.py readme <審查包> [--out README.md]
+```
+
+- 審查包要有渲染腳本寫的 `manifest.json`（schema `review-pack-v1`：fps、sampled_frames、events、min_phase_frames、period_frames、images 每張的 camera / frame / subject_bbox / part / part_bbox、render、reference_render）。bbox 是渲染器投影出來的，不是從圖猜的。
+- 檢查：事件影格有抽到、最大間隔不超過最短階段的一半、均勻間隔不是動作週期的倍數；主體每格在畫面內（寬高讀 PNG 檔頭）；近景的部位在圖內且佔至少 2%；檔名不帶版本或結論字樣；manifest 和實際檔案一致；動態模糊、景深、非 100% 解析度、有損格式、和參考不同的設定都 FAIL；README 只能列包裡真的有的檔。
+
+### hash_check.py（2.3.0，F2 + F3 + F4）
+
+```text
+python -I -X utf8 hash_check.py compare --expected 基準.json --actual 這次.json [--allow-extra]
+python -I -X utf8 hash_check.py stamp   --sources <來源> ... [--build <輸出> ...] --out build_stamp.json
+python -I -X utf8 hash_check.py fresh   --stamp build_stamp.json [--sources ...] [--build ...]
+python -I -X utf8 hash_check.py show    <組件或執行檔> ...
+```
+
+- `compare`：基準有、這次沒有的案例是 `MISSING`，FAIL，不是略過；多出來的預設也 FAIL。`fresh`：重算來源和輸出的內容雜湊和 stamp 比，不看檔案時間（checkout、複製、解壓都會改時間）。`show` 印 `<絕對路徑> sha256= bytes=`，CPU 重現時印實際跑的那支。做法見 `templates/CPU_REPRO.md`。
+
+### flag_check.py（2.3.0，F6）
+
+```text
+python -I -X utf8 flag_check.py --flags 開關.json --log 執行.log [--before "<第二個 frame 的 log 樣式>"] [--first-lines 400]
+```
+
+- 每個開關在第一個 frame 前要有一行 `flag <NAME> read = <VALUE>`。整數開關讀到 `1.0`、`true` 是 `TYPE`；值不同是 `WRONG`；太晚是 `LATE`；沒有是 `MISSING`。任何一項就 `FLAGS: STOP`：這次執行不判定。程式端寫法（整數解析、值不對就停）見 `templates/CPU_REPRO.md`。
+
+### round_check.py 的條件表（2.3.0）
+
+- 研究檔每一節要有一張「測試條件 vs 參考條件」表（表頭同時寫到 test / 測試 和 reference / 參考 / 基準，至少一列）；沒有印 `~ WARN NO_CONDITIONS_TABLE`（2.3.0 只警告）。
+
 ## 限制
 
-- `dsh_audit.py` 的 input 經 `secret_mask` 後最多記 500 字，長指令尾端會被截斷；TASK REPORT 的 `RAN` 在截斷處用 `...` 表示，否則對不上。
+- `dsh_audit.py` 的 input 經 `secret_mask` 後整條記下（2.2.5-ds.5 起）；加 `--input-limit N` 才截斷，截過的行標 `input_cut`。
 - 子代理 session 記在總監 session 的啟動資料夾下，`--project-dir <worker 的 repo>` 抓不到；用 `--session <agent>`。
 - `dsh_usage.py` 讀投影快取（寫入可能落後幾百筆事件或幾秒），`--from-jsonl` 可強制讀原始 log。
 - `dsh_audit.py` 需要 Node 22+（zstd）；`dsh_doctor.py` 會確認。

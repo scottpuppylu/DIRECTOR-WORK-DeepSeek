@@ -37,6 +37,7 @@ Each argument is a DIRECTOR folder (or its DIRECTOR_STATE.md). It checks:
     means by count); base_ref an object, check / fetch / strict true or false (gate_check --order); release an
     object, remote / branch / title / tag_message / selftest non-empty strings, gh_repo owner/name or null
     (release.py refuses an unknown release key, so it is a problem here too)
+  - 2.3.0-ds.5 (upstream 2.3.0): verdict_self_check "warn" or "fail" (gate_check --verdict's self-check line)
   - 2.2.4-ds.4: order_limits an object of whole numbers (max_files_per_order / max_lines_per_order /
     max_test_lines_per_order, 0 = off); protected_tests a list of globs
   - 2.2.5-ds.5 (WO-DS-009 B1): safety an object of the switches of safety_gate.py (true / false, stop_after_rounds a
@@ -71,7 +72,7 @@ CONFIG_VERSION = 1
 CONFIG_MODES = ("general", "beginner")
 CONFIG_PATTERNS = ("trace_id_pattern", "po_item_pattern", "po_open_pattern")
 CONFIG_KEYS = ("schema_version", "mode", "po_pending_files", "resume", "base_ref", "release", "order_limits",
-               "protected_tests", "safety") + CONFIG_PATTERNS
+               "protected_tests", "safety", "verdict_self_check") + CONFIG_PATTERNS  # 2.3.0-ds.5: verdict_self_check
 LEGACY_KEYS = ("sdd",)  # renamed "safety" in 2.2.5-ds.5: read without error, WARN notes (safety_gate.legacy_notes)
 ORDER_LIMIT_KEYS = ("max_files_per_order", "max_lines_per_order", "max_test_lines_per_order")  # 2.2.4-ds.4
 RESUME_CONFIG_KEYS = ("max_bytes", "max_line_bytes", "keep_recent", "protect_headings")  # 2.2.2-ds.3
@@ -333,6 +334,8 @@ def config_blocks(data, notes):
                     notes.append(f"director_work.json: base_ref key no tool reads: {key} (a typo?)")
                 elif not isinstance(value, bool):
                     say(f"base_ref.{key}: true or false, got {value!r}")
+    if "verdict_self_check" in data and data["verdict_self_check"] not in ("warn", "fail"):  # 2.3.0: gate_check --verdict
+        say(f"verdict_self_check: \"warn\" or \"fail\", got {data['verdict_self_check']!r}")
     if "release" in data:
         block = data["release"]
         if not isinstance(block, dict):

@@ -71,6 +71,8 @@ PO 手動停止後再讓它繼續，也要先完整跑一次這個程序：停�
 - DSH 沒有 per-folder 設定，也沒有依 session 給不同防護的設定：防護是 profile／preset 與 session 設定，子代理預設繼承總監的 preset；要依子代理給不同工具或限制，只能改使用者層 preset（需 PO 同意）。
 - `dsh_doctor.py` 列環境與設定（Python、Node、模型、沙箱、核准、子代理上限與深度、session 目錄、工具齊全）；`dsh_setup_check.py <WS>/DIRECTOR` 檢查待決帳與建置檔。報告的問題要處理。
 - 每週用 `dsh_usage.py` 看各線上下文壓力，膨脹的線請它把長輸出寫檔（取代 Claude 版的 `poll_hint.py`）。
+- 單一工作線的摘要（2.3.0）：`tools/line_brief.py <線名> --config <status 設定>` 一次印那條線的看板行、git 狀態和最後一個 commit、最新結果檔的開頭、log 尾段；設定寫在 status 設定的 `"lines"`（`templates/status_director.json`）。要看某條線時跑它，不逐項查；不是每輪必讀。
+- 授權快到期（2.3.0）：`tools/dsh_doctor.py --licenses <授權清單>` 列出剩不到 3 天（`--license-days`）的授權和是哪個工具持有的；只檢查授權用 `--licenses-only`。清單是 JSON 或 Markdown 表（tool / license / expires）。
 
 ### 中斷後與排程喚醒
 
