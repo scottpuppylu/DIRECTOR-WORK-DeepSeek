@@ -513,6 +513,48 @@ flowchart TD
     F --> G["總監檢查那個呼叫之後 AI 有沒有照著做"]
 ```
 
+## 2.5.0-ds.6 新增的小幫手（選用）
+
+讀完這節，你會知道這一版從 Claude 版 2.5.0 搬來哪些小幫手、什麼時候用。它們都是你（或總監）**自己執行**的事後檢查：不裝 hook、不改設定，預設只印提醒，不擋任何事。Claude 版這次的新檢查本來就不靠 hook，所以在 dshdw 的用法幾乎一樣。不跑，用起來和 2.4.0-ds.6 一樣。
+
+| 工具 | 什麼時候用 | 做什麼 |
+|---|---|---|
+| `dispatch_check.py --log` | 派工之後 | 檢查每筆派工紀錄有沒有寫「這件事多難」和「給 AI 多少思考力氣（effort）」，兩者對不對得上。只提醒 |
+| `dispatch_check.py --dup` | 派工之前 | 拿新任務和各條工作線「下一步要做的事」、最近的 commit 比，太像就提醒：可能已經有人在做。只提醒 |
+| `delete_guard.py` | 刪檔之前 | 列出還有誰提到這些檔案（repo 裡的檔、各線的 RESUME_STATE）。只讀，從不刪 |
+| `round_check.py` | 修了兩組還沒好 | 提醒你請另一個人或另一個子代理先診斷，不要同一個人一直試。只提醒 |
+| `dsh_audit.py reads` | 想省用量時 | 列出 AI 最常重讀的檔案、讀了幾次、帶回多少 bytes，看哪些可以改成摘要 |
+| `templates/GATE_FEASIBILITY.md` | 核准驗收條件之前 | 範本：先確認每個條件都有工具量得到、現在就試跑過一次 |
+| `templates/SETTINGS_MANIFEST.md` | 擷取、量測、審查之前 | 範本：先寫好要用的設定，跑完對照；對不上時這次結果不算數（INVALID），不是成品不及格 |
+
+另外修了一個小錯：`dsh_audit.py loops` 加 `--since`／`--until` 時，以前照 session 開始的時間挑整個 session，現在照每個呼叫自己的時間算。
+
+### 怎麼用
+
+在總監的資料夾執行，路徑換成你自己的（`<RULES>` 是規則包的位置）：
+
+```text
+python -I -X utf8 <RULES>/tools/dispatch_check.py --log DIRECTOR_LOG.md
+python -I -X utf8 <RULES>/tools/dispatch_check.py --dup "新任務的標題和範圍" --resume "<各線>/RESUME_STATE.md"
+python -I -X utf8 <RULES>/tools/delete_guard.py --list 要刪的清單.txt --repo <repo>
+python -I -X utf8 <RULES>/tools/dsh_audit.py reads --project-dir <工作區> --since 2026-11-10
+```
+
+- 派工紀錄要讓 `--log` 看得懂，就在 DISPATCH 那一行最後加上 `| class=dev effort=high model=deepseek-flash`。effort 只有 DSH 能設的 `off`、`low`、`high`、`max` 四種（Claude 版的 `medium`、`xhigh` 這裡沒有）；難度類別和 effort 的對照表在 `docs/05`。
+- `reads` 會在畫面上印出檔案路徑，只在自己的電腦上看，不要貼到公開的地方。DSH 的用量記在每一步模型回應上，不是每個讀檔動作，所以它只給次數和 bytes，不給每個檔案花了多少（NOT_VERIFIED）。
+
+### 刪檔之前的五步
+
+```mermaid
+flowchart TD
+    A["列出要刪的檔案清單"] --> B["跑 delete_guard.py"]
+    B --> C{"還有人提到這些檔案嗎？"}
+    C -->|"有（exit 1）"| D["先不刪，等總監確認"]
+    C -->|"沒有"| E["搬進隔離區或備份，記 SHA-256"]
+    E --> F["過了保留期才真的刪"]
+    F --> G["對帳：清單和實際刪掉的一致"]
+```
+
 ## 開始前要準備
 
 | 要準備的 | 為什麼 | 怎麼確認 |
@@ -642,18 +684,18 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 | `docs/02_work_orders_gates.md` | 工單、gate、TASK REPORT、裁決、測試排程與預算 | 派工、裁決時 |
 | `docs/03_communication.md` | 什麼時候發訊息、PO 待決帳、PO 訊息不漏讀 | **每輪必讀** |
 | `docs/04_quota_efficiency.md` | token 用量與上下文效率、省用量的槓桿、怎麼量 | 設定時、每週複查時 |
-| `docs/05_models_effort.md` | 模型與思考程度（effort）怎麼選 | 開新工作線時 |
+| `docs/05_models_effort.md` | 模型與思考程度（effort）怎麼選；2.5.0-ds.6 加派工難度表、派工前查重複 | 開新工作線時 |
 | `docs/06_resume_lossless.md` | RESUME_STATE、每輪第一步 | **每輪必讀**（恢復時） |
-| `docs/06b_on_demand_procedures.md` | 中斷後恢復程序、機制重建、喚醒、刪檔前比對 | 恢復、建機制、刪檔時 |
-| `docs/07_quality_gates.md` | 工程與成品分開、盲審包、常識閘門、修正上限、同錯重試先寫原因 | 審查成品時 |
+| `docs/06b_on_demand_procedures.md` | 中斷後恢復程序、機制重建、喚醒、刪檔前比對；2.5.0-ds.6 加刪除五步、程序衛生 | 恢復、建機制、刪檔時 |
+| `docs/07_quality_gates.md` | 工程與成品分開、盲審包、常識閘門、修正上限、同錯重試先寫原因；2.5.0-ds.6 加獨立診斷、閘門可行性、證據設定先寫後比 | 審查成品時 |
 | `docs/08_safety_rules.md` | 要 PO 核准的事、git 與檔案的禁止事項、dshdw 能擋到什麼 | **每輪必讀** |
 | `docs/09_memory.md` | 指示鏈（AGENTS.md）大小、`--chain` 量法、記憶怎麼放 | 每週、超過門檻時 |
 | `docs/10_lessons_learned.md` | 原專案的教訓；每輪必讀規則的理由 | 第一次；寫新規則前 |
 | `docs/11_dsh_operations.md` | 在 DSH 上操作：能力→工具對照、開 worker 的流程、限制清單 | 在 DSH 上建置與操作時 |
 | `docs/12_chat_to_product.md` | 一般／小白模式、初衷卡、選擇題、不做歪的檢查 | 建置時；談需求、寫工單時 |
 | `docs/13_safety_gates.md` | 安全閘門：鎖定測試、計畫閘門、規格審查、1 輪停止、不得自行關閉、`safety` 開關 | 寫 Standard／Strict 工單前 |
-| `templates/` | AGENTS.md 段落、工單、報告、RESUME_STATE、測試申請、決策登記、裁決、待決帳、初衷卡、DIRECTOR/ 其他檔案骨架、CPU 重現步驟、送 TR 前檢查設定、執行腳本收尾範本；2.4.0-ds.6 加 commit 前掃秘密的範例（`.pre-commit-config.yaml`、`.gitleaks.toml`） | 建置與派工時 |
-| `tools/` | 工單／報告／證據／範圍／追溯檢查、用量與動作紀錄、打轉偵測、指示鏈大小、環境檢查；2.4.0-ds.6 加提示注入事後掃描（`inject_scan.py`、`dsh_audit.py inject`）、恢復時印 RESUME_STATE 重點（`resume_inject.py`）、完成度表的 `depends_on` | 見 `tools/README.md` |
+| `templates/` | AGENTS.md 段落、工單、報告、RESUME_STATE、測試申請、決策登記、裁決、待決帳、初衷卡、DIRECTOR/ 其他檔案骨架、CPU 重現步驟、送 TR 前檢查設定、執行腳本收尾範本；2.4.0-ds.6 加 commit 前掃秘密的範例（`.pre-commit-config.yaml`、`.gitleaks.toml`）；2.5.0-ds.6 加閘門可行性（`GATE_FEASIBILITY.md`）、證據設定清單（`SETTINGS_MANIFEST.md`）、commit 前查衝突標記（`.pre-commit-config.yaml` 的 `dshdw-conflict-markers`） | 建置與派工時 |
+| `tools/` | 工單／報告／證據／範圍／追溯檢查、用量與動作紀錄、打轉偵測、指示鏈大小、環境檢查；2.4.0-ds.6 加提示注入事後掃描（`inject_scan.py`、`dsh_audit.py inject`）、恢復時印 RESUME_STATE 重點（`resume_inject.py`）、完成度表的 `depends_on`；2.5.0-ds.6 加派工檢查（`dispatch_check.py`）、刪除前引用檢查（`delete_guard.py`）、最常重讀的檔案（`dsh_audit.py reads`） | 見 `tools/README.md` |
 | `director_work.example.json` | 工具設定範例 | 建置時 |
 | `VERSION`、`CHANGELOG.md` | 版本號、各版改了什麼 | 建置時記版本；升級時 |
 
@@ -673,6 +715,8 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 | `dsh_audit.py loops` | **事後檢查** | 找出打轉、同錯重試、參數錯誤、子代理失敗沒人處理；只記工具名和雜湊 |
 | `dsh_audit.py inject` | **事後警告** | 找出工具輸出裡像命令的句子；換句話說、拆行、別的語言或編碼都抓不到，講提示注入的文件會誤報 |
 | `dsh_guard.py`（選用） | **只提醒** | 沒有 hook，worker 要自己跑 |
+| `dispatch_check.py`、`round_check.py` 的獨立診斷（2.5.0-ds.6） | **只提醒** | 派工紀錄缺難度或 effort、可能重複派工、卡關沒找人診斷時印 WARN；`--strict` 才會 exit 1 |
+| `delete_guard.py`（2.5.0-ds.6） | **事後檢查，只讀** | 只找完整路徑和檔名照字面出現的地方；用萬用字元或變數組出來的路徑找不到。它不刪檔，也擋不住別人刪 |
 | 暫停開關 `pause_ctl.py` | **紀律** | worker 照工單自己讀，總監審查時核對；平台不強制 |
 | 單一寫入者 | **紀律** | 同一份檔案同一時間只有一個寫入者；靠工單和分支 |
 | 機密遮罩 `secret_mask.py` | **擋常見格式** | 沒見過的 token 格式遮不到 |
@@ -691,6 +735,10 @@ Standard 和 Strict 還有安全閘門：鎖定測試、計畫閘門、1 輪停�
 - 子代理共享同一個工作副本與檔案系統，沒有每位 worker 各自的 worktree；單一寫入者靠檔案歸屬、工單範圍和總監最後看 diff。
 - `loops` 的 `child_error_unhandled` 只看「session 最後一個呼叫是失敗的子代理呼叫」；子代理結束事件（`subagent-settled`）本身的失敗狀態，本機紀錄還沒看過，不猜。
 - Claude 版 2.4.0 的三個 hook（打轉當場提醒、重開時自動接回、工具結果旁的注入警告）在 DSH 都沒有；這裡全部是事後查，或由 AI 照規則自己跑。
+- `dsh_audit.py reads` 不給每個檔案的成本：DSH 的用量記在每一步模型回應上，不在每個工具呼叫上，只給次數和 bytes（NOT_VERIFIED）。它只認得 `read` 工具和常見的讀檔命令，用腳本讀的檔不算。
+- `--since`／`--until` 照每個呼叫的時間算的只有 `loops` 和 `reads`；`build`、`inject` 和 `dsh_usage.py` 的主表仍照 session 開始時間。
+- Claude 版 2.5.0 的 RESTART 損益兩平「樣本不足」（F2）沒有搬：dshdw 沒有 RESTART 統計。
+- `dispatch_check.py --dup` 只比字詞：同一件事換了說法比不出來，不同的事用了相同的詞會誤報。
 - 沒有容器 worker、沒有外掛的專案級開關、沒有記憶索引檔（MEMORY.md）。
 - 排程喚醒只有你明確要求才建，而且只有總監（根 session）能用。
 

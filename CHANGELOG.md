@@ -3,6 +3,67 @@
 本 repo 是 [DIRECTOR-WORK](https://github.com/scottpuppylu/DIRECTOR-WORK) v2.2.2（Claude Code／Claude Desktop 版，MIT）的移植。
 上游的完整變更歷史保留在 [`CHANGELOG-upstream.md`](CHANGELOG-upstream.md)；本檔只記 dsh-DIRECTOR-WORKER（簡稱 dshdw；舊名 DIRECTOR-WORK DeepSeek 版（DW-DS））自己的變更。
 
+## 2.5.0-ds.6（2026-11-16）
+
+WO-DS-013。跟上上游 DW 2.5.0（tag v2.5.0，decab48）。上游 2.5.0 的新檢查本來就是自己執行、預設只提醒，不靠 hook，所以多半原樣搬；要改寫的只有讀紀錄的兩項（loops 的時間範圍、最常重讀的檔案），因為 dshdw 讀的是 DSH 的 `session.v4.jsonl.zstd` 事件，不是 Claude 的 transcript。ds 序號不加：這一版沒有新的 DSH 試驗修正。安全閘門全部保留，不加回 OpenSpec／SDD。每輪必讀（指示鏈）沒有變大。上游原文見 `CHANGELOG-upstream.md`。
+
+### 遷移（從 2.4.0-ds.6 升上來要注意的）
+- 不用改任何東西：新檢查都要自己執行，預設只提醒（`--strict` 才會 exit 1）。
+- **`dsh_audit.py loops --since／--until` 的算法變了**（F1）：以前照 session 開始時間挑整個 session，現在每個呼叫照自己的時間，只算 [since, until) 裡的呼叫（`--until` 那天整天都算）。所以前一天開、今天還在跑的 session 會算進「今天」，跑過 `--until` 的 session 只算範圍內那一段；同一個範圍的數字可能和 2.4.0-ds.6 不同。`--events` 檔也照呼叫時間過濾。`dsh_usage.py --loops` 的 LOOPS 行跟著變；`build`、`inject` 和 `dsh_usage.py` 的主表不變，仍照 session 開始時間。
+- 要用 effort 檢查，就在 DIRECTOR_LOG 的 DISPATCH 行尾加 `| class=<類別> effort=<off|low|high|max> model=deepseek-flash`；舊的 DISPATCH 行 `gate_check.py` 照樣認得，只是 `dispatch_check.py --log` 會提醒。`templates/DIRECTOR_FILES.md` 的範例行已經加上。
+- `templates/.pre-commit-config.yaml` 多一個 `dshdw-conflict-markers` hook（pre-commit 內建的 pygrep，不下載）；有照抄這份範例的，要自己再抄一次。
+- 上層 `README.md` 加「2.5.0-ds.6 新增的小幫手（選用）」一節，檔案地圖、防護表、已知限制跟著補；最上面的提示詞沒有改（逐位元組相同）。
+
+### 已知限制
+- `dsh_audit.py reads` 不給每個檔案的成本：DSH 的 token 用量記在每一步模型回應（`assistant/message` 的 `usage`）上，不在每個工具呼叫上，所以上游的「加權成本」在這裡是 NOT_VERIFIED，只給次數和讀回來的 bytes。它只認得 DSH 的 `read` 工具和 pwsh／bash 的 `cat`、`head`、`tail`、`sed -n`、`Get-Content`；用 `run_code` 或腳本讀的檔不算。會印檔案路徑，只在本機看。
+- 只有 `loops` 和 `reads` 照每個呼叫的時間；`build`、`inject` 和 `dsh_usage.py` 的主表仍照 session 開始時間（`dsh_usage.py` 的主表讀投影快取，沒有每個呼叫的時間）。
+- `dispatch_check.py` 的 effort 只認 DSH 的 `off / low / high / max`。上游表裡 `xhigh` 的類別在這裡是 `high` 或 `max`，`routine` 是 `low` 或 `high`，另外多一個 `mechanical`（`off` 或 `low`）；這是照 `docs/05` 的判斷原則換算的，沒有 DSH 試跑驗證過哪個等級最省（NOT_VERIFIED）。
+- `dispatch_check.py --dup` 只比字詞：同一件事換了說法比不出來，不同的事用了相同的詞會誤報。它是「先去看一下」的提醒，不是判定。
+- `delete_guard.py` 只找完整路徑和檔名照字面出現的地方；用萬用字元、變數組出來的路徑找不到。沒給 `--repo` 也沒有 `--refs` 對到檔案時印 WARN（等於沒查）。
+- N6、N7 是文件和範本，沒有工具自動檢查填寫內容。
+- README 新增的 1 張 mermaid 圖（共 14 張）只用 `readme_236` 的規則檢查語法，本機沒有畫出來（NOT_VERIFIED），推送後看 GitHub 頁面。
+
+### 上游 2.5.0 各項怎麼處理（總監裁決，WO-DS-013 第 0 節）
+| 上游 | 處理 | dshdw 的檔案 |
+|---|---|---|
+| F1 LOOPS 照 `--until` | 改寫：`dsh_audit.py loops` 每個呼叫照自己的時間只算 [since, until)；挑 session 時只跳過 `--until` 之後才開的 | `tools/dsh_audit.py`、`tools/dsh_usage.py`（說明） |
+| F2 RESTART NOT_ENOUGH_DATA | 不搬：dshdw 沒有 RESTART／損益兩平統計 | — |
+| F3 `either_quoting` | 搬（selftest helper） | `tools/selftest_ds.py` |
+| N1 `dispatch_check.py --log` | 搬工具；難度表換成 DSH 的 effort（`off / low / high / max`），加 `mechanical` 類 | `tools/dispatch_check.py`、`docs/05`、`templates/DIRECTOR_FILES.md` |
+| N2 `round_check.py` 獨立診斷 | 原樣搬；「不同模型」寫成另開的子代理 session、別的 DeepSeek 模型或人 | `tools/round_check.py`、`docs/07` |
+| N3 `delete_guard.py` | 原樣搬 | `tools/delete_guard.py`、`docs/06b` |
+| N4 `dispatch_check.py --dup` | 原樣搬 | `tools/dispatch_check.py`、`docs/05` |
+| N5 `usage_mix.py --reads` | 改寫成 `dsh_audit.py reads`：讀 DSH 事件，DSH 的讀檔工具與參數；成本 NOT_VERIFIED，只給次數和 bytes | `tools/dsh_audit.py` |
+| N6 `GATE_FEASIBILITY.md` | 原樣搬 | `templates/GATE_FEASIBILITY.md`、`docs/07` |
+| N7 `SETTINGS_MANIFEST.md` | 原樣搬 | `templates/SETTINGS_MANIFEST.md`、`docs/07` |
+| N8 程序衛生＋pre-commit 範例 | 搬；「停背景工作看整棵程序樹」改成「只停這個 DSH session 自己起的程序樹」；hook 名 `dshdw-conflict-markers` | `docs/06b`、`templates/.pre-commit-config.yaml` |
+| N9 docs/10 第 82～126 條 | 原樣搬（hook 名、effort、程序樹用 DSH 的說法）；不放進 agent instructions | `docs/10` |
+| N10 CHANGELOG／VERSION／README | 本段、`VERSION`、README 新節；`CHANGELOG-upstream.md` 補上游 2.5.0 原文 | `CHANGELOG.md`、`CHANGELOG-upstream.md`、`VERSION`、`README.md` |
+
+### README
+- 啟動提示詞沒有改（逐位元組相同；提示詞裡沒有版本號）。
+- 新增「2.5.0-ds.6 新增的小幫手（選用）」：工具表（7 列、3 欄，手機上不擠）、怎麼用（4 行命令）、DISPATCH 行的寫法和 `reads` 只在本機看的說明、1 張圖（刪檔之前的五步）；照上游 README 2.5.0 段改寫成 dshdw 的工具名和 effort。
+- 檔案地圖（docs/05、06b、07、templates、tools）、防護表（`dispatch_check`、`delete_guard`）、已知限制跟著更新。
+
+### Credits（借用的概念；都沒有複製程式碼；沿用上游 2.5.0 的 Credits，2026-11-16 上游查）
+| 來源 | 授權 | 借了什麼 |
+|---|---|---|
+| Claude Code 官方文件〈Model configuration〉〈Subagents〉 | 文件 | 依難度選 effort、max 只暫時用；子代理各自設模型與 effort，獨立診斷用唯讀代理（N1、N2，經上游；dshdw 換成 DSH 的等級） |
+| Google SRE book〈Eliminating Toil〉 | CC BY-NC-ND 4.0 | 找出重複、沒有長久價值的工作：重讀路徑、重複派工（N4、N5，經上游） |
+| Google SRE book〈Postmortem Culture〉 | CC BY-NC-ND 4.0 | 根因由別人審查、每條教訓要有後續行動（N2、N9，經上游） |
+| Google SRE workbook〈Canarying Releases〉 | CC BY-NC-ND 4.0 | 指標要能歸因於變更本身、用注入的錯誤證明指標抓得到壞變更（N6、N8，經上游） |
+| git 文件〈gitattributes〉〈git-grep〉 | GPL-2.0（文件隨 git 發布） | 換行屬性（N8）；`-F` 固定字串只搜追蹤檔（N3，經上游） |
+| Google Cloud Storage〈Soft delete〉 | CC BY 4.0 | 刪除先保留一段可復原期，再真刪（N3，經上游） |
+| pre-commit | MIT | `pygrep` 本機 hook 的設定格式（N8，dshdw 不依賴） |
+
+### 驗證
+- `selftest_ds.py`：2.4.0-ds.6 是 90 項，這一版 101 項；Python 3.11 和 3.9 各跑一次，都是 101/101、skip=0。
+  - 新增 11 項：`loops_until_250`（一個跨兩天的 session：第 1 天 repeat=1、第 2 天 2、兩天和不給範圍都是 3、最後一天之後 0；`by_calls` 挑 session；2 個 mutation，上一版的程式在第 1 天就會算錯）、`quoting_either_250`、`dispatch_effort_250`（DSH 等級、上游的 `xhigh`／`medium` 算不認得、`--table`、`--strict`、exit 2；2 個 mutation）、`dispatch_dup_250`（NEXT_STEP 和 commit 標題、中文兩字一組、門檻；1 個 mutation）、`round_diagnosis_250`（第 3 組沒寫、寫成實作者本人、有寫就安靜、第 2 組還不用；1 個 mutation）、`delete_guard_250`（有引用／沒引用、只印檔名和行號、從不刪、檔案自己不算；1 個 mutation）、`reads_250`（合成 DSH 事件、fork 副本只算一次、成本 NOT_VERIFIED、輸出沒有真實路徑；2 個 mutation）、`gate_feasibility_250`、`settings_manifest_250`、`process_hygiene_250`（上游 2.5.0 的測試）、`lessons_intake_250`（docs/10 編號連續、47 個收件匣編號各一條規則、AGENTS 段落不載入 docs/10）。
+  - 安全閘門的 11 項函式內容和 2.4.0-ds.6 逐字相同，都通過；`safety_gate.py` 和 `safety` 區塊沒改。
+- `test_verify_dsh_run.py`（Python 3.11、3.9）。
+- 指示鏈（`memory_size_check.py --chain`，AGENTS 段落＋每輪必讀 docs/01、03、06、08，LF）：14,189 bytes，和 2.4.0-ds.6 相同（這些檔都沒改），上限 65,536。docs/10 變大（25,488 → 36,394 bytes，CRLF）但不在指示鏈裡。
+- fixture 全是合成資料，沒有真實紀錄的內容和真實路徑。
+
 ## 2.4.0-ds.6（2026-11-15）
 
 WO-DS-012。跟上上游 DW 2.4.0（tag v2.4.0，df8ddfd）。上游 2.4.0 新增的小幫手多半是 Claude Code hook（PreToolUse、PostToolUse、SessionStart）；**DSH 一個 hook 都沒有**，所以這一版把它們全部改成事後檢查，或由 agent 照規則在恢復時自己跑一次。ds 序號不加：這一版沒有新的 DSH 試驗修正。安全閘門全部保留，不加回 OpenSpec／SDD。上游原文見 `CHANGELOG-upstream.md` 和上游 repo。
