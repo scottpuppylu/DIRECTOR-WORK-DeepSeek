@@ -104,6 +104,7 @@ DSH 沒有事前攔截（沒有 PreToolUse hook），下面兩項都是事後從
 - `templates/GATE_FEASIBILITY.md`（N6）：核准閘門前，每個條件對到一個現有工具、在現況 commit 試跑一次、原則上達得到；放寬量法要另一個人（或另開的子代理 session）拿已知缺陷樣本確認仍抓得到（`docs/07` 第 7 節）。
 - `templates/SETTINGS_MANIFEST.md`（N7）：擷取、量測、審查前先寫打算用的設定，跑完從輸出讀實際設定逐項比；不同就是 INVALID（重跑），不是候選的 FAIL（`docs/07` 第 7 節）。
 - `docs/06b`「程序衛生」（N8）：停背景工作只停這個 DSH session 自己啟動的程序樹、批次前驗名稱、commit 前用 `&&` 和 `git diff --cached --check`、JSON 用 parser 讀、時間取時鐘、CRLF 檔不用 `sed -i`、安全重寫 RESUME 標頭、量測獨佔機器；`templates/.pre-commit-config.yaml` 多一個 `dshdw-conflict-markers`（pygrep，pre-commit 內建，不下載）。
+- `docs/10` 第 82～126 條（N9）：上游 2.5.0 從總監收件匣併入的教訓（標「收件匣 L-0xx」，和前面各條的 L 編號是兩套），每條一句規則。docs/10 不是每輪必讀，不進 agent instructions，不佔 65536 bytes。
 - `round_check.py`（N2）：第 2 組（之後每組）沒過，研究檔那一節要寫獨立診斷 `DIAGNOSIS_BY:`（另一個子代理 session、別的模型或人）和 `DIAGNOSIS_RESULT:`；有寫 `IMPLEMENTER:` 時兩者要不同。沒寫或相同印 `~ WARN NO_INDEPENDENT_DIAGNOSIS`，不改 exit。
 
 ## 已移除（Claude 專屬）

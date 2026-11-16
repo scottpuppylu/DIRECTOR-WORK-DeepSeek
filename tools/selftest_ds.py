@@ -165,6 +165,8 @@ Runs, on this machine and offline:
               result bytes, cost NOT_VERIFIED, forked copy once, --top, no real path; 2 mutations
   gate_feasibility_250 / settings_manifest_250 / process_hygiene_250 2.5.0-ds.6 (N6, N7, N8): the two templates and
               docs/07 rules, docs/06b process hygiene, the pre-commit conflict-marker hook (pygrep, local)
+  lessons_intake_250 2.5.0-ds.6 (N9): docs/10 lessons 82-126 (收件匣 L-0xx, each with a rule), numbered without
+              gaps, not in the AGENTS section
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -6015,6 +6017,30 @@ def process_hygiene_250(tmp):
     check230("conflict-marker regex leaves text and a setext underline alone",
              not rx.search("a <<<<<<< b") and not rx.search("=" * 7) and not rx.search("<" * 4 + " spec"))
     return "%d rules, conflict-marker regex" % len(needles)
+
+
+@test
+def lessons_intake_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N9, upstream 2.5.0's test): every lesson merged from the director's intake in 2.5.0 has its
+    own numbered line in docs/10 with a `→` rule, tagged `收件匣 L-0xx` (a numbering separate from the L numbers already
+    in docs/10), the list stays numbered 1, 2, 3, ... without gaps, and docs/10 is not part of the per-turn instruction
+    chain (the AGENTS section and docs/01, 03, 06, 08 only point to it)."""
+    root = TOOLS.parent
+    text = (root / "docs/10_lessons_learned.md").read_text(encoding="utf-8")
+    numbers = [int(n) for n in re.findall(r"(?m)^(\d+)\. \*\*", text)]
+    check230("docs/10 lessons are numbered without gaps", numbers == list(range(1, len(numbers) + 1)), numbers[-5:])
+    wanted = ["L-%03d" % n for n in list(range(6, 22)) + [46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61]
+              + list(range(62, 79))]
+    lines = [line for line in re.split(r"\r\n|\r|\n", text) if re.match(r"^\d+\. \*\*", line)]
+    for lesson in wanted:
+        hit = [line for line in lines if re.search(r"收件匣 (?:L-\d{3}、)*" + lesson + r"\b", line)]
+        check230("docs/10 has 收件匣 %s with a rule" % lesson, len(hit) == 1 and "→" in hit[0], hit[:2])
+    check230("docs/10 says the intake numbering is separate", "是兩套，不要混" in text)
+    check230("docs/10 names the dshdw sample hook", "dshdw-conflict-markers" in text and "dw-conflict-markers`" not in
+             text.replace("dshdw-conflict-markers`", ""))
+    section = (root / "templates" / "AGENTS_PROJECT_SECTION.md").read_text(encoding="utf-8")
+    check230("the AGENTS section does not load docs/10", "10_lessons" not in section and "docs/10" not in section)
+    return "%d lessons, %d intake tags" % (len(numbers), len(wanted))
 
 
 def main(argv=None):
