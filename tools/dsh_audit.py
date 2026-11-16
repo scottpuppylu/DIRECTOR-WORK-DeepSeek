@@ -75,7 +75,12 @@ works is the normal way to wait. A forked session repeats its seed's events, so 
 call key and time in several sessions is counted once (copies=N on its line, also_in in --json). One line per finding:
   LOOP <category> tool=T args=<hash> count=N calls=A..B reminders=K session=S agent=A at=<time> <category fields>
 then BAD_ARGS, `LOOPS <category>=n ...` (the DW 2.4.0 summary line) and DSH_LOOPS. --events reads plain JSONL event
-files (one session each; for synthetic fixtures) instead of the DSH logs. --json prints the result as JSON; --out FILE
+files (one session each; for synthetic fixtures) instead of the DSH logs.
+2.5.0-ds.6 (DW 2.5.0 F1): --since / --until count only the calls made in [since, until) by each call's own time, so a
+session that runs over several days gives each day its own count (2.4.0-ds.6 took whole sessions by their start time,
+so a session started before --since was left out and one that went on after --until was counted whole). A session
+started after --until is skipped; a call with no readable time is left out when a window is given. --events files get
+the same call window. --json prints the result as JSON; --out FILE
 also writes that JSON (status_gen.py's "loops" section reads it; dsh_usage.py prints its LOOPS line).
 
 Exit codes: 0 written / verified / no loop found, 1 refused (output exists without --force) or a write problem, or
@@ -255,8 +260,9 @@ def collect_catalog(events, catalog):
             catalog.setdefault(child, {"name": name, "label": data.get("label"), "parent": None})
 
 
-def matches_session(args, session_id, cwd, created_ms, agent, catalog):
-    """Whether one session passes --session / --project-dir / --since / --until."""
+def matches_session(args, session_id, cwd, created_ms, agent, catalog, by_calls=False):
+    """Whether one session passes --session / --project-dir / --since / --until. by_calls (2.5.0-ds.6, loops): the
+    dates are checked per call later (in_window), so here only a session started after --until is left out."""
     if args.session:
         wanted = [value.lower() for value in args.session]
         id_lower = session_id.lower()
@@ -272,6 +278,11 @@ def matches_session(args, session_id, cwd, created_ms, agent, catalog):
     if args.project_dir:
         if not cwd or not any(dsh.path_is_under(cwd, root) for root in args.project_dir):
             return False
+    if by_calls:
+        if args.until and isinstance(created_ms, (int, float)) and not isinstance(created_ms, bool):
+            if datetime.datetime.fromtimestamp(created_ms / 1000.0).astimezone() >= dsh.parse_day(args.until, end=True):
+                return False
+        return True
     if args.since or args.until:
         if not isinstance(created_ms, (int, float)) or isinstance(created_ms, bool):
             return False
@@ -326,7 +337,7 @@ def session_files(args, warnings):
     return sessions, projections, dsh.agent_catalog(projections)
 
 
-def selected_sessions(args, sessions, projections, catalog, warnings, skipped):
+def selected_sessions(args, sessions, projections, catalog, warnings, skipped, by_calls=False):
     """Yield (index, ref, events, header_id, agent_id, role, name_source, cwd, created_ms, parent) for each session
     that passes the filters, in build's order (subagents first, then roots; the catalog fills as it goes)."""
     for index, ref in enumerate(sorted(sessions, key=lambda item: (item.session_id.startswith(dsh.ROOT_PREFIX),
@@ -340,7 +351,7 @@ def selected_sessions(args, sessions, projections, catalog, warnings, skipped):
         collect_catalog(events, catalog)
         role = "worker" if worker else "director"
         agent, name_source = dsh.session_agent(header_id, role, catalog, projections.get(header_id))
-        if not matches_session(args, header_id, cwd, created_ms, agent, catalog):
+        if not matches_session(args, header_id, cwd, created_ms, agent, catalog, by_calls):
             continue
         yield index, ref, events, header_id, agent or header_id, role, name_source, cwd, created_ms, parent
 
@@ -766,9 +777,32 @@ def loop_coverage(calls, settings):
             "child_results": any(c["tool"] in settings["child_tools"] and c["status"] in ("ok", "error") for c in calls)}
 
 
-def event_sources(args, warnings, skipped):
+def call_window(args):
+    """2.5.0-ds.6 (DW 2.5.0 F1): (since, until) as aware local datetimes for [since, until) from --since / --until
+    (local dates, --until inclusive), None where not given."""
+    since = dsh.parse_day(args.since) if getattr(args, "since", None) else None
+    until = dsh.parse_day(args.until, end=True) if getattr(args, "until", None) else None
+    return since, until
+
+
+def in_window(ts, since=None, until=None):
+    """2.5.0-ds.6 (DW 2.5.0 F1): True when a call's own time (its ISO "ts") is in [since, until); with no window every
+    call counts, with a window a call without a readable time does not."""
+    if since is None and until is None:
+        return True
+    try:
+        moment = datetime.datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return False
+    if moment.tzinfo is None:
+        moment = moment.astimezone()
+    return not ((since and moment < since) or (until and moment >= until))
+
+
+def event_sources(args, warnings, skipped, by_calls=False):
     """[(session id, agent id, events)] for loops / inject: the --events files (plain JSONL, one session each), else
-    the DSH session logs that pass the filters (raises DshError / NodeMissing when they cannot be read)."""
+    the DSH session logs that pass the filters (raises DshError / NodeMissing when they cannot be read). by_calls
+    (2.5.0-ds.6, loops): the dates are left to the per-call window."""
     if getattr(args, "events", None):
         selected = []
         for name in args.events:
@@ -786,17 +820,21 @@ def event_sources(args, warnings, skipped):
     if not sessions:
         raise dsh.DshError("no DSH session logs found")
     return [(item[3], item[4], item[2]) for item in
-            selected_sessions(args, sessions, projections, catalog, warnings, skipped)]
+            selected_sessions(args, sessions, projections, catalog, warnings, skipped, by_calls)]
 
 
 def loops(args):
     """The loops result dict (raises DshError / NodeMissing when the logs cannot be read, LoopConfigError)."""
     settings = loop_settings(args)
     warnings, skipped, sessions_read = [], [], []
-    selected = event_sources(args, warnings, skipped)
+    selected = event_sources(args, warnings, skipped, by_calls=True)
+    since, until = call_window(args)
     findings, total, first, child_results, rejected, tools = [], 0, {}, False, set(), {}
     for header_id, agent_id, events in selected:
-        calls = session_calls(events, header_id, agent_id, warnings)
+        calls = [call for call in session_calls(events, header_id, agent_id, warnings)
+                 if in_window(call["ts"], since, until)]  # 2.5.0-ds.6 (F1): each call by its own time
+        if (since or until) and not calls:
+            continue  # no call of this session in the window
         total += len(calls)
         child_results = child_results or loop_coverage(calls, settings)["child_results"]
         for call in calls:
@@ -1019,8 +1057,8 @@ def main(argv=None):
     loops_parser.add_argument("--cache-root", help="DSH projection cache root, for agent names")
     loops_parser.add_argument("--project-dir", action="append", default=[],
                               help="only sessions whose cwd is this folder or below (repeatable)")
-    loops_parser.add_argument("--since", help="local date YYYY-MM-DD, inclusive (session start)")
-    loops_parser.add_argument("--until", help="local date YYYY-MM-DD, inclusive (session start)")
+    loops_parser.add_argument("--since", help="local date YYYY-MM-DD, inclusive (2.5.0-ds.6: each call's own time)")
+    loops_parser.add_argument("--until", help="local date YYYY-MM-DD, inclusive (2.5.0-ds.6: each call's own time)")
     loops_parser.add_argument("--session", action="append", default=[],
                               help="only this session id / id prefix / agent name (repeatable)")
     loops_parser.add_argument("--events", nargs="+", metavar="FILE",

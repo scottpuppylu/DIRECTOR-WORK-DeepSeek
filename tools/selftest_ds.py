@@ -149,6 +149,8 @@ Runs, on this machine and offline:
   release_describe_240 2.4.0-ds.6 (A.5): release.py puts the released version in the GitHub repository description
                 (gh repo edit, checked with gh repo view; a fake gh, no network)
   docs_240      2.4.0-ds.6 (L5, L7, L9): docs/07 section 8, docs/06b after-the-fact checks and step 0, docs/04 cross-check
+  loops_until_250 2.5.0-ds.6 (WO-DS-013 F1, B2): dsh_audit loops counts each call by its own time in [--since, --until)
+              (one session over two days: day 1, day 2, both, none); by_calls session selection; 2 mutations
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -163,6 +165,7 @@ Standard library only; no network; the temp folder is removed unless --keep.
 import argparse
 import base64
 import contextlib
+import datetime
 import hashlib
 import io
 import importlib.util
@@ -5628,6 +5631,76 @@ def docs_240(tmp):
     for name, words in DOCS_240:
         check230("%s: %s" % (name, words), words in (root / name).read_text(encoding="utf-8"))
     return "%d lines" % len(DOCS_240)
+
+
+# ---------------------------------------------------------------- 2.5.0-ds.6 (WO-DS-013)
+
+def loop_window_events(session):
+    """2.5.0-ds.6 (F1): plain JSONL events of one synthetic session over three local days: it starts on 2026-11-13,
+    runs `git status` 3 times on 2026-11-14, `git log` and `git diff` 3 times each on 2026-11-15 (every output differs)."""
+    def ms(day, minute):
+        return int(datetime.datetime(2026, 11, day, 10, minute, 0).astimezone().timestamp() * 1000)
+
+    lines = [{"createdAt": ms(13, 0), "cwd": "X:/fixture", "id": session, "seq": 0, "time": ms(13, 0), "type": "session"}]
+    n = 0
+    for day, commands in ((14, ["git status"]), (15, ["git log", "git diff"])):
+        for command in commands:
+            for _ in range(3):
+                n += 1
+                args = {"command": command}
+                lines.append({"data": {"arguments": args, "name": "pwsh", "subCallId": "s%d" % n}, "seq": 2 * n - 1,
+                              "time": ms(day, n), "type": "tool/ptc-dispatch-start"})
+                lines.append({"data": {"arguments": args, "content": [{"text": "out %d" % n, "type": "text"}],
+                                       "isError": False, "name": "pwsh", "subCallId": "s%d" % n}, "seq": 2 * n,
+                              "time": ms(day, n) + 1000, "type": "tool/ptc-dispatch"})
+    return "".join(json.dumps(line, sort_keys=True) + "\n" for line in lines)
+
+
+@test
+def loops_until_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 F1, B2): dsh_audit loops --since / --until count each call by its own time in [since,
+    until): one session over two days gives repeat=1 for day 1, 2 for day 2, 3 for both and with no window, 0 calls
+    after the last day (2.4.0-ds.6 took whole sessions by their start time: this session, started the day before,
+    was left out of every window). A session started after --until is skipped; a call with no time is out of a window.
+    2 mutations."""
+    start = CLI_CALLS[0]
+    real = load_tool("dsh_audit")
+    events = write(tmp / "loops250" / "window.jsonl", loop_window_events("session-fx-window"))
+    for label, window, code, says in (
+            ("day 1", ["--since", "2026-11-14", "--until", "2026-11-14"], 1, ["LOOPS repeat=1 ", " calls=3 sessions=1 "]),
+            ("day 2", ["--since", "2026-11-15", "--until", "2026-11-15"], 1, ["LOOPS repeat=2 ", " calls=6 sessions=1 "]),
+            ("both", ["--since", "2026-11-14"], 1, ["LOOPS repeat=3 ", " calls=9 sessions=1 "]),
+            ("no window", [], 1, ["LOOPS repeat=3 ", " calls=9 sessions=1 "]),
+            ("after the last call", ["--since", "2026-11-16"], 0, ["LOOPS repeat=0 ", " calls=0 sessions=0 "]),
+            ("before the first call", ["--until", "2026-11-13"], 0, [" calls=0 sessions=0 "])):
+        expect_tool("loops window %s" % label, "dsh_audit", code, "loops", "--events", events, *window, says=says)
+
+    def ns(since=None, until=None):
+        return argparse.Namespace(session=[], project_dir=[], since=since, until=until)
+
+    def created(day):
+        return int(datetime.datetime(2026, 11, day, 9, 0).astimezone().timestamp() * 1000)
+
+    check230("by_calls: a session started the day before --since is read",
+             real.matches_session(ns("2026-11-14", "2026-11-14"), "s", None, created(13), None, {}, True))
+    check230("not by_calls (build, inject): it is left out by its start time",
+             not real.matches_session(ns("2026-11-14", "2026-11-14"), "s", None, created(13), None, {}))
+    check230("by_calls: a session started after --until is skipped",
+             not real.matches_session(ns(None, "2026-11-14"), "s", None, created(15), None, {}, True))
+    since, until = real.call_window(ns("2026-11-14", "2026-11-14"))
+    check230("in_window: no time is out of a window, in without one",
+             not real.in_window(None, since, until) and real.in_window(None) and not real.in_window("not a time", since))
+    check230("in_window: [since, until) with --until inclusive",
+             real.in_window(since.isoformat(), since, until) and not real.in_window(until.isoformat(), since, until))
+    mutants = [
+        ("calls not filtered by their own time", [('                 if in_window(call["ts"], since, until)]', "]")],
+         lambda m: loop_run(m, events, since="2026-11-14", until="2026-11-14")["counts"]["repeat"] != 1),
+        ("sessions still taken by their start time", [("    if by_calls:\n", "    if False:\n")],
+         lambda m: not m.matches_session(ns("2026-11-14", "2026-11-14"), "s", None, created(13), None, {}, True)),
+    ]
+    for name, swaps, wrong in mutants:
+        killed(name, wrong(mutated("dsh_audit", swaps)))
+    return done230(start, len(mutants))
 
 
 def main(argv=None):

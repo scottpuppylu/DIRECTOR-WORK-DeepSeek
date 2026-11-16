@@ -83,6 +83,7 @@ DSH 沒有事前攔截（沒有 PreToolUse hook），下面兩項都是事後從
   - 合法的重複（例如每分鐘看一次 build）寫進 `--config FILE` 的 `allow`：`{"tool": "PowerShell", "input": "<對遮罩後參數的 regex>", "max": 20, "why": "..."}`，`max` 以內不算。設定檔格式和上游 `loop_guard` 一樣（`schema_version`、`window`、`repeat`、`retry_errors`、`poll`、`ping_pong`、`bad_args`、`child_tools`、`allow`，都可省）；值不合法印 NOT_RUN（exit 2）。順序：預設 → `--config` → 命令列。
   - 最後印一行和上游 `usage_mix` 同格式的 `LOOPS repeat=n retry_same_error=n ping_pong=n poll_no_progress=n bad_args=n child_error_unhandled=n|NOT_VERIFIED calls=n sessions=n`，再印 `DSH_LOOPS`。
   - `--json` 印 JSON；`--out FILE` 另外寫一份 JSON 給 `status_gen.py`。`--events FILE...` 讀純 JSONL 事件檔（合成 fixture，`tools/fixtures/loops/`）。exit 0 沒發現、1 有發現、2 讀不到。
+  - `--since`／`--until`（2.5.0-ds.6，上游 2.5.0 F1）：每個呼叫照**自己的時間**算，只算 [since, until) 裡的呼叫（`--until` 那天整天都算）。2.4.0-ds.6 照 session 開始時間挑整個 session：前一天開、今天還在跑的 session 整個被漏掉，跑過 `--until` 的整個算進來。現在 `--until` 之後才開的 session 直接跳過；沒有時間的呼叫在有範圍時不算。`--events` 檔一樣照呼叫時間過濾。`build`、`inject` 和 `dsh_usage` 的主表仍照 session 開始時間。
 - `dsh_usage.py --loops [--loops-config FILE]`：用量報表在 TOTAL 後多一行上面那行 `LOOPS`（同一批 session）。預設不跑：全部 session 約多 1 分 45 秒，而且要 Node；`--no-fallback` 時印 `LOOPS NOT_RUN`。
 - `status_gen.py` 的 LOOPS 行只列不是 0 的類別（加 `child_error_unhandled=NOT_VERIFIED`），避免整行被截斷。
 - `resume_inject.py --file RESUME_STATE.md [--max-bytes 2048] [--section NAME ...]`：印 RESUME_STATE 的前四行和未結段（`OPEN ITEMS`、`OPEN_DECISIONS`、`IN_FLIGHT`、`未結`、`未完成`、`待辦` 這類標題或 `KEY:` 行），超過上限從整行處截斷並註明。沒有 SessionStart，所以由 agent 在恢復或 DSH 自動壓縮後自己先跑一次（AGENTS.md 段落一行、docs/06b 第 0 步）。檔案不在印一行說明（exit 0）。

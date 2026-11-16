@@ -46,7 +46,9 @@ session files after the fact, and dsh_guard is a voluntary self-check the worker
   allow list included), `--retry-errors 2`, `--ping-pong 6` (`--rounds R` = 2R), `--bad-args 2`, DW's thresholds,
   bad_args per tool, child_error_unhandled (the session's last call is a failed subagent / wait_agent call; NOT_VERIFIED
   only with no child result), the LOOP line `LOOP <cat> tool= args= count= calls=A..B reminders= session= agent= at=`
-  and a `LOOPS ...` summary line (also `dsh_usage.py --loops`). `dsh_audit.py inject [same session filters]
+  and a `LOOPS ...` summary line (also `dsh_usage.py --loops`). 2.5.0-ds.6 (upstream 2.5.0 F1): loops' --since /
+  --until keep only the calls made in [since, until) by each call's own time (2.4.0-ds.6 took whole sessions by their
+  start time); build, inject and dsh_usage's totals still go by the session start. `dsh_audit.py inject [same session filters]
   [--events FILE...] [--tool T] [--show 40] [--json]` runs inject_scan.scan_text on every tool output the logs hold:
   `INJECT <category> tool= call= line= session= agent= at=`, never the matched text; exit 1 found, 0 none, 2 cannot read.
 - inject_scan.py (2.4.0-ds.6, upstream 2.4.0 without its PostToolUse hook mode) - text in a file that tries to give

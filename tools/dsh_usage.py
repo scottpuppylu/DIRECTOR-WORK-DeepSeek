@@ -26,7 +26,9 @@ not under a repo a worker edits; therefore --project-dir <REPO> does not find wo
 --since / --until are local dates (YYYY-MM-DD), both inclusive, compared with the session start time.
 --json prints the report as JSON; --out FILE always writes the JSON report to FILE (and says so on stderr).
 --loops (2.4.0-ds.6, DW 2.4.0 usage_mix's LOOPS line) adds one line, `LOOPS repeat=n retry_same_error=n ... calls=n
-sessions=n`, from `dsh_audit.py loops` over the same sessions and filters (counts only; "loops" in --json). It is off by
+sessions=n`, from `dsh_audit.py loops` over the same sessions and filters (counts only; "loops" in --json). 2.5.0-ds.6
+(DW 2.5.0 F1): the LOOPS line counts only the calls made from --since to --until by each call's own time; the totals
+above it still go by the session start time. It is off by
 default, unlike DW: it decodes the event logs, which needs Node and took about 105 s for 103 sessions here, while this
 report reads only the plain-JSON cache. --loops-config FILE passes a loops config (thresholds, allow list). When the
 logs cannot be read the line is `LOOPS NOT_RUN <reason>` and the report is unchanged.
