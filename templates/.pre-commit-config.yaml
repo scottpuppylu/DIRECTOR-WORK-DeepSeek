@@ -3,8 +3,8 @@
 # .pre-commit-config.yaml, then run `pre-commit install`.
 # 範例檔：dshdw 不依賴 pre-commit。要用的話自己裝 pre-commit，把這個檔複製到專案根目錄，再跑 `pre-commit install`。
 #
-# Every hook below is `repo: local` + `language: system`: it runs a command already on your PC, downloads nothing,
-# and only reads the files being committed. Paths assume the dshdw tools sit in tools/ of the same repo; change them
+# Every hook below is `repo: local` + `language: system` (or `pygrep`, built into pre-commit): it runs a command already
+# on your PC, downloads nothing, and only reads the files being committed. Paths assume the dshdw tools sit in tools/ of the same repo; change them
 # if your copy lives elsewhere.
 repos:
   - repo: local
@@ -15,6 +15,15 @@ repos:
         name: dshdw secret scan (secret_mask --check)
         entry: python -I -X utf8 tools/secret_mask.py --check
         language: system
+        types: [text]
+
+      # Conflict markers left in staged files (2.5.0-ds.6, from DW 2.5.0). pygrep is built into pre-commit (nothing
+      # downloaded); the commit stops when a staged text file has a line that starts with seven < or > signs. Pair it
+      # with `&&` before `git commit`, never `;` (docs/06b 程序衛生).
+      - id: dshdw-conflict-markers
+        name: dshdw conflict-marker check
+        entry: '^(<<<<<<<|>>>>>>>)( |$)'
+        language: pygrep
         types: [text]
 
       # The dshdw selftest (selftest_ds.py). It takes minutes, so it runs on `git push` only (pre-commit install

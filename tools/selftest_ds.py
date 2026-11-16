@@ -163,6 +163,8 @@ Runs, on this machine and offline:
               deletes, not itself, --no-basename, exit 2 cases; 1 mutation
   reads_250     2.5.0-ds.6 (N5): dsh_audit.py reads on synthetic DSH events: read tool and shell reads, count and
               result bytes, cost NOT_VERIFIED, forked copy once, --top, no real path; 2 mutations
+  gate_feasibility_250 / settings_manifest_250 / process_hygiene_250 2.5.0-ds.6 (N6, N7, N8): the two templates and
+              docs/07 rules, docs/06b process hygiene, the pre-commit conflict-marker hook (pygrep, local)
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -5951,6 +5953,68 @@ def reads_250(tmp):
     for name, swaps, wrong in mutants:
         killed(name, wrong(mutated("dsh_audit", swaps)))
     return done230(start, len(mutants))
+
+
+@test
+def gate_feasibility_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N6, upstream 2.5.0's test): the gate-feasibility template asks, per condition, for an
+    existing tool, a dry run on the baseline and reachability, and for an independent known-defect check when a
+    measurement rule is loosened; docs/07 says so."""
+    root = TOOLS.parent
+    text = (TEMPLATES / "GATE_FEASIBILITY.md").read_text(encoding="utf-8")
+    needles = ("BASELINE:", "## A. 每個條件", "量它的現有工具", "在 BASELINE 試跑一次", "原則上達得到", "NO_TOOL",
+               "NOT_RUN", "UNREACHABLE", "## B. 放寬量法", "LOOSENED_RULE:", "KNOWN_DEFECT:", "CHECKED_BY_OTHER:",
+               "RESULT:", "FEASIBILITY: <FEASIBLE | NOT_FEASIBLE | NOT_VERIFIED>", "ran_line.py --stamp", "dshdw 2.5.0-ds.6")
+    for needle in needles:
+        check230("GATE_FEASIBILITY template has %r" % needle, needle in text)
+    gates = (root / "docs/07_quality_gates.md").read_text(encoding="utf-8")
+    check230("docs/07 points to the gate-feasibility template", "templates/GATE_FEASIBILITY.md" in gates)
+    check230("docs/07 asks for a known-defect check when loosening", "已知有缺陷的樣本" in gates)
+    return "%d template lines" % len(needles)
+
+
+@test
+def settings_manifest_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N7, upstream 2.5.0's test): the settings manifest is written before the run, compared item
+    by item with what the run itself reports, and a mismatch makes the evidence INVALID, not a FAIL of the candidate;
+    docs/07 says so."""
+    text = (TEMPLATES / "SETTINGS_MANIFEST.md").read_text(encoding="utf-8")
+    needles = ("WRITTEN_AT:", "RUN_AT:", "## A. 打算用的設定（執行前寫）", "## B. 實際用到的設定", "紀錄編號", "前置步驟",
+               "設定組 / 變體", "SAME / DIFF", "EVIDENCE: <VALID | INVALID | NOT_VERIFIED>", "**不是** 候選的 FAIL")
+    for needle in needles:
+        check230("SETTINGS_MANIFEST template has %r" % needle, needle in text)
+    gates = (TOOLS.parent / "docs/07_quality_gates.md").read_text(encoding="utf-8")
+    check230("docs/07 points to the settings manifest", "templates/SETTINGS_MANIFEST.md" in gates)
+    check230("docs/07 says a settings mismatch is INVALID, not FAIL", "結果是 INVALID" in gates and "不是候選的 FAIL" in gates)
+    return "%d template lines" % len(needles)
+
+
+@test
+def process_hygiene_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N8, upstream 2.5.0's test): docs/06b lists the process-hygiene rules (only the tree this
+    DSH session started, names validated before a batch, a stalled-log stop, `&&` before commit, JSON parser, clock
+    timestamps, no sed -i on CRLF, safe RESUME header rewrite, exclusive measurement runs) and the pre-commit sample has
+    a local pygrep conflict-marker hook that catches a marker line and leaves ordinary text and underlines alone."""
+    root = TOOLS.parent
+    proc = (root / "docs/06b_on_demand_procedures.md").read_text(encoding="utf-8")
+    needles = ("### 程序衛生（2.5.0-ds.6", "只停這個 DSH session 自己啟動的那棵樹的 PID", "N 分鐘沒有新 log",
+               "commit 不用 `;` 接", "git diff --cached --check", "JSON 用 JSON parser 讀", "ran_line.py --stamp",
+               "CRLF 檔不用 `sed -i`", "新檔行數 = 舊檔行數", "量測跑次要獨佔機器", "L-062", "L-063", "L-065", "L-066",
+               "L-068", "L-069", "L-070", "L-075")
+    for needle in needles:
+        check230("docs/06b process hygiene has %r" % needle, needle in proc)
+    pre = (root / "templates" / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    block = pre.partition("id: dshdw-conflict-markers")[2].partition("- id:")[0]
+    entry = re.search(r"^\s*entry:\s*'([^']+)'", block, re.M)
+    check230("pre-commit sample: conflict-marker hook is pygrep (built in, local)",
+             entry is not None and "language: pygrep" in block, block[:200])
+    rx = re.compile(entry.group(1))
+    mark = "<" * 7
+    check230("conflict-marker regex catches a marker line", rx.search(mark + " HEAD") and rx.search(">" * 7 + " side")
+             and rx.search(mark))
+    check230("conflict-marker regex leaves text and a setext underline alone",
+             not rx.search("a <<<<<<< b") and not rx.search("=" * 7) and not rx.search("<" * 4 + " spec"))
+    return "%d rules, conflict-marker regex" % len(needles)
 
 
 def main(argv=None):
