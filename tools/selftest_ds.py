@@ -161,6 +161,8 @@ Runs, on this machine and offline:
               quiet with one, none at set 2); 1 mutation
   delete_guard_250 2.5.0-ds.6 (N3, B2): delete_guard.py REFERENCED (git grep, --refs, file:line only) / CLEAN, never
               deletes, not itself, --no-basename, exit 2 cases; 1 mutation
+  reads_250     2.5.0-ds.6 (N5): dsh_audit.py reads on synthetic DSH events: read tool and shell reads, count and
+              result bytes, cost NOT_VERIFIED, forked copy once, --top, no real path; 2 mutations
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -5898,6 +5900,57 @@ def delete_guard_250(tmp):
            bool(mutant.ref_hits([str(notes / "RESUME_STATE.md")], ["RESUME_STATE.md"], str(notes / "RESUME_STATE.md")))
            or bool(mutant.ref_hits([str(repo / "self_named.txt")], ["self_named.txt"], str(repo / "self_named.txt"))))
     return done230(start, 1)
+
+
+READS_CALLS_250 = [
+    ("read", {"path": "notes/plan.md"}, "plan text"),
+    ("pwsh", {"command": "cat notes/plan.md | head -5"}, "plan"),
+    ("pwsh", {"command": "sed -n '1,20p' src/app.py"}, "app code"),
+    ("bash", {"command": "tail -n 30 logs/run.log && echo done"}, "log tail"),
+    ("pwsh", {"command": "git status"}, "clean"),
+    ("pwsh", {"command": "python -m x notes/plan.md"}, "ran"),
+    ("pwsh", {"command": "Get-Content src/app.py -TotalCount 40"}, "app"),
+    ("read", {"path": "notes/plan.md"}, "plan text"),
+]
+
+
+@test
+def reads_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N5): dsh_audit.py reads lists the most re-read paths of DSH events: DSH's read tool and
+    pwsh / bash cat / head / tail / sed -n / Get-Content, read count and result bytes, cost NOT_VERIFIED (DSH logs
+    usage per model step, not per call); a non-read command is not a read; a forked copy counts once; --top; synthetic
+    paths only, never a real one. 2 mutations."""
+    start = CLI_CALLS[0]
+    folder = tmp / "reads250"
+    events = write(folder / "reads.jsonl", inject_events("session-fx-reads", READS_CALLS_250))
+    fork = write(folder / "fork.jsonl", events.read_text(encoding="utf-8").replace("session-fx-reads", "session-fx-fork"))
+    out = expect_tool("reads counts re-read paths", "dsh_audit", 0, "reads", "--events", events, fork,
+                      says=["READS top 3 re-read paths (count, result bytes; cost NOT_VERIFIED):",
+                            "READS     3x      22B notes/plan.md", "READS     2x      11B src/app.py",
+                            "READS     1x       8B logs/run.log", "DSH_READS sessions=2 calls=8 reads=6 paths=3 "],
+                      lacks=["git status", "python -m"])
+    check230("reads prints no real path", str(tmp) not in out and str(pathlib.Path.home()) not in out, out[-300:])
+    expect_tool("reads --top 1", "dsh_audit", 0, "reads", "--events", events, "--top", "1",
+                says="READS top 1 ", lacks="src/app.py")
+    data = json.loads(expect_tool("reads --json", "dsh_audit", 0, "reads", "--events", events, "--json"))
+    check230("reads --json", data["cost"] == "NOT_VERIFIED" and data["top"][0] == {"path": "notes/plan.md", "reads": 3,
+             "bytes": 22}, data)
+    expect_tool("reads --top 0", "dsh_audit", 2, "reads", "--events", events, "--top", "0", says="NOT_RUN")
+    expect_tool("reads missing file", "dsh_audit", 2, "reads", "--events", folder / "none.jsonl", says="NOT_RUN")
+    real = load_tool("dsh_audit")
+    check230("read_target: sed -n's file, not its script", real.read_target("Bash", {"command": "sed -n 5p a.txt"}) == "a.txt"
+             and real.read_target("Bash", {"command": "sed -n 5p"}) is None)
+    check230("read_target: other tools are not reads", real.read_target("grep", {"path": "a.txt"}) is None
+             and real.read_target("PowerShell", {"command": "Remove-Item a.txt"}) is None)
+    mutants = [
+        ("sed's script read as the file", [("        rest = rest[1:]  # the sed script comes first\n", "        pass\n")],
+         lambda m: m.read_target("Bash", {"command": "sed -n 5p"}) is not None),
+        ("a forked copy counted again", [("            if same in seen:\n                continue\n", "")],
+         lambda m: m.reads(argparse.Namespace(events=[str(events), str(fork)], top=20))["top"][0]["reads"] != 3),
+    ]
+    for name, swaps, wrong in mutants:
+        killed(name, wrong(mutated("dsh_audit", swaps)))
+    return done230(start, len(mutants))
 
 
 def main(argv=None):

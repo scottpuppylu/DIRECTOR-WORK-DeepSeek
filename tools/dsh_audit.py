@@ -83,6 +83,14 @@ started after --until is skipped; a call with no readable time is left out when 
 the same call window. --json prints the result as JSON; --out FILE
 also writes that JSON (status_gen.py's "loops" section reads it; dsh_usage.py prints its LOOPS line).
 
+  python -I -X utf8 tools/dsh_audit.py reads [same session filters] [--events FILE ...] [--top 20] [--json]
+
+reads (2.5.0-ds.6, DW 2.5.0 usage_mix --reads) lists the most re-read paths of the same sessions: how often each was
+read (DSH's read tool, or a pwsh / bash cat / head / tail / sed -n / Get-Content) and how many bytes those reads
+brought back (what entered the context). DSH logs token usage per model step, not per tool call, so the per-path cost
+DW prints is NOT_VERIFIED here. --since / --until go by each call's own time, as loops. It prints file paths, so keep
+its output local. One line per path, `READS <n>x <bytes> <path>`, then DSH_READS. Exit 0, 2 when it cannot read.
+
 Exit codes: 0 written / verified / no loop found, 1 refused (output exists without --force) or a write problem, or
 loops found something, 2 cannot run (no Node for zstd, sessions root missing, nothing to audit, a read error, bad
 usage). Requires Node 22+ for zstd; there is no
@@ -96,6 +104,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import sys
 
 
@@ -1004,6 +1013,117 @@ def cmd_inject(args):
     return 1 if result["findings_total"] else 0
 
 
+SHELL_READ = {"cat", "head", "tail", "less", "more", "type", "get-content", "gc", "bat"}
+READ_TOOLS = ("read",)  # DSH's file read tool: arguments {"path": ...}
+
+
+def read_target(name, arguments):
+    """2.5.0-ds.6 (DW 2.5.0 N5, usage_mix --reads): the path one DSH tool call reads, or None. The read tool's path;
+    for a shell call (pwsh / bash, `command`), the first piece (before a pipe or chain) when it is cat / head / tail /
+    sed -n / Get-Content: its last argument that is not an option or a number."""
+    arguments = arguments if isinstance(arguments, dict) else {}
+    if name in READ_TOOLS:
+        target = arguments.get("path") or arguments.get("file_path")
+        return target if isinstance(target, str) and target else None
+    if name not in ("Bash", "PowerShell"):
+        return None
+    first = re.split(r"\|\||&&|[|;\n]", str(arguments.get("command", "")), maxsplit=1)[0]
+    try:
+        words = shlex.split(first, posix=True)
+    except ValueError:
+        return None
+    if not words:
+        return None
+    prog = os.path.basename(words[0]).lower()
+    if prog not in SHELL_READ and not (prog == "sed" and "-n" in words):
+        return None
+    rest = [w for w in words[1:] if not w.startswith("-") and not w.isdigit()]
+    if prog == "sed":
+        rest = rest[1:]  # the sed script comes first
+    return rest[-1] if rest else None
+
+
+def output_bytes(output):
+    """UTF-8 bytes of what a call brought back (the text parts, else the JSON), the part that enters the context."""
+    if isinstance(output, list) and all(isinstance(part, dict) for part in output):
+        return sum(len(str(part.get("text") or "").encode("utf-8")) for part in output)
+    if output is None:
+        return 0
+    return len(text_of(output).encode("utf-8"))
+
+
+def raw_arguments(events):
+    """{call id: parsed arguments} of the tool calls in one session's events (ptc-dispatch and top-level calls)."""
+    found = {}
+    for event in events:
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if event.get("type") == "tool/ptc-dispatch":
+            found[data.get("subCallId")] = parse_arguments(data.get("arguments"))
+        elif event.get("type") == "tool/call":
+            found[data.get("callId")] = parse_arguments(data.get("arguments"))
+    return found
+
+
+def reads(args):
+    """2.5.0-ds.6 (DW 2.5.0 N5): the most re-read paths of the selected sessions: read count and result bytes. DSH
+    events carry token usage per model step, not per tool call, so the per-path cost is NOT_VERIFIED."""
+    warnings, skipped = [], []
+    selected = event_sources(args, warnings, skipped, by_calls=True)
+    since, until = call_window(args)
+    count, size, seen, sessions, total, read_calls = {}, {}, set(), 0, 0, 0
+    for header_id, agent_id, events in selected:
+        arguments = raw_arguments(events)
+        mine = 0
+        for item in session_entries(events, header_id, agent_id, warnings):
+            entry = item["entry"]
+            if not in_window(entry["ts"], since, until):
+                continue
+            mine += 1
+            same = (entry["tool"], entry["tool_use_id"], entry["ts"])  # a forked session repeats its seed's calls
+            if same in seen:
+                continue
+            seen.add(same)
+            total += 1
+            target = read_target(entry["tool"], arguments.get(entry["tool_use_id"]))
+            if target:
+                read_calls += 1
+                count[target] = count.get(target, 0) + 1
+                size[target] = size.get(target, 0) + output_bytes(item["_output"])
+        if mine:
+            sessions += 1
+    rows = sorted(count, key=lambda p: (-count[p], -size[p], p))[:args.top]
+    return {"tool": TOOL, "command": "reads", "sessions": sessions, "calls": total, "reads": read_calls,
+            "paths": len(count), "cost": "NOT_VERIFIED",
+            "top": [{"path": p, "reads": count[p], "bytes": size[p]} for p in rows],
+            "warnings": warnings, "skipped": skipped}
+
+
+def human_bytes(value):
+    for unit, step in (("MB", 1 << 20), ("KB", 1 << 10)):
+        if value >= step:
+            return "%.1f%s" % (value / step, unit)
+    return "%dB" % value
+
+
+def cmd_reads(args):
+    try:
+        result = reads(args)
+    except (dsh.DshError, dsh.NodeMissing) as error:
+        print(f"NOT_RUN {error}")
+        return 2
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return 0
+    print(f"READS top {len(result['top'])} re-read paths (count, result bytes; cost NOT_VERIFIED):")
+    for row in result["top"]:
+        print(f"READS {row['reads']:>5}x {human_bytes(row['bytes']):>8} {row['path']}")
+    print(f"DSH_READS sessions={result['sessions']} calls={result['calls']} reads={result['reads']} "
+          f"paths={result['paths']} (prints paths: keep this output local)")
+    for warning in result["warnings"][:8]:
+        print(f"  ~ {warning}")
+    return 0
+
+
 def cmd_verify(args):
     """Delegate to audit_log.py verify (same format, same checks, same exit codes)."""
     argv = ["audit_log.py", "verify"]
@@ -1095,6 +1215,21 @@ def main(argv=None):
                                help="only the outputs of this tool (e.g. web_fetch; repeatable; default all)")
     inject_parser.add_argument("--show", type=int, default=40, help="lines printed (default 40; --json has all)")
     inject_parser.add_argument("--json", action="store_true", help="print the result as JSON")
+    reads_parser = sub.add_parser("reads", help="2.5.0-ds.6: the most re-read paths (read count, result bytes; "
+                                  "prints paths, keep the output local)")
+    reads_parser.add_argument("--log-root", "--sessions-root", dest="log_root",
+                              help="DSH sessions root (default %%USERPROFILE%%\\.dsh\\sessions)")
+    reads_parser.add_argument("--cache-root", help="DSH projection cache root, for agent names")
+    reads_parser.add_argument("--project-dir", action="append", default=[],
+                              help="only sessions whose cwd is this folder or below (repeatable)")
+    reads_parser.add_argument("--since", help="local date YYYY-MM-DD, inclusive (each call's own time)")
+    reads_parser.add_argument("--until", help="local date YYYY-MM-DD, inclusive (each call's own time)")
+    reads_parser.add_argument("--session", action="append", default=[],
+                              help="only this session id / id prefix / agent name (repeatable)")
+    reads_parser.add_argument("--events", nargs="+", metavar="FILE",
+                              help="plain JSONL event files, one session each (synthetic fixtures), instead of the logs")
+    reads_parser.add_argument("--top", type=int, default=20, help="paths listed (default 20)")
+    reads_parser.add_argument("--json", action="store_true", help="print the result as JSON")
     verify_parser = sub.add_parser("verify", help="delegate to audit_log.py verify (hash chain, anchors)")
     verify_parser.add_argument("--log", required=True, help="audit JSONL file to verify")
     verify_parser.add_argument("--from", dest="from_seq", type=int)
@@ -1122,6 +1257,11 @@ def main(argv=None):
         return cmd_loops(a)
     if a.command == "inject":
         return cmd_inject(a)
+    if a.command == "reads":
+        if a.top < 1:
+            print("NOT_RUN --top must be 1 or more")
+            return 2
+        return cmd_reads(a)
     return cmd_verify(a)
 
 
