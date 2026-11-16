@@ -153,6 +153,12 @@ known to dsh_setup_check.py and printed by bootstrap_repo.py --config. dsh_docto
 [--license-days 3] [--licenses-only] (upstream doctor.py --licenses). Every tool's --help works on a cp1252 / cp950
 console (stdout switched to UTF-8 before argparse).
 
+2.5.0-ds.6 (WO-DS-013, upstream DW 2.5.0; after-the-fact checks, warn by default, no hook): dispatch_check.py --log
+DIRECTOR_LOG.md [--table FILE] [--strict] (N1: `| class=<class> effort=<level> model=<model>` on each DISPATCH line,
+checked against the docs/05 table; the levels are DSH's off low high max, DW's medium / xhigh are unknown here) and
+--dup "<title and scope>" [--resume GLOB]... [--repo DIR]... [--since] [--threshold 0.5] (N4: token Jaccard against
+open NEXT_STEP lines and recent commit subjects, `~ WARN DUP`); exit 0 unless --strict, 2 on an input error.
+
 ## Removed Claude-only tools
 
 hook_guard.py (its rules survive in guard_rules.json), setup_project_settings.py, context_probe.py, usage_report.py,

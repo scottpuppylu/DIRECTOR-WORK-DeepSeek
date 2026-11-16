@@ -153,6 +153,10 @@ Runs, on this machine and offline:
               (one session over two days: day 1, day 2, both, none); by_calls session selection; 2 mutations
   quoting_either_250 2.5.0-ds.6 (F3): either_quoting(argv) (POSIX and Windows quoting); ran_line run mode writes one
               of the two exactly
+  dispatch_effort_250 2.5.0-ds.6 (N1): dispatch_check.py --log: class= / effort= on DISPATCH lines against the DSH
+              table (off low high max), --strict, --table, exit 2 cases; 2 mutations
+  dispatch_dup_250 2.5.0-ds.6 (N4, B2): dispatch_check.py --dup: NEXT_STEP lines and commit subjects, CJK pairs,
+              threshold, --strict, exit 2 cases; 1 mutation
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -5727,6 +5731,97 @@ def quoting_either_250(tmp):
     check230("either_quoting rejects a third quoting",
              "- `" + " ".join(argv) + "` exit=0" not in ["- `%s` exit=0" % form for form in forms])
     return "%d forms" % len(forms)
+
+
+@test
+def dispatch_effort_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N1): dispatch_check.py warns on a DISPATCH line without class= / effort=, an unknown class
+    or level (DW's medium / xhigh are not DSH levels), an effort outside the DSH table; warn only (exit 0) unless
+    --strict; 2 on a missing log or a bad table. 2 mutations."""
+    start = CLI_CALLS[0]
+    d = tmp / "dispatch250"
+    sha = "a" * 64
+    log = write(d / "DIRECTOR_LOG.md", "\n".join([
+        "# LOG",
+        "2026-11-16 10:00 | DISPATCH WO-001 rev=1 sha=%s | class=dev effort=high model=deepseek-flash" % sha,
+        "DISPATCH WO-002 rev=1 sha=%s" % sha,
+        "DISPATCH WO-003 rev=2 sha=%s | class=routine effort=max" % sha,
+        "DISPATCH WO-004 rev=1 sha=%s | class=root_cause effort=xhigh" % sha,
+        "DISPATCH WO-005 rev=1 sha=%s | class=guess effort=high" % sha,
+        "DISPATCH WO-006 rev=1 sha=%s | class=repeated_failure effort=max" % sha,
+        "> DISPATCH WO-007 rev=1 sha=%s" % sha,
+        "DISPATCH WO-008 rev=1 sha=%s | class=ui effort=medium" % sha,
+        "DISPATCH WO-009 rev=1 sha=%s | session=S1 | class=mechanical effort=off" % sha, ""]))
+    expect_tool("dispatch_check warns, exit 0", "dispatch_check", 0, "--log", log,
+                says=["~ WARN EFFORT WO-002 line 3: no class= and effort=",
+                      "WO-003 line 4: class=routine wants effort low/high, got max",
+                      "WO-004 line 5: unknown effort=xhigh (levels: off low high max)",
+                      "WO-005 line 6: unknown class=guess", "WO-008 line 9: unknown effort=medium",
+                      "DISPATCH_CHECK: WARN records=8 warnings=5"],
+                lacks=["WO-001", "WO-006", "WO-007", "WO-009"])
+    expect_tool("dispatch_check --strict exits 1", "dispatch_check", 1, "--log", log, "--strict")
+    good = write(d / "good.md", "DISPATCH WO-001 rev=1 sha=%s | class=fix_after_fail effort=max\n" % sha)
+    expect_tool("dispatch_check clean log", "dispatch_check", 0, "--log", good, "--strict",
+                says="DISPATCH_CHECK: OK records=1 warnings=0")
+    table = write(d / "table.json", '{"routine": ["max"]}')
+    expect_tool("dispatch_check --table replaces the table", "dispatch_check", 0, "--log", log, "--table", table,
+                says="WO-001 line 2: unknown class=dev", lacks="WO-003")
+    bad = write(d / "bad.json", '{"routine": ["xhigh"]}')
+    expect_tool("dispatch_check a DW level in --table is exit 2", "dispatch_check", 2, "--log", log, "--table", bad,
+                says="FAIL input")
+    expect_tool("dispatch_check missing log is exit 2", "dispatch_check", 2, "--log", d / "none.md", says="FAIL input")
+    real = load_tool("dispatch_check")
+    check230("DSH levels only", real.LEVELS == ("off", "low", "high", "max"), real.LEVELS)
+    records = real.dispatch_records(log.read_text(encoding="utf-8"))
+    mutants = [
+        ("effort outside the table not checked", [("        elif effort not in table[cls]:\n", "        elif False:\n")],
+         lambda m: len(m.effort_warnings(records, m.TABLE)) != 5),
+        ("a quoted DISPATCH counted", [('DISPATCH = re.compile(r"^(?:', 'DISPATCH = re.compile(r"^(?:>[ \\t]*)?(?:')],
+         lambda m: len(m.dispatch_records(log.read_text(encoding="utf-8"))) != 8),
+    ]
+    for name, swaps, wrong in mutants:
+        killed(name, wrong(mutated("dispatch_check", swaps)))
+    return done230(start, len(mutants))
+
+
+@test
+def dispatch_dup_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N4, B2): dispatch_check.py --dup compares the new task with open NEXT_STEP lines and recent
+    commit subjects (token Jaccard, CJK in character pairs); a high overlap is `~ WARN DUP`, an unrelated task is OK,
+    exit 0 unless --strict. 1 mutation."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    start = CLI_CALLS[0]
+    d = tmp / "dispatch_dup250"
+    repo = git_repo(d / "repo", {"a.txt": "a\n"})
+    git225(repo, "commit", "-q", "--allow-empty", "-m", "fix login timeout retry handling")
+    lines = d / "lines"
+    write(lines / "a" / "RESUME_STATE.md", "STATUS: x\nNEXT_STEP: 修正登入逾時重試\n")
+    write(lines / "b" / "RESUME_STATE.md", "STATUS: x\nNEXT_STEP: write the export report page\nBLOCKERS: NONE\n")
+    write(lines / "c" / "RESUME_STATE.md", "NEXT_STEP: none\n")
+    glob_all = str(lines / "**" / "RESUME_STATE.md")
+    expect_tool("dispatch_check --dup finds a commit with the same words", "dispatch_check", 0, "--dup",
+                "login timeout retry handling", "--repo", repo, "--resume", glob_all,
+                says=["~ WARN DUP 0.80 ", "fix login timeout retry handling", "DUP_CHECK: WARN compared=4 matches=1"],
+                lacks="export report")
+    expect_tool("dispatch_check --dup reads CJK NEXT_STEP lines", "dispatch_check", 0, "--dup", "登入逾時重試修正",
+                "--resume", glob_all, says=["~ WARN DUP", "修正登入逾時重試"])
+    expect_tool("dispatch_check --dup unrelated task is OK", "dispatch_check", 0, "--dup", "draw the stadium seats",
+                "--resume", glob_all, "--repo", repo, "--strict", says="DUP_CHECK: OK compared=4 matches=0")
+    expect_tool("dispatch_check --dup --threshold 0.1 --strict", "dispatch_check", 1, "--dup", "export the login page",
+                "--resume", glob_all, "--threshold", "0.1", "--strict", says="export report page")
+    expect_tool("dispatch_check --dup nothing compared warns", "dispatch_check", 0, "--dup", "x y",
+                says="~ WARN nothing compared")
+    expect_tool("dispatch_check --dup bad repo is exit 2", "dispatch_check", 2, "--dup", "x y", "--repo", lines,
+                says="FAIL input")
+    expect_tool("dispatch_check without --log or --dup is exit 2", "dispatch_check", 2, says="FAIL input")
+    real = load_tool("dispatch_check")
+    check230("token Jaccard is shared over all", abs(real.jaccard({"a", "b"}, {"b", "c"}) - 1 / 3) < 1e-9)
+    mutant = mutated("dispatch_check", [("            out.update(w[i:i + 2] for i in range(len(w) - 1)) if len(w) > 1 "
+                                         "else out.add(w)\n", "            out.add(w)\n")])
+    killed("CJK read as one word, not character pairs", not mutant.dup_warnings(
+        "登入逾時重試修正", [("a", "修正登入逾時重試")], 0.5))
+    return done230(start, 1)
 
 
 def main(argv=None):

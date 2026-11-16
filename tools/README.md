@@ -91,6 +91,15 @@ DSH 沒有事前攔截（沒有 PreToolUse hook），下面兩項都是事後從
 - `completion.py`、`secret_mask.py`：上游 2.4.0 原樣。`completion.py` 可加 `depends_on / 依賴 / 前置` 欄，多印 `READY_NOW:`（還沒到 100、依賴全部算 100 的項目）和每個卡住的項目一行 `BLOCKED`；依賴的 ID 不在表裡或繞成一圈印 WARN。沒有這一欄的舊表輸出不變。
 - `templates/.pre-commit-config.yaml`、`templates/.gitleaks.toml`：commit 前掃秘密的範例，開頭寫 `SAMPLE ONLY`；dshdw 本身不裝。
 
+### 上游 DW 2.5.0 移植（2.5.0-ds.6，WO-DS-013）
+
+都是自己執行的事後檢查：不裝 hook、不改設定，預設只提醒（DSH 本來就沒有 PreToolUse hook）。
+
+- `dsh_audit.py loops --since／--until`（F1）：每個呼叫照自己的時間算（見上面 loops 那段）。
+- selftest 的 `either_quoting(argv)`（F3）：比對指令文字的測試，POSIX 單引號和 Windows 雙引號兩種都收（`quoting_either_250`）。
+- `dispatch_check.py --log DIRECTOR_LOG.md [--table <表.json>] [--strict]`（N1）：每一筆 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 行在 `|` 欄寫 `class=<難度類別> effort=<off|low|high|max> model=<模型>`，gate_check 照樣讀得到。預設表在 `docs/05`「派工難度表」：`mechanical` off/low、`routine` low/high、`dev`／`ui` high、`root_cause`／`fix_after_fail`／`realism`／`core_engine` high/max、`repeated_failure` max。等級只有 DSH 能設的四個；上游的 `medium`、`xhigh` 在這裡印「unknown effort」。沒寫、類別或等級不認得、等級不在表裡：印 `~ WARN EFFORT <WO-ID> line <n>: …`；最後一行 `DISPATCH_CHECK: OK|WARN records=n warnings=n`。只提醒，exit 0；`--strict` 有 WARN 就 exit 1；檔案讀不到或表格式錯 exit 2。
+- `dispatch_check.py --dup "<標題和範圍>" [--resume "<glob>"]... [--repo <repo>]... [--since "14 days ago"] [--threshold 0.5]`（N4）：派工前把新任務的字和各線 RESUME_STATE 的 `NEXT_STEP:`、各 repo 最近的 commit 標題比 token Jaccard（共同字 ÷ 全部字；中日文用相鄰兩字）。達門檻的印 `~ WARN DUP <分數> <來源>: <內容>`，最後一行 `DUP_CHECK: OK|WARN compared=n matches=n threshold=x`。可能誤報，看過再決定。只讀 git（`git log`）。
+
 ## 已移除（Claude 專屬）
 
 `hook_guard.py`（規則留在 `guard_rules.json`）、`setup_project_settings.py`（改 `.claude/settings.local.json`）、
@@ -134,6 +143,10 @@ python -I -X utf8 tools/gate_check.py --final DIRECTOR
 
 # 總監：打轉偵測（2.3.0-ds.6，2.4.0-ds.6 照上游 loop_guard；事後查，DSH 擋不住）
 python -I -X utf8 tools/dsh_audit.py loops --project-dir <WS> --out DIRECTOR/loops.json
+
+# 總監：派工紀錄的難度和 effort、派工前查重複（2.5.0-ds.6；只提醒）
+python -I -X utf8 tools/dispatch_check.py --log DIRECTOR/DIRECTOR_LOG.md
+python -I -X utf8 tools/dispatch_check.py --dup "<標題和範圍>" --resume "<各線>/**/RESUME_STATE*.md" --repo <repo>
 
 # 總監：工具輸出裡的提示注入（2.4.0-ds.6；只警告）
 python -I -X utf8 tools/dsh_audit.py inject --project-dir <WS>

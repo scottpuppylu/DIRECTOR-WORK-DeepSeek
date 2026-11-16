@@ -23,6 +23,20 @@ effort 的意思：`off` 關閉思考，只適合純機械工作；`low` 例行�
 - 只在工作線換到重要度或難度明顯不同的階段時才調整；調整方式是開接班人（子代理）並在 `ACTIVE_WORKSTREAMS.md` 記下新 effort，不是對同一個子代理改設定。
 - 開工時把 `MODEL: deepseek-flash` 和 `EFFORT: <off|low|high|max>` 寫進工單和 `DIRECTOR_LOG` 的 DISPATCH 行；接班、重派都照同一規則記。
 
+### 派工難度表（2.5.0-ds.6，上游 2.5.0）
+
+每次派工都在 DISPATCH 行寫難度類別、開子代理時給的思考程度和模型：`| class=<類別> effort=<off|low|high|max> model=deepseek-flash`。`tools/dispatch_check.py --log DIRECTOR_LOG.md` 檢查，只提醒。
+
+| 類別 | 例子 | effort |
+|---|---|---|
+| `mechanical` | 只收發指令、照清單搬檔、格式轉換 | off 或 low |
+| `routine` | 照清單做、整理、一般小改 | low 或 high |
+| `dev`、`ui` | 一般開發、介面 | high |
+| `root_cause`、`fix_after_fail`、`realism`、`core_engine` | 根因研究、修失敗之後的那一輪、真實度關鍵、核心引擎 | high 或 max |
+| `repeated_failure` | 同一問題重複失敗之後 | max（只臨時用，解決後換人或關線） |
+
+和上游的差別：DSH 只能設 `off / low / high / max`（開子代理時的 `reasoning_effort`，開完不能改），沒有 Claude Code 的 `medium`、`xhigh`；表裡寫 `xhigh` 的類別在這裡是 high 或 max，照上面「判斷原則」選。`--table <表.json>` 可換成專案自己的表。
+
 ### 依角色
 
 | 角色 | 建議 effort | 說明 |
@@ -56,6 +70,7 @@ effort 的意思：`off` 關閉思考，只適合純機械工作；`low` 例行�
 - 一件事只有一個人做最快、拆開反而要多整合時，就只開一個 worker，並在規劃裡寫一句為什麼。
 - **平行線切多大**（2.2.4-ds.4，上游 2.2.4）：整合前每條線至少是一段完整功能加它的測試；切得比這更細，整合花的比平行省的多。
 - **能同時就同時派**：兩條長線互不依賴就一起派，不要等一條做完才派下一條。
+- **派工前查重複**（2.5.0-ds.6，上游 2.5.0）：`tools/dispatch_check.py --dup "<標題和範圍>" --resume "<各線>/**/RESUME_STATE*.md" --repo <repo>`，有 `~ WARN DUP` 先看那條線或那個 commit 是不是已經在做。可能誤報，看過再決定。
 - **派工前估時間**：每條線估一個時間寫進規劃；兩條線同時在跑的時間不到較長那條的一半，就合併成一條或重切。
 - 同一棵樹最多 8 個作用中子代理（可在 DSH「設定 → 子代理」調整上限）、委派深度 1（worker 不能再開子代理）；開線前確認名額。
 

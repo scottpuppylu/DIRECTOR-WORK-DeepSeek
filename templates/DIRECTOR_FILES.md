@@ -50,7 +50,7 @@ DSH: 模型 <deepseek-flash>／總監 effort <由 PO 在 GUI 設定>／沙箱 <r
 `gate_check.py --sequence` 把比上面的行還早的時間當成上面那行的時間。Standard / Strict 工單的閘門順序（2.2.5）：
 
 ```text
-<時間> | DISPATCH WO-12 rev=1 sha=<64 位> | session=<寫工單的 session id>
+<時間> | DISPATCH WO-12 rev=1 sha=<64 位> | session=<寫工單的 session id> class=dev effort=high model=deepseek-flash
 <時間> | SPEC_REVIEW WO-12 tokens=<n> issues=<P0/P1/P2> adopted=<n> session=<審查者的 id>
 <時間> | PLAN_APPROVED WO-12 session=<核准者的 id>
 ```
