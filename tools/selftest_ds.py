@@ -151,6 +151,8 @@ Runs, on this machine and offline:
   docs_240      2.4.0-ds.6 (L5, L7, L9): docs/07 section 8, docs/06b after-the-fact checks and step 0, docs/04 cross-check
   loops_until_250 2.5.0-ds.6 (WO-DS-013 F1, B2): dsh_audit loops counts each call by its own time in [--since, --until)
               (one session over two days: day 1, day 2, both, none); by_calls session selection; 2 mutations
+  quoting_either_250 2.5.0-ds.6 (F3): either_quoting(argv) (POSIX and Windows quoting); ran_line run mode writes one
+              of the two exactly
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -5701,6 +5703,30 @@ def loops_until_250(tmp):
     for name, swaps, wrong in mutants:
         killed(name, wrong(mutated("dsh_audit", swaps)))
     return done230(start, len(mutants))
+
+
+def either_quoting(argv):
+    """2.5.0-ds.6 (DW 2.5.0 F3): the two ways a command line is written (POSIX shlex single quotes, Windows double
+    quotes); a selftest that compares command text accepts either, so a Windows run and a Linux run check the same."""
+    tool = load_tool("ran_line")
+    return {tool.command_text(argv, posix=True), tool.command_text(argv, posix=False)}
+
+
+@test
+def quoting_either_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 F3): ran_line's run mode writes the command exactly in one of the two quotings, whatever
+    the OS; the comparison is exact (not a loose regex), and a line in neither quoting is caught."""
+    report = write(tmp / "quoting250" / "r.md", "# REPORT\nRAN:\n\nNEXT: x\n")
+    argv = [sys.executable, "-c", "import sys; print('a b'); sys.exit(0)"]
+    code, out, err = ran_line_run("--to", report, "--utc-offset", "+00:00", "--", *argv)
+    text = report.read_text(encoding="utf-8")
+    forms = either_quoting(argv)
+    check230("either_quoting gives two different forms", len(forms) == 2, forms)
+    check230("ran_line run mode writes the command in one of the two quotings",
+             code == 0 and any("- `%s` exit=0 at=" % form in text for form in forms), (code, text, err))
+    check230("either_quoting rejects a third quoting",
+             "- `" + " ".join(argv) + "` exit=0" not in ["- `%s` exit=0" % form for form in forms])
+    return "%d forms" % len(forms)
 
 
 def main(argv=None):
