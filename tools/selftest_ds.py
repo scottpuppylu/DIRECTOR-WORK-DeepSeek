@@ -157,6 +157,8 @@ Runs, on this machine and offline:
               table (off low high max), --strict, --table, exit 2 cases; 2 mutations
   dispatch_dup_250 2.5.0-ds.6 (N4, B2): dispatch_check.py --dup: NEXT_STEP lines and commit subjects, CJK pairs,
               threshold, --strict, exit 2 cases; 1 mutation
+  round_diagnosis_250 2.5.0-ds.6 (N2, B2): round_check NO_INDEPENDENT_DIAGNOSIS from set 3 (missing, the implementer,
+              quiet with one, none at set 2); 1 mutation
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -5821,6 +5823,40 @@ def dispatch_dup_250(tmp):
                                          "else out.add(w)\n", "            out.add(w)\n")])
     killed("CJK read as one word, not character pairs", not mutant.dup_warnings(
         "登入逾時重試修正", [("a", "修正登入逾時重試")], 0.5))
+    return done230(start, 1)
+
+
+@test
+def round_diagnosis_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N2, B2): from set 3 on, the study section for SET 2 names an independent diagnosis
+    (DIAGNOSIS_BY / DIAGNOSIS_RESULT, not the IMPLEMENTER); missing or the same is `~ WARN NO_INDEPENDENT_DIAGNOSIS`,
+    exit unchanged; set 2 needs none yet. 1 mutation."""
+    start = CLI_CALLS[0]
+    d = tmp / "round_diag250"
+    table = "| item | test conditions | reference conditions |\n|---|---|---|\n| light | studio | game |\n"
+    set1 = "## SET 1\n" + table + "WHERE: w1\nALTERNATIVES: a1\nDECISION: d1\n\n"
+    plain = set1 + "## SET 2\n" + table + "WHERE: w2\nALTERNATIVES: a2\nDECISION: d2\n"
+    write(d / "PLAIN.md", plain)
+    write(d / "DIAG.md", plain + "IMPLEMENTER: worker-a\nDIAGNOSIS_BY: reviewer-b (another subagent session)\n"
+                                 "DIAGNOSIS_RESULT: the input data, not the code\n")
+    write(d / "SAME.md", plain + "IMPLEMENTER: worker-a\nDIAGNOSIS_BY: Worker-A\nDIAGNOSIS_RESULT: x\n")
+
+    def resume(name, study, rnd=7):
+        return write(d / ("RESUME_STATE_%s.md" % name),
+                     "FIX_ROUNDS:\n- hair: round=%d set=%d study=%s\n" % (rnd, (rnd - 1) // 3 + 1, study))
+
+    expect_tool("round_check set 3 without a diagnosis warns", "round_check", 0, "--resume", resume("plain", "PLAIN.md"),
+                says=["~ WARN NO_INDEPENDENT_DIAGNOSIS PLAIN.md SET 2: DIAGNOSIS_BY, DIAGNOSIS_RESULT", "ROUNDS: PASS"])
+    expect_tool("round_check set 3 with a diagnosis is quiet", "round_check", 0, "--resume", resume("diag", "DIAG.md"),
+                says="ROUNDS: PASS", lacks="NO_INDEPENDENT_DIAGNOSIS")
+    expect_tool("round_check diagnosis by the implementer warns", "round_check", 0, "--resume",
+                resume("same", "SAME.md"), says="DIAGNOSIS_BY is the IMPLEMENTER")
+    expect_tool("round_check set 2 needs no diagnosis yet", "round_check", 0, "--resume",
+                resume("set2", "PLAIN.md", rnd=4), lacks="NO_INDEPENDENT_DIAGNOSIS")
+    mutant = mutated("round_check", [("    if implementer and by.lower() == implementer.lower():\n",
+                                      "    if False:\n")])
+    killed("the implementer accepted as the diagnoser",
+           not mutant.diagnosis_warnings((d / "SAME.md").read_text(encoding="utf-8"), "SAME.md SET 2"))
     return done230(start, 1)
 
 

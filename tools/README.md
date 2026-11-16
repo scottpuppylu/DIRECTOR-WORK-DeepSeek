@@ -99,6 +99,7 @@ DSH 沒有事前攔截（沒有 PreToolUse hook），下面兩項都是事後從
 - selftest 的 `either_quoting(argv)`（F3）：比對指令文字的測試，POSIX 單引號和 Windows 雙引號兩種都收（`quoting_either_250`）。
 - `dispatch_check.py --log DIRECTOR_LOG.md [--table <表.json>] [--strict]`（N1）：每一筆 `DISPATCH <WO-ID> rev=<n> sha=<雜湊>` 行在 `|` 欄寫 `class=<難度類別> effort=<off|low|high|max> model=<模型>`，gate_check 照樣讀得到。預設表在 `docs/05`「派工難度表」：`mechanical` off/low、`routine` low/high、`dev`／`ui` high、`root_cause`／`fix_after_fail`／`realism`／`core_engine` high/max、`repeated_failure` max。等級只有 DSH 能設的四個；上游的 `medium`、`xhigh` 在這裡印「unknown effort」。沒寫、類別或等級不認得、等級不在表裡：印 `~ WARN EFFORT <WO-ID> line <n>: …`；最後一行 `DISPATCH_CHECK: OK|WARN records=n warnings=n`。只提醒，exit 0；`--strict` 有 WARN 就 exit 1；檔案讀不到或表格式錯 exit 2。
 - `dispatch_check.py --dup "<標題和範圍>" [--resume "<glob>"]... [--repo <repo>]... [--since "14 days ago"] [--threshold 0.5]`（N4）：派工前把新任務的字和各線 RESUME_STATE 的 `NEXT_STEP:`、各 repo 最近的 commit 標題比 token Jaccard（共同字 ÷ 全部字；中日文用相鄰兩字）。達門檻的印 `~ WARN DUP <分數> <來源>: <內容>`，最後一行 `DUP_CHECK: OK|WARN compared=n matches=n threshold=x`。可能誤報，看過再決定。只讀 git（`git log`）。
+- `round_check.py`（N2）：第 2 組（之後每組）沒過，研究檔那一節要寫獨立診斷 `DIAGNOSIS_BY:`（另一個子代理 session、別的模型或人）和 `DIAGNOSIS_RESULT:`；有寫 `IMPLEMENTER:` 時兩者要不同。沒寫或相同印 `~ WARN NO_INDEPENDENT_DIAGNOSIS`，不改 exit。
 
 ## 已移除（Claude 專屬）
 
