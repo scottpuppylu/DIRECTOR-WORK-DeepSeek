@@ -158,6 +158,9 @@ DIRECTOR_LOG.md [--table FILE] [--strict] (N1: `| class=<class> effort=<level> m
 checked against the docs/05 table; the levels are DSH's off low high max, DW's medium / xhigh are unknown here) and
 --dup "<title and scope>" [--resume GLOB]... [--repo DIR]... [--since] [--threshold 0.5] (N4: token Jaccard against
 open NEXT_STEP lines and recent commit subjects, `~ WARN DUP`); exit 0 unless --strict, 2 on an input error.
+delete_guard.py as upstream 2.5.0 (N3): [PATH ...] [--list FILE] [--repo DIR]... [--refs GLOB]... [--no-basename]
+prints REFERENCED (up to 5 file:line places, never the line) or CLEAN per candidate; exit 1 referenced, 0 clean, 2 input
+error; it only reads (git grep -F -i -I) and never deletes.
 round_check.py as upstream 2.5.0 (N2): from SET 2 on a study section needs DIAGNOSIS_BY (not the IMPLEMENTER) and
 DIAGNOSIS_RESULT, else `~ WARN NO_INDEPENDENT_DIAGNOSIS` (exit unchanged).
 

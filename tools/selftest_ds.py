@@ -159,6 +159,8 @@ Runs, on this machine and offline:
               threshold, --strict, exit 2 cases; 1 mutation
   round_diagnosis_250 2.5.0-ds.6 (N2, B2): round_check NO_INDEPENDENT_DIAGNOSIS from set 3 (missing, the implementer,
               quiet with one, none at set 2); 1 mutation
+  delete_guard_250 2.5.0-ds.6 (N3, B2): delete_guard.py REFERENCED (git grep, --refs, file:line only) / CLEAN, never
+              deletes, not itself, --no-basename, exit 2 cases; 1 mutation
 (2.2.5-ds.5 drops upstream 2.2.5's browser_check.py use_work_temp check: DS has no browser_check.py.)
 (2.2.5-ds.5 B1 removed the OpenSpec-only tests: sdd_spec_ok, sdd_no_spec_change, sdd_validate_fails, sdd_no_cli,
 sdd_real_openspec, sdd_cli_lookup, sdd_cli_setup, sdd_which_off_224. The safety gates of sdd_tests_locked,
@@ -5857,6 +5859,44 @@ def round_diagnosis_250(tmp):
                                       "    if False:\n")])
     killed("the implementer accepted as the diagnoser",
            not mutant.diagnosis_warnings((d / "SAME.md").read_text(encoding="utf-8"), "SAME.md SET 2"))
+    return done230(start, 1)
+
+
+@test
+def delete_guard_250(tmp):
+    """2.5.0-ds.6 (WO-DS-013 N3, B2): delete_guard.py reports every candidate still named by a tracked file (git grep
+    -F) or a --refs file (exit 1), with file:line only; all clean exit 0; input errors exit 2. It never deletes, and a
+    file does not reference itself. 1 mutation."""
+    if shutil.which("git") is None:
+        raise Skip("git is not on PATH")
+    start = CLI_CALLS[0]
+    d = tmp / "delete_guard250"
+    repo = git_repo(d / "repo", {"plan.md": "inputs: data/Input_A.csv\n", "self_named.txt": "self_named.txt is this file\n"})
+    notes = d / "lines"
+    write(notes / "RESUME_STATE.md", "NEXT_STEP: compare with old_build_7 before the merge\n")
+    junk = write(d / "unused.bin", "x")
+    lst = write(d / "list.txt", "# delete list\ndata/input_a.csv\n\nbuilds\\old_build_7\n")
+    refs = str(notes / "**" / "RESUME_STATE*.md")
+    expect_tool("delete_guard finds repo and RESUME_STATE references", "delete_guard", 1, "--list", lst, junk,
+                "--repo", repo, "--refs", refs,
+                says=["REFERENCED data/input_a.csv (1 places)", "plan.md:1", "REFERENCED builds\\old_build_7 (1 places)",
+                      "RESUME_STATE.md:1", "CLEAN %s" % junk, "DELETE_GUARD: REFERENCED candidates=3 referenced=2"],
+                lacks="compare with")
+    check230("delete_guard never deletes", junk.is_file() and (repo / "plan.md").is_file())
+    expect_tool("delete_guard a file does not reference itself", "delete_guard", 0, repo / "self_named.txt",
+                "--repo", repo, says="DELETE_GUARD: CLEAN candidates=1 referenced=0")
+    expect_tool("delete_guard --no-basename", "delete_guard", 0, "other/old_build_7", "--refs", refs, "--no-basename",
+                says="CLEAN other/old_build_7")
+    expect_tool("delete_guard basename match by default", "delete_guard", 1, "other/old_build_7", "--refs", refs,
+                says="REFERENCED other/old_build_7")
+    expect_tool("delete_guard no candidate is exit 2", "delete_guard", 2, "--repo", repo, says="FAIL input: no candidate")
+    expect_tool("delete_guard missing list is exit 2", "delete_guard", 2, "--list", d / "none.txt", says="FAIL input")
+    expect_tool("delete_guard not a repo is exit 2", "delete_guard", 2, junk, "--repo", notes, says="not a git repository")
+    expect_tool("delete_guard nothing searched warns", "delete_guard", 0, junk, says="~ WARN nothing searched")
+    mutant = mutated("delete_guard", [("        if same_file(f, candidate):\n            continue\n", "")])
+    killed("a --refs file referencing itself counted",
+           bool(mutant.ref_hits([str(notes / "RESUME_STATE.md")], ["RESUME_STATE.md"], str(notes / "RESUME_STATE.md")))
+           or bool(mutant.ref_hits([str(repo / "self_named.txt")], ["self_named.txt"], str(repo / "self_named.txt"))))
     return done230(start, 1)
 
 
